@@ -118,6 +118,9 @@ export async function installSkill({ source, skill = '', dataRoot, replace = fal
     const wanted = String(skill ?? '').trim().toLowerCase();
     const pick = found.length === 1 && !wanted ? found[0] : found.find((s) => s.name.toLowerCase() === wanted || basename(s.folder).toLowerCase() === wanted);
     if (!pick) return { choices: found.map(({ name, description }) => ({ name, description })) };
+    // A skill written on this computer (often by the agent itself) must say what it is for: load_skill finds skills by
+    // their description (10.10.2026: the agent's QR skill had a heading and no front matter)
+    if (!gh && !pick.description) throw new Error(`${join(pick.folder, 'SKILL.md')} has no description: start it with front matter (---, name: <name>, description: <what it does and when to use it>, ---), then install again.`);
     const target = join(dataRoot, DATA_FILES.skills, basename(pick.folder).replace(/[^\w.-]/g, '_'));
     if (existsSync(target)) {
       if (!replace) throw new Error(`A skill is already installed at ${target}; give replace: true to update it.`);

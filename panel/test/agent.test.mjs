@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLlm } from '../lib/llm.mjs';
-import { toolBlocks, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, cleanSources, followUpList } from '../lib/agent/agent.mjs';
+import { toolBlocks, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, uninstalledTools, cleanSources, followUpList } from '../lib/agent/agent.mjs';
 import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, sourceTrust, mcpCommand, terminalText, TOOLS } from '../lib/agent/tools.mjs';
 import { McpClient, McpManager, expandVariables, functionSchema, mcpFunctionName, mcpServers, nativeMcpTools, progressText } from '../lib/agent/mcp.mjs';
 import { startFakeMcpHttp } from './fake-mcp-http.mjs';
@@ -2164,6 +2164,34 @@ test('Settings › Assistant API: scheduled tasks, lasting notes, skills and MCP
     assert.equal((await o.call('/api/v1/chat/plugins/any', { method: 'DELETE', key: false })).code, 403);
     const limited = await o.call('/api/v1/chat/schedules', { method: 'POST', body: { task: 'From the phone', minuteAfter: 5 }, key: false });
     assert.equal(limited.json.schedule.full, false, 'a task scheduled from such a device has its access');
+  } finally {
+    await o.close();
+  }
+});
+
+test('a tool the agent wrote but did not install: it is sent back once to install it (10.10.2026: "installed" said, nothing installed)', async () => {
+  // which tool folders a turn wrote and did not install
+  const turn = (calls) => [{ role: 'user', content: 'go' }, ...calls.flatMap(([name, input, error], i) => [{ role: 'assistant', toolCalls: [{ id: `c${i}`, name, input }] }, { role: 'tool', toolId: `c${i}`, toolName: name, content: 'x', ...(error ? { error: true } : {}) }])];
+  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'panel-data\\tools\\qr_generator\\qr_tool.py' }], ['write_file', { path: 'panel-data\\tools\\qr_generator\\server.py' }], ['run_command', { command: 'python x' }]])), ['qr_generator']);
+  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'C:\\ai\\panel-data\\tools\\qr\\SKILL.md' }], ['install_skill', { source: 'C:\\ai\\panel-data\\tools\\qr' }]])), []);
+  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'panel-data/tools/qr/server.py' }], ['add_mcp_server', { name: 'qr', command: 'python', args: ['panel-data/tools/qr/server.py'] }]])), []);
+  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'panel-data/tools/qr/SKILL.md' }], ['install_skill', { source: 'panel-data/tools/qr' }, true]])), ['qr'], 'a failed install does not count');
+  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'notes/panel-data-tools.txt' }]])), []);
+  // the agent: the model finishes after writing the skill, is sent back, installs it and answers
+  const o = await agentEnv();
+  try {
+    const s = await o.chat({ approvalMode: 'auto' });
+    const r = await o.send(s.id, 'build tool');
+    assert.match(r.response, /^After the note: Installed skill "qr"/);
+    const msgs = o.agent.get(s.id).messages;
+    assert.equal(msgs.filter((m) => m.hidden && /^\[You wrote a tool in panel-data\\tools\\qr but did not install it/.test(m.content)).length, 1);
+    assert.ok(o.agent.skills().some((k) => k.name === 'qr'), 'the skill is installed');
+    // a SKILL.md written here without a description is refused with what to add
+    const bare = join(o.p.root, 'bare-skill');
+    mkdirSync(bare, { recursive: true });
+    writeFileSync(join(bare, 'SKILL.md'), '# QR Generator Skill\n\nMakes QR codes.');
+    const b = o.agent.toolContext(o.agent.get(s.id), new AbortController().signal);
+    await assert.rejects(TOOLS.find((t) => t.name === 'install_skill').run({ source: bare }, b), /SKILL\.md has no description: start it with front matter/);
   } finally {
     await o.close();
   }

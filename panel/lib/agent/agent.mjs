@@ -85,6 +85,30 @@ const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const token = (s) => Math.ceil(String(s ?? '').length / 3);
 
 /**
+ * Tool folders (panel-data\tools\<name>) the turn wrote but did not install: no successful install_skill from that
+ * folder and no add_mcp_server whose command or args name it. Seen 10.10.2026: the agent wrote a QR skill and an MCP
+ * server script, installed neither and answered that the tool was installed.
+ */
+export function uninstalledTools(messages) {
+  let start = messages.length;
+  while (start > 0 && !(messages[start - 1].role === 'user' && !messages[start - 1].hidden)) start -= 1;
+  const turn = messages.slice(start);
+  const ok = new Set(turn.filter((m) => m.role === 'tool' && !m.error).map((m) => m.toolId));
+  const folder = (p) => /(?:^|[\\/])panel-data[\\/]+tools[\\/]+([^\\/]+)/i.exec(String(p ?? ''))?.[1]?.toLowerCase() ?? null;
+  const written = new Set();
+  const installed = new Set();
+  for (const m of turn) {
+    for (const c of m.toolCalls ?? []) {
+      if (!ok.has(c.id)) continue;
+      const g = c.input ?? {};
+      const names = c.name === 'write_file' || c.name === 'edit_file' ? [g.path] : c.name === 'install_skill' ? [g.source] : c.name === 'add_mcp_server' ? [g.command, ...(Array.isArray(g.args) ? g.args : [])] : [];
+      for (const f of names.map(folder).filter(Boolean)) (c.name.endsWith('_file') ? written : installed).add(f);
+    }
+  }
+  return [...written].filter((f) => !installed.has(f));
+}
+
+/**
  * The web pages a turn's answer stands on (user request 08.10.2026: source chips under answers that used web search or
  * fetch): the pages fetch_web read (HTTP 2xx, a page and not a file), then search_web's results in their order. The turn
  * is everything after the user's last shown message; failed calls give nothing.
@@ -1837,6 +1861,14 @@ export class AgentManager {
       if (!r.calls.length && lastResult?.role === 'tool' && lastResult.error && !s.work.failedEndNoted) {
         s.work.failedEndNoted = true;
         s.messages.push({ role: 'user', hidden: true, content: `[Your last tool call failed (${String(lastResult.content).split('\n')[0].slice(0, 200)}) and you were about to finish. First fix it and check the result, or tell the user plainly what did not get done. Never say something is done when it is not.]`, time: new Date().toISOString() });
+        this.save(s);
+        continue;
+      }
+      // Finishing with a tool written but not installed: once per run the model is sent back to install and test it
+      const notInstalled = !r.calls.length && !s.work.installNoted ? uninstalledTools(s.messages) : [];
+      if (notInstalled.length) {
+        s.work.installNoted = true;
+        s.messages.push({ role: 'user', hidden: true, content: `[You wrote a tool in ${notInstalled.map((f) => `panel-data\\tools\\${f}`).join(', ')} but did not install it, so it is not available. Install it now: install_skill with that folder (its SKILL.md starts with front matter: ---, name: …, description: …, ---) or add_mcp_server for an MCP server script (command: python, args: [the script's path]); then test it with one real call. If you do not keep it, tell the user plainly that nothing was installed. Never say a tool is installed when it is not.]`, time: new Date().toISOString() });
         this.save(s);
         continue;
       }

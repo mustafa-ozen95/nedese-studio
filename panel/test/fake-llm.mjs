@@ -95,6 +95,9 @@ function agentResponse(g) {
     if (step === files.length) return call('edit_file', { path: 'app.js', search: 'const b = 2;', replace: 'const b = 3;\nconst c = 4;' });
     return finish('Four files written, app.js edited.');
   }
+  // a tool written into panel-data\tools and not installed: the agent sends the model back once to install it (10.10.2026)
+  if (/^build tool/.test(text) && !lastTool) return call('write_file', { path: 'panel-data/tools/qr/SKILL.md', text: '---\nname: qr\ndescription: Makes QR code images\n---\nRun qr.py <text>.' });
+  if (/^\[You wrote a tool in panel-data\\tools\\qr but did not install it/.test(text)) return lastTool ? finish(`After the note: ${lastTool.text.slice(0, 200)}`) : call('install_skill', { source: 'panel-data/tools/qr' });
   // a photo from the web shown in the chat: show_image, then the line it returned goes into the answer
   // an answer that shows pictures from other sites without show_image (Gemma did this with an i.redd.it address)
   if (/^answer pictures /.test(text)) return finish(`Look:\n${text.slice(16).trim().split(/\s+/).map((u, i) => `![picture ${i + 1}](${u})`).join('\n')}`);

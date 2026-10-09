@@ -29,7 +29,7 @@ function detect(aiRoot) {
   // the Python that comes with the panel (setup: <ai>\python) is first on the commands' PATH
   if (aiRoot && existsSync(join(aiRoot, 'python', process.platform === 'win32' ? 'python.exe' : join('bin', 'python3')))) {
     const present = ['node', 'npm', 'git', 'ssh', 'uv', 'winget'].filter((n) => find(n));
-    return `Programs on this computer: python 3.12 (comes with the panel; pip works), ${present.join(', ')}. Commands run in Windows PowerShell 5.1: no && or ||, use ; (or if ($?) { … }).`;
+    return `Programs on this computer: python 3.12 (comes with the panel; install packages with python -m pip install …, there is no pip command), ${present.join(', ')}. Commands run in Windows PowerShell 5.1: no && or ||, use ; (or if ($?) { … }).`;
   }
   const at = {};
   for (const n of ['node', 'npm', 'git', 'ssh', 'python', 'python3', 'py', 'uv', 'winget', 'docker']) at[n] = find(n);
