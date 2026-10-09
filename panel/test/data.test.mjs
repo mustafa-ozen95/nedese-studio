@@ -593,6 +593,32 @@ test('data collection job: the manager (model) suggests a new direction when top
   }
 });
 
+test('fetcher: a public address is allowed, a private one refused (a renamed check refused every address, 10.10.2026)', async () => {
+  const { setupExtractor } = await import('../lib/jobs/data.mjs');
+  const retrieve = setupExtractor(null, { privateNetworkAllowed: false });
+  await retrieve.checkAddress('https://1.1.1.1/search?q=x');
+  await retrieve.checkAddress('http://[2606:4700:4700::1111]/');
+  for (const url of ['http://127.0.0.1:8080/', 'http://10.0.0.254/', 'http://192.168.1.1/', 'http://[::1]/', 'http://169.254.169.254/latest']) {
+    await assert.rejects(retrieve.checkAddress(url), (e) => e.refused === true && /private network/.test(e.message), url);
+  }
+  await assert.rejects(retrieve.checkAddress('file:///C:/Windows/win.ini'), (e) => e.refused === true);
+});
+
+test('data collection job: when every web search request fails it ends with an error and the reason, not done with 0 articles', async () => {
+  const { createServer: free } = await import('node:net');
+  const port = await new Promise((ok) => { const s = free().listen(0, '127.0.0.1', () => { const n = s.address().port; s.close(() => ok(n)); }); });
+  const p = await createPanel({ setting: { dataSearchTemplate: `http://127.0.0.1:${port}/search?q={q}`, dataMinDelayMs: 0 } });
+  try {
+    const job = p.queue.add('data', { name: 'Kapali', topic: 'kapalı arama', extract: 'rule', target: 5, parallel: 1 });
+    const last = await p.waitUntilDone(job.id, 120000);
+    assert.equal(last.status, 'error');
+    assert.match(last.error, /Web search did not work: all \d+ search requests failed \(.*(ECONNREFUSED|fetch failed|connect).*\)/);
+    assert.match((await p.queue.lastLog(job.id, 100)).join('\n'), /search requests failed \(/);
+  } finally {
+    await p.close();
+  }
+});
+
 test("fetcher: grows the per-site request interval on its own when rate limited, waits for the reset in the limit header; Wikimedia with the tool's name", async () => {
   const { setupExtractor } = await import('../lib/jobs/data.mjs');
   let last = 0;

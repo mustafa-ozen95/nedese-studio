@@ -258,7 +258,7 @@ export function setupExtractor(signal, { privateNetworkAllowed = false, minDelay
     if (permission === undefined) {
       try {
         const resolved = await lookup(host, { all: true });
-        permission = resolved.length > 0 && !resolved.some((a) => isCustomIp(a.address));
+        permission = resolved.length > 0 && !resolved.some((a) => isPrivateIp(a.address));
       } catch {
         permission = false;
       }
@@ -446,6 +446,7 @@ export function setupExtractor(signal, { privateNetworkAllowed = false, minDelay
     });
   }
   retrieve.stats = stats;
+  retrieve.checkAddress = (url) => checkAddress(new URL(url));
   retrieve.siteStatus = (host) => sites.get(host) ?? null;
   return retrieve;
 }
@@ -716,6 +717,8 @@ export async function run(ctx) {
   if (g.browser !== 'closed' && !browserExe) ctx.log('Edge/Chrome not found: script-heavy pages are processed without a browser.');
   let browser = null;
   let screenCount = 0;
+  // Web search requests of the whole run: when every one fails the job ends with the reason, not "done" with 0 articles
+  const searchTally = { requests: 0, failed: 0, firstError: null };
   const counter = { added: 0, repeat: 0, nearCopy: 0, short: 0, notArticle: 0, lowQuality: 0, lowAccuracy: 0, qualityRule: 0, offTopic: 0, language: 0, old: 0, blockedDomain: 0, noai: 0, unreadable: 0, robots: 0, rest: 0, browser: 0, wpApi: 0, commonCrawl: 0, commons: 0, onlyMedia: 0, modelLinks: 0, managerRounds: 0, siteSearch: 0, wikiNonContent: 0, unsuitable: 0, offTopicResults: 0, gnewsResolved: 0, gnewsUnresolved: 0, mediaDeferred: 0, prefiltered: 0, doc: 0, translation: 0, candidate: 0, image: 0, video: 0, audio: 0, downloadedMb: 0, mcp: 0, mcpCalls: 0 };
   const target = g.topic && g.target ? Math.max(0, g.target - previous.added) : Infinity;
   let done = target <= 0;
@@ -1950,11 +1953,19 @@ export async function run(ctx) {
             const r = await retrieve(template ? template.replace('{q}', encodeURIComponent(s.query)) : searchUrl(engine, s.query, s.language), { checkRobots: false, accept: 'application/rss+xml,application/xml,text/html;q=0.9,*/*;q=0.8' });
             const list = r.text ? searchResults(r.text, engine) : [];
             tally(engine, list.length);
-            if (!r.text) failed++;
+            searchTally.requests++;
+            if (!r.text) {
+              failed++;
+              searchTally.failed++;
+              searchTally.firstError ??= r.forbidden ? 'robots' : r.rest ? 'site resting' : `HTTP ${r.code ?? '?'}`;
+            }
             found.push(...list);
           } catch (e) {
             if (ctx.signal?.aborted) throw e;
             failed++;
+            searchTally.requests++;
+            searchTally.failed++;
+            searchTally.firstError ??= String(e.message).slice(0, 160);
           }
         }));
         take(found, s);
@@ -1983,7 +1994,7 @@ export async function run(ctx) {
         hosts.set(h, [...(hosts.get(h) ?? []), u]);
       } catch {}
     }
-    if (queries.length || mcpLinks) ctx.log(`Search finished: ${candidates.size} candidate pages, ${hosts.size} sites${mcpLinks ? ` (${mcpLinks} pages from MCP)` : ''}${eliminated ? `, ${eliminated} candidate titles off-topic (not crawled)` : ''}${failed ? `, ${failed} search requests failed` : ''}. Results per engine: ${engineText(round)}.`);
+    if (queries.length || mcpLinks) ctx.log(`Search finished: ${candidates.size} candidate pages, ${hosts.size} sites${mcpLinks ? ` (${mcpLinks} pages from MCP)` : ''}${eliminated ? `, ${eliminated} candidate titles off-topic (not crawled)` : ''}${failed ? `, ${failed} search requests failed (${searchTally.firstError})` : ''}. Results per engine: ${engineText(round)}.`);
     const orderedHosts = [...hosts.entries()].sort((a, b) => b[1].length - a[1].length);
     try {
     // The sources the skills' guidance pointed to first, then the search results
@@ -2139,6 +2150,9 @@ export async function run(ctx) {
   if (g.mcp?.length && g.topic) ctx.log(`MCP: ${counter.mcpCalls} call${counter.mcpCalls === 1 ? '' : 's'} (at most ${g.mcpCalls ?? 20}), ${counter.mcp} article${counter.mcp === 1 ? '' : 's'} from their text.`);
   if (g.hopSites) ctx.log(`Site to site: ${visitedSites.size} sites crawled, ${siteQueue.size + walking.size} queued${counter.modelLinks ? `; the model selected ${counter.modelLinks} links` : ''}${counter.managerRounds ? `; the manager steered ${counter.managerRounds} times` : ''}${counter.siteSearch ? `; site search found ${counter.siteSearch} topic pages` : ''}.`);
   ctx.log(`Training files: ${TRAINING_FILES.map((e) => `${e.slice('training-'.length)} ${files[e]}`).join(', ')} · languages: ${Object.entries(languages).map(([d, n]) => `${d} ${n}`).join(', ') || '-'} · categories: ${Object.entries(categories).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([d, n]) => `${d} ${n}`).join(', ') || '-'}.`);
+  if (!counter.added && searchTally.requests && searchTally.failed === searchTally.requests && !g.sources?.length) {
+    throw new UserError(`Web search did not work: all ${searchTally.requests} search requests failed (${searchTally.firstError}). Check the internet connection, or set a search service in Settings › Web search.`);
+  }
   const output = { collection: g.name, folder, total, files, languages, categories, durationSec: newSummary.durationSec, ...counter, downloadedMb: Math.round(counter.downloadedMb), engines: Object.fromEntries(engineCount) };
   writeFileSync(join(ctx.folder, 'data.json'), JSON.stringify(output, null, 1));
   ctx.addOutput({ file: 'data.json', type: 'data', ...output });
