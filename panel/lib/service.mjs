@@ -15,7 +15,7 @@ import { addVoice, listVoices, voicePath } from './voices.mjs';
 import { moveToRecycleBin } from './deletion.mjs';
 import { closeComfy } from './comfy-process.mjs';
 import { freePath, writeBody, stamp } from './request.mjs';
-import { diskStatus, catalogStatus, usedFiles, installedModels, deleteModel, checkModelExtension, modelPath } from './models.mjs';
+import { diskStatus, catalogStatus, isDefaultModel, installedModels, deleteModel, checkModelExtension, modelPath } from './models.mjs';
 import { FAMILIES, checkQuantization, quantizationOptions } from './quantization.mjs';
 import { IMAGE_MODELS, QUALITY, MUSIC_EXTENSIONS, RATIOS, VIDEO_MODELS, text, number, choice, slug, generatorStatus } from './jobs/common.mjs';
 import { writeScenes } from './scene-writer.mjs';
@@ -829,9 +829,8 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       return { ...m, families: Object.fromEntries(Object.entries(FAMILIES).map(([k, a]) => [k, a.name])), choices: settingFile?.modelChoices ?? {} };
     },
     catalog() {
-      // defaultValue: a file some workflow uses (the same set as setup.bat -Models all; Settings "Download default models")
-      const used = usedFiles(mod);
-      return catalogStatus(setting.modelRoot).map((k) => ({ ...k, defaultValue: Boolean(used[`${k.folder}/${k.file}`]?.length) }));
+      // defaultValue: the default model set (the same set as setup.bat -Models all; Settings "Download default models")
+      return catalogStatus(setting.modelRoot).map((k) => ({ ...k, defaultValue: isDefaultModel(k) }));
     },
     /** Varsayilan model kumesinin eksiklerini indirme sirasina alir (kullanici istegi 07.10.2026: tek tikla varsayilan modeller). */
     downloadDefault() {

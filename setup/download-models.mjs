@@ -14,7 +14,7 @@ import { downloadFile } from './fetch-file.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MODEL_ROOT = join(ROOT, 'models');
-const { CATALOG, usedFiles } = await import(pathToFileURL(join(ROOT, 'panel', 'lib', 'models.mjs')).href);
+const { CATALOG, usedFiles, isDefaultModel } = await import(pathToFileURL(join(ROOT, 'panel', 'lib', 'models.mjs')).href);
 const comfy = await import(pathToFileURL(join(ROOT, 'tools', 'comfy.mjs')).href);
 const { StreamJudge } = await import(pathToFileURL(join(ROOT, 'panel', 'lib', 'download.mjs')).href);
 
@@ -32,11 +32,13 @@ const RIFE = {
   sha256: 'e55fd00f3cc184e3c65961f4bb827a9da022e78eed36b055242c0ac30000d533',
 };
 
+// The default set (every model except alternative quantizations); --skip drops the models only the skipped workflows use.
 const used = usedFiles(comfy);
 const list = [];
 for (const k of CATALOG) {
+  if (!isDefaultModel(k)) continue;
   const generators = used[`${k.folder}/${k.file}`];
-  if (!generators || generators.every((u) => skip.has(u))) continue;
+  if (generators && generators.every((u) => skip.has(u))) continue;
   list.push({ name: k.name, target: join(MODEL_ROOT, k.folder, k.file), url: k.url, size: k.size, sha256: k.sha256 });
 }
 list.push(RIFE);

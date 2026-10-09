@@ -258,7 +258,9 @@ test('downloader API: start, progress, status list, record deletion (authorized 
     // tek istekle siraya alinir, zaten listedekiler atlanir. Gercek indirme baslamasin: ekle stub'lanir, sonra geri alinir.
     const defaults = floor.json.catalog.filter((k) => k.defaultValue);
     assert.ok(defaults.length >= 10 && defaults.length < floor.json.catalog.length, `default set: ${defaults.length}`);
-    assert.ok(['qwen-vae', 'wan-umt5', 'flux2-vae'].every((k) => defaults.some((x) => x.id === k)));
+    // every model except the alternative quantizations (a fresh install's 3D job needs Pixal3D, 10.10.2026)
+    assert.ok(['qwen-vae', 'wan-umt5', 'flux2-vae', 'pixal3d', 'moge2', 'upscale-span2x'].every((k) => defaults.some((x) => x.id === k)));
+    assert.ok(['qwen-q4-0', 'wan14-high-q6'].every((k) => !defaults.some((x) => x.id === k)), 'quantization variants are not in the default set');
     const addActual = p.downloader.add;
     const actualSummaries = p.downloader.summaries;
     const added = [];
