@@ -1,14 +1,17 @@
 # Nedese Studio one-click setup (Windows 10/11 x64, NVIDIA RTX). Called by setup.bat; safe to run again:
-# finished steps are skipped, interrupted downloads resume where they stopped.
+# finished steps are skipped, an interrupted model download resumes where it stopped.
 #
 # Versions are pinned (the setup that runs on the development machine, 04.10.2026): ComfyUI 0.37.0 portable (Python 3.13,
 # torch 2.13 cu130) + custom nodes at fixed commits, Node 24.19.0, ffmpeg 9.0.2, uv 0.12.20, Python environments from
-# setup\lock\*.txt. Nothing is installed system-wide; everything lives inside this folder.
+# setup\lock\*.txt. Nothing is installed system-wide and nothing installed on the computer is used (a different Python,
+# Node or ffmpeg there does not matter); everything lives inside this folder.
 #
-# Third-party CODE is kept in the repository so versions cannot drift (setup\vendor\<name>, origin and license in
-# SOURCE.txt; when it changes, setup copies the folder again). Binary tools (Node, ffmpeg, uv, 7zr, ComfyUI portable,
-# llama.cpp, the SageAttention wheel) are checked with SHA-256 and downloaded first from this repository's GitHub release
-# ($Mirror), else from upstream. Python packages come from PyPI at the versions in the lock files.
+# Everything the panel runs on comes from this project itself so versions cannot drift: third-party CODE in
+# setup\vendor\<name> (origin and license in SOURCE.txt; when it changes, setup copies the folder again) and the binary
+# tools (7zr, Node, ffmpeg, uv, Python, ComfyUI portable, llama.cpp, the SageAttention wheel, the Pythons of the
+# environments) from this repository's own GitHub release (tools-2026.10; setup\tools.json lists size and SHA-256, every
+# download is checked). Nothing is fetched from another site. Only the Python packages come from PyPI at the versions in
+# the lock files, and the models from Hugging Face.
 #
 #   setup.bat                  interactive (asks about the models)
 #   setup.bat -Models all      image + video + music + voice models + text model + lip sync + mouth correction (~147 GB)
@@ -33,31 +36,37 @@ function Done($m) { Write-Host "   $m" -ForegroundColor Green }
 function Info($m) { Write-Host "   $m" }
 function Stop-Setup($m) { Write-Host ''; Write-Host "ERROR: $m" -ForegroundColor Red; Stop-Transcript | Out-Null; exit 1 }
 
-# The mirror of the binary tools: this repository's GitHub release (same file names, same SHA-256). Setup works even if upstream removes a file.
-$Mirror = 'https://github.com/mustafa-ozen95/nedese-studio/releases/download/tools-2026.10'
-function Mirrored($file, $upstreamUrl) { return @("$Mirror/$file", $upstreamUrl) }
-
-# curl.exe (comes with Windows 10 1803+): redirects, resume, retries.
-# $url is one address or a list tried in order (mirror, upstream).
+# curl.exe (comes with Windows 10 1803+): redirects, resume, retries; the file is checked with SHA-256 when one is given.
 function Fetch($url, $target, $sha256) {
     if ((Test-Path $target) -and $sha256 -and ((Get-FileHash $target -Algorithm SHA256).Hash -eq $sha256.ToUpper())) { return }
-    foreach ($u in @($url)) {
-        for ($i = 1; $i -le 3; $i++) {
-            & curl.exe -L --fail --retry 5 --retry-delay 5 -C - -o $target $u
-            if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 33) {
-                if (-not $sha256) { return }
-                if ((Get-FileHash $target -Algorithm SHA256).Hash -eq $sha256.ToUpper()) { return }
-                Info "SHA-256 mismatch, downloading again: $(Split-Path -Leaf $target)"
-                Remove-Item $target -Force
-            } elseif ($LASTEXITCODE -eq 22 -or $LASTEXITCODE -eq 6) {
-                # 22: server error (e.g. the file is not on the mirror, 404), 6: name not resolved: try the next address
-                Remove-Item $target -Force -ErrorAction SilentlyContinue
-                break
-            }
-            Start-Sleep 5
+    New-Item -ItemType Directory -Force (Split-Path -Parent $target) | Out-Null
+    for ($i = 1; $i -le 3; $i++) {
+        & curl.exe -L --fail --retry 5 --retry-delay 5 -C - -o $target $url
+        if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 33) {
+            if (-not $sha256) { return }
+            if ((Get-FileHash $target -Algorithm SHA256).Hash -eq $sha256.ToUpper()) { return }
+            Info "SHA-256 mismatch, downloading again: $(Split-Path -Leaf $target)"
+            Remove-Item $target -Force
         }
+        Start-Sleep 5
     }
-    Stop-Setup "Could not download $(@($url)[-1]) (the mirror was tried too)."
+    Stop-Setup "Could not download $url."
+}
+
+# The binary tools come from this repository's own GitHub release (setup\tools.json: file, size, sha256; the release
+# holds the same files under their base names), never from another site: a file upstream may change or disappear,
+# this copy cannot. Downloaded into setup\_downloads, checked with SHA-256. Returns the local path.
+$Mirror = 'https://github.com/mustafa-ozen95/nedese-studio/releases/download/tools-2026.10'
+$Tools = Get-Content (Join-Path $PSScriptRoot 'tools.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+function Get-Tool($name) {
+    $t = $Tools | Where-Object { $_.file -eq $name }
+    if (-not $t) { Stop-Setup "setup\tools.json does not list $name." }
+    $target = Join-Path $Downloads ($name -replace '/', '\')
+    if (-not ((Test-Path $target) -and (Get-Item $target).Length -eq $t.size -and (Get-FileHash $target -Algorithm SHA256).Hash -eq $t.sha256.ToUpper())) {
+        Info "Downloading $(Split-Path -Leaf $name) ($([math]::Round($t.size / 1MB)) MB)..."
+        Fetch "$Mirror/$([uri]::EscapeDataString((Split-Path -Leaf $name)))" $target $t.sha256
+    }
+    return $target
 }
 
 # Third-party code (setup\vendor\<name>, origin/license in SOURCE.txt) is copied to its target; extra files there
@@ -109,13 +118,12 @@ Done 'OK.'
 
 # -- 2. Tools: 7-Zip (extractor), Node, ffmpeg, uv, Python --------------------
 Title 'Tools'
-$7z = Join-Path $Downloads '7zr.exe'
-Fetch (Mirrored '7zr.exe' 'https://www.7-zip.org/a/7zr.exe') $7z $null
+$7z = Get-Tool '7zr.exe'
 
-function Install-Zip($name, $url, $sha, $innerFolder, $target, $check) {
+# Extracts a tool archive (zip or tar.gz, with Windows' tar) into <root>\<target>.
+function Install-Zip($name, $file, $innerFolder, $target, $check) {
     if (Test-Path (Join-Path $Root $check)) { Done "$name ready."; return }
-    $zip = Join-Path $Downloads (Split-Path -Leaf (@($url)[-1]))
-    Fetch $url $zip $sha
+    $zip = Get-Tool $file
     $temp = Join-Path $Downloads "_open_$name"
     if (Test-Path $temp) { Remove-Item $temp -Recurse -Force }
     Invoke-Step $Tar @('-xf', $zip, '-C', (New-Item -ItemType Directory -Force $temp).FullName) "Extracting $name"
@@ -127,11 +135,11 @@ function Install-Zip($name, $url, $sha, $innerFolder, $target, $check) {
     Remove-Item $zip -Force
     Done "$name installed."
 }
-Install-Zip 'Node 24.19.0' (Mirrored 'node-v24.19.0-win-x64.zip' 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-win-x64.zip') '57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73' 'node-v24.19.0-win-x64' 'node' 'node\node.exe'
-Install-Zip 'ffmpeg 9.0.2' (Mirrored 'ffmpeg-9.0.2-essentials_build.zip' 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip') '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba' 'ffmpeg-9.0.2-essentials_build' 'ffmpeg' 'ffmpeg\bin\ffmpeg.exe'
-Install-Zip 'uv 0.12.20' (Mirrored 'uv-x86_64-pc-windows-msvc.zip' 'https://github.com/astral-sh/uv/releases/download/0.12.20/uv-x86_64-pc-windows-msvc.zip') '95f9bc30fbb3574d276e28ac4a6de932d25153645853d13da8c21eec3bc88d06' $null 'uv' 'uv\uv.exe'
+Install-Zip 'Node 24.19.0' 'node-v24.19.0-win-x64.zip' 'node-v24.19.0-win-x64' 'node' 'node\node.exe'
+Install-Zip 'ffmpeg 9.0.2' 'ffmpeg-9.0.2-essentials_build.zip' 'ffmpeg-9.0.2-essentials_build' 'ffmpeg' 'ffmpeg\bin\ffmpeg.exe'
+Install-Zip 'uv 0.12.20' 'uv-x86_64-pc-windows-msvc.zip' $null 'uv' 'uv\uv.exe'
 # Python for the assistant's commands (portable, pinned: no version trouble with what is installed on the computer)
-Install-Zip 'Python 3.12.15' (Mirrored 'cpython-3.12.15+20261003-x86_64-pc-windows-msvc-install_only_stripped.tar.gz' 'https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-pc-windows-msvc-install_only_stripped.tar.gz') '6fba7f2ae506facf41d457ea8293c7497910a675c69a4e954875169410a50402' 'python' 'python' 'python\python.exe'
+Install-Zip 'Python 3.12.15' 'cpython-3.12.15+20261003-x86_64-pc-windows-msvc-install_only_stripped.tar.gz' 'python' 'python' 'python\python.exe'
 $Node = Join-Path $Root 'node\node.exe'
 $Uv = Join-Path $Root 'uv\uv.exe'
 $env:PATH = "$(Join-Path $Root 'ffmpeg\bin');$(Join-Path $Root 'node');$env:PATH"
@@ -141,9 +149,7 @@ Title 'ComfyUI 0.37.0'
 $Portable = Join-Path $Root 'ComfyUI_windows_portable'
 $Py = Join-Path $Portable 'python_embeded\python.exe'
 if (-not (Test-Path $Py)) {
-    $7zFile = Join-Path $Downloads 'ComfyUI_windows_portable_nvidia.7z'
-    Info 'Downloading (1.9 GB)...'
-    Fetch (Mirrored 'ComfyUI_windows_portable_nvidia.7z' 'https://github.com/Comfy-Org/ComfyUI/releases/download/v0.37.0/ComfyUI_windows_portable_nvidia.7z') $7zFile '7805f634fab51f63a238aaf0cfe2a9833bb7c86ddfc8400a60919f44460d7d65'
+    $7zFile = Get-Tool 'ComfyUI_windows_portable_nvidia.7z'
     Info 'Extracting...'
     Invoke-Step $7z @('x', $7zFile, "-o$Root", '-y', '-bso0', '-bsp1') 'Extracting ComfyUI'
     if (-not (Test-Path $Py)) { Stop-Setup 'ComfyUI was extracted but python_embeded was not found.' }
@@ -160,14 +166,11 @@ $comfyLock = Join-Path $PSScriptRoot 'lock\comfy-extra.txt'
 $comfyMarker = Join-Path $Portable '.setup-packages'
 $comfyDigest = (Get-FileHash $comfyLock -Algorithm SHA256).Hash
 if (-not (Test-Lock $comfyMarker $comfyDigest)) {
-    # The SageAttention wheel is in the lock with URL + sha256: downloaded from the mirror first, the lock is copied pointing to the local file.
+    # The SageAttention wheel is in the lock with its upstream URL + sha256: the release copy is used, the lock is copied pointing to it.
     $lockText = Get-Content $comfyLock -Raw
     $lockToInstall = $comfyLock
     if ($lockText -match 'sageattention @ (\S+?)#sha256=([0-9a-f]{64})') {
-        $sageUrl = $Matches[1]; $sageSha = $Matches[2]
-        $sageName = [uri]::UnescapeDataString((Split-Path -Leaf $sageUrl))
-        $sageFile = Join-Path $Downloads $sageName
-        Fetch (Mirrored (Split-Path -Leaf $sageUrl) $sageUrl) $sageFile $sageSha
+        $sageFile = Get-Tool ([uri]::UnescapeDataString((Split-Path -Leaf $Matches[1])))
         $lockToInstall = Join-Path $Downloads 'comfy-extra.txt'
         Set-Content $lockToInstall ($lockText -replace 'sageattention @ \S+', "sageattention @ file:///$($sageFile.Replace('\', '/'))") -Encoding ASCII
     }
@@ -206,6 +209,9 @@ Title 'Python environments (voice, model training)'
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $Root 'uv\python'
 $env:UV_CACHE_DIR = Join-Path $Root 'uv\cache'
 $env:UV_LINK_MODE = 'copy'
+# The environments' Pythons (python-build-standalone 20260924) come from the release too: uv reads them from setup\_downloads\python, not from the internet.
+foreach ($t in $Tools) { if ($t.file -like 'python/*') { Get-Tool $t.file | Out-Null } }
+$env:UV_PYTHON_INSTALL_MIRROR = 'file:///' + (Join-Path $Downloads 'python').Replace('\', '/')
 $Environments = @(
     @{ name = 'Narration (Chatterbox + Whisper)'; folder = 'voice\.venv'; python = '3.14.7'; lock = 'voice.txt'; cuda = 'cu130' },
     @{ name = 'VoxCPM2 (narration)'; folder = 'voice\voxcpm\.venv'; python = '3.12.14'; lock = 'voxcpm.txt'; cuda = 'cu128' },
@@ -305,12 +311,9 @@ Copy-Vendor 'llama.cpp' (Join-Path $Root 'training\converter') | Out-Null
 $LlmBin = Join-Path $Root 'llm\bin'
 if (Test-Path (Join-Path $LlmBin 'llama-server.exe')) { Done 'llama.cpp (text model server) ready.' } else {
     New-Item -ItemType Directory -Force $LlmBin | Out-Null
-    foreach ($z in @(
-            @{ name = 'llama-b11392-bin-win-cuda-13.4-x64.zip'; sha = '48b12d825155991c4f1a21ce26bf01b037b061f2e2a5b716e1cf2bb73b6fb9cb' },
-            @{ name = 'cudart-llama-bin-win-cuda-13.4-x64.zip'; sha = '738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668' })) {
-        $zip = Join-Path $Downloads $z.name
-        Fetch (Mirrored $z.name "https://github.com/ggml-org/llama.cpp/releases/download/b11392/$($z.name)") $zip $z.sha
-        Invoke-Step $Tar @('-xf', $zip, '-C', $LlmBin) "Extracting $($z.name)"
+    foreach ($name in @('llama-b11392-bin-win-cuda-13.4-x64.zip', 'cudart-llama-bin-win-cuda-13.4-x64.zip')) {
+        $zip = Get-Tool $name
+        Invoke-Step $Tar @('-xf', $zip, '-C', $LlmBin) "Extracting $name"
         Remove-Item $zip -Force
     }
     Done 'llama.cpp (text model server) installed.'

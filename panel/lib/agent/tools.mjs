@@ -576,9 +576,21 @@ export function htmlText(html, base) {
 
 /* ── Kabuk ─────────────────────────────────────────────────────────────── */
 
+/** Git for Windows' bash, if the computer has it (System32\bash.exe is the WSL launcher, not a shell). */
+export function bashPath() {
+  const candidates = ['ProgramFiles', 'ProgramFiles(x86)'].map((k) => process.env[k] && join(process.env[k], 'Git', 'bin', 'bash.exe'));
+  if (process.env.LOCALAPPDATA) candidates.push(join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'));
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) if (dir && !/[\\/]System32[\\/]?$/i.test(dir)) candidates.push(join(dir, 'bash.exe'));
+  return candidates.find((p) => p && existsSync(p)) ?? null;
+}
+
 export function shellCommand(shell, command) {
   if (shell === 'cmd') return ['cmd.exe', ['/d', '/s', '/c', `chcp 65001>nul & ${command}`], { windowsVerbatimArguments: true }];
-  if (shell === 'bash') return ['bash', ['-lc', command], {}];
+  // bash only when the computer has one; otherwise the command runs in PowerShell
+  if (shell === 'bash') {
+    const bash = bashPath();
+    if (bash) return [bash, ['-lc', command], {}];
+  }
   // PowerShell 5.1 ciktisi OEM kod sayfasinda: UTF-8'e cevrilir (Turkce karakterler bozulmasin)
   return ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `[Console]::OutputEncoding=[Text.Encoding]::UTF8;$OutputEncoding=[Text.Encoding]::UTF8;$ProgressPreference='SilentlyContinue';$PSDefaultParameterValues['Out-File:Encoding']='utf8';${command}`], {}];
 }

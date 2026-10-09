@@ -1445,7 +1445,7 @@
         applyVoiceEngine(s.voiceEngine);
         applyM3Blender(s.hasBlender);
         if (!s.hasFfmpeg) notify('ffmpeg not found: merging video and audio will not work (<ai>\\ffmpeg\\bin or PATH).', 'danger');
-        if (!s.hasVoice) notify('Voice-over is not installed (ses\\seslendir.bat missing).', 'warning');
+        if (!s.hasVoice) notify('Voice-over is not installed (voice\\speak.bat missing).', 'warning');
     }
 
     /** Duygu şiddeti yalnız Chatterbox'ta etkili; VoxCPM2'de gizli. Ayarlar'da motor değişince sayfa yenilenmeden çağrılır. */
@@ -1685,7 +1685,7 @@
             // Video: eksik olan (model dosyasi, ffmpeg) uyarida yazar
             const warning = $('[data-training-not-installed] span');
             if (warning) {
-                warning.dataset.original ??= 'Training environment is not installed (training\\.venv). Run kur.bat.';
+                warning.dataset.original ??= 'Training environment is not installed (training\\.venv). Run setup.bat.';
                 warning.textContent = isVideo() && b.isVideossing ? `Video training is unavailable: ${b.isVideossing}` : warning.dataset.original;
             }
             imageLoras(b);

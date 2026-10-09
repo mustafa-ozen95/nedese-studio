@@ -829,7 +829,7 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       return { ...m, families: Object.fromEntries(Object.entries(FAMILIES).map(([k, a]) => [k, a.name])), choices: settingFile?.modelChoices ?? {} };
     },
     catalog() {
-      // varsayilan: bir is akisinin kullandigi dosya (kur.bat -Modeller hepsi ile ayni kume; Ayarlar "Varsayilan modelleri indir")
+      // defaultValue: a file some workflow uses (the same set as setup.bat -Models all; Settings "Download default models")
       const used = usedFiles(mod);
       return catalogStatus(setting.modelRoot).map((k) => ({ ...k, defaultValue: Boolean(used[`${k.folder}/${k.file}`]?.length) }));
     },
@@ -841,7 +841,7 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       const downloads = missing.map((k) => downloader.add({ catalog: k.id }));
       const gb = (missing.reduce((t, k) => t + (k.size ?? 0), 0) / 2 ** 30).toFixed(1);
       return {
-        message: downloads.length ? `${downloads.length} models queued (${gb} GB). Voice and text models are installed by kur.bat.` : 'All default models are installed or already in the download list.',
+        message: downloads.length ? `${downloads.length} models queued (${gb} GB). Voice and text models are installed by setup.bat.` : 'All default models are installed or already in the download list.',
         downloads,
       };
     },

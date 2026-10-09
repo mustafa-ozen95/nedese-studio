@@ -9,54 +9,12 @@ import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { crc32 } from 'node:zlib';
-import { Updater, localVersion } from '../lib/update.mjs';
+import { Updater, blobSha, localVersion } from '../lib/update.mjs';
 import { SettingsFile } from '../lib/settings-file.mjs';
 import { createPanel } from './env.mjs';
 
 const OLD = 'a'.repeat(40);
 const NEW = 'b'.repeat(40);
-
-/** An uncompressed (store) zip: { 'path': content } */
-function makeZip(files) {
-  const local = [];
-  const center = [];
-  let position = 0;
-  for (const [name, content] of Object.entries(files)) {
-    const data = Buffer.from(content);
-    const nameB = Buffer.from(name, 'utf8');
-    const crc = crc32(data);
-    const b = Buffer.alloc(30);
-    b.writeUInt32LE(0x04034b50, 0);
-    b.writeUInt16LE(20, 4);
-    b.writeUInt16LE(0x0800, 6);
-    b.writeUInt32LE(crc, 14);
-    b.writeUInt32LE(data.length, 18);
-    b.writeUInt32LE(data.length, 22);
-    b.writeUInt16LE(nameB.length, 26);
-    local.push(b, nameB, data);
-    const m = Buffer.alloc(46);
-    m.writeUInt32LE(0x02014b50, 0);
-    m.writeUInt16LE(20, 4);
-    m.writeUInt16LE(20, 6);
-    m.writeUInt16LE(0x0800, 8);
-    m.writeUInt32LE(crc, 16);
-    m.writeUInt32LE(data.length, 20);
-    m.writeUInt32LE(data.length, 24);
-    m.writeUInt16LE(nameB.length, 28);
-    m.writeUInt32LE(position, 42);
-    center.push(m, nameB);
-    position += 30 + nameB.length + data.length;
-  }
-  const centerB = Buffer.concat(center);
-  const last = Buffer.alloc(22);
-  last.writeUInt32LE(0x06054b50, 0);
-  last.writeUInt16LE(Object.keys(files).length, 8);
-  last.writeUInt16LE(Object.keys(files).length, 10);
-  last.writeUInt32LE(centerB.length, 12);
-  last.writeUInt32LE(position, 16);
-  return Buffer.concat([...local, centerB, last]);
-}
 
 const NEW_FILES = {
   'panel/server.mjs': 'new server',
@@ -65,9 +23,9 @@ const NEW_FILES = {
   'panel.bat': 'new bat',
 };
 
+/** The API (commits, compare, the git tree of the version) and the raw file host on one server; { 'path': content } */
 async function fakeGithub({ sha = NEW, files = NEW_FILES, compare = ['panel/server.mjs'], status = 200 } = {}) {
   const requests = [];
-  const zip = makeZip(Object.fromEntries(Object.entries(files).map(([path, v]) => [`owner-repo-${sha.slice(0, 7)}/${path}`, v])));
   const s = createServer((i, y) => {
     requests.push({ url: i.url, authority: i.headers.authorization ?? null });
     const json = (j) => {
@@ -80,9 +38,11 @@ async function fakeGithub({ sha = NEW, files = NEW_FILES, compare = ['panel/serv
     }
     if (i.url === '/repos/owner/repo/commits/main') return json({ sha, commit: { message: 'New feature\n\ndetail line', committer: { date: '2026-10-06T01:00:00Z' } } });
     if (i.url.startsWith('/repos/owner/repo/compare/')) return json({ files: compare.map((filename) => ({ filename })) });
-    if (i.url === `/repos/owner/repo/zipball/${sha}`) {
-      y.writeHead(200, { 'Content-Type': 'application/zip' });
-      return y.end(zip);
+    if (i.url === `/repos/owner/repo/git/trees/${sha}?recursive=1`) return json({ sha, truncated: false, tree: Object.entries(files).map(([path, v]) => ({ path, type: 'blob', mode: '100644', sha: blobSha(Buffer.from(v)), size: v.length })) });
+    const raw = decodeURIComponent(i.url).match(new RegExp(`^/owner/repo/${sha}/(.+)$`));
+    if (raw && files[raw[1]] !== undefined) {
+      y.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      return y.end(Buffer.from(files[raw[1]]));
     }
     y.writeHead(404);
     y.end();
@@ -109,7 +69,7 @@ function setupSetup() {
 }
 
 const freeQueue = () => ({ active: null, pending: () => [], runners: { data: { yields: true }, image: {} } });
-const setting = (root, api) => ({ aiRoot: root, updateApi: api, updateRepo: 'owner/repo' });
+const setting = (root, api) => ({ aiRoot: root, updateApi: api, updateRaw: api, updateRepo: 'owner/repo' });
 
 test('version: development copy (git), version.json written by the updater, version.txt in the package (export-subst), unknown', () => {
   const root = mkdtempSync(join(tmpdir(), 'version-'));

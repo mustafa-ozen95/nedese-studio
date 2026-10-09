@@ -33,8 +33,8 @@ A local AI media studio for Windows: image, video, voice, music, 3D model and si
 
 ## Installation
 
-1. Download the repository.
-2. Run `setup.bat`. ComfyUI, Node, ffmpeg, the Python environments and, optionally, the models are installed inside this folder.
+1. Download the repository (Code › Download ZIP) and extract it, e.g. to `C:\nedese-studio`.
+2. Run `setup.bat`. ComfyUI, Node, ffmpeg, Python, the Python environments and, optionally, the models are installed inside this folder; whatever is installed on the computer (another Python, Node or ffmpeg, any version or none) is not used.
    - `setup.bat -Models all`: all models (~150 GB)
    - `setup.bat -Models none`: no model download (download them later from Settings › Models in the panel, or use "Download default models")
 3. Start it (see below) and open <http://127.0.0.1:1071> in your browser.
@@ -74,7 +74,7 @@ Jobs run in a single GPU queue on the server: closing the browser tab does not s
 
 ## Chat and agent
 
-The Chat tab talks to the local text model, which can call tools: the panel's own API (create a job, wait for it, return the files), files, shell, SSH, web search, MCP servers (`panel-data\mcp.json`) and skills (`SKILL.md` folders under `panel-data\skills`). In **agent** mode a single message becomes a multi-step task (step limit 40). Dangerous actions (deleting, destructive commands, settings changes) ask for approval unless the session is unattended. Full access (file/shell/SSH/MCP) is only given to sessions opened from the computer running the panel or with the API key; a keyless browser on the network gets panel operations and web tools only. The same agent is reachable as the `nedese-ajan` model through `/llm/v1/chat/completions`.
+The Chat tab talks to the local text model, which can call tools: the panel's own API (create a job, wait for it, return the files), files, shell, SSH, web search, MCP servers (`panel-data\mcp.json`) and skills (`SKILL.md` folders under `panel-data\skills`). Claude Code plugins, skills and MCP servers can be installed into the panel (Settings › Assistant, or the `install_plugin` tool from a GitHub repository, a marketplace or a folder) and are used by the agent the same way; a project folder's `NEDESE.md`, `AGENTS.md` or `CLAUDE.md` adds its own rules. In **agent** mode a single message becomes a multi-step task (step limit 40). Dangerous actions (deleting, destructive commands, settings changes) ask for approval unless the session is unattended. Full access (file/shell/SSH/MCP) is only given to sessions opened from the computer running the panel or with the API key; a keyless browser on the network gets panel operations and web tools only. The same agent is reachable as the `nedese-ajan` model through `/llm/v1/chat/completions`.
 
 ## Network access
 
@@ -82,7 +82,7 @@ The panel listens on `0.0.0.0:1071` (both in `panel\defaults.json`) and opens **
 
 ## Updates
 
-The panel checks GitHub for the latest version once a day and installs it. When a new version is available, the top bar shows "Update available". To check by hand, use Settings › Updates or the tray icon's menu. Settings, outputs, models and data are not changed by updates. A development copy (git clone) updates with `git pull`.
+The panel checks GitHub for the latest version once a day and installs it: only the files that changed are downloaded. When a new version is available, the top bar shows "Update available". To check by hand, use Settings › Updates or the tray icon's menu. Settings, outputs, models and data are not changed by updates. A development copy (git clone) updates with `git pull`.
 
 ## Stronger graphics cards
 
@@ -112,7 +112,7 @@ Nedese Studio is released under the [PolyForm Noncommercial License 1.0.0](LICEN
 
 ## Third-party components
 
-The models are downloaded from their publishers under their own licenses (most are Apache 2.0 / MIT; LatentSync weights are OpenRAIL++, the audeering age/gender model is CC BY-NC-SA 4.0 and is used only for measurement; details in the guide). Third-party code is vendored under `setup\vendor\<name>` with a `SOURCE.txt` giving its origin, commit and license; binary tools (ComfyUI, Node, ffmpeg, uv, llama.cpp, SageAttention) are mirrored in this repository's GitHub releases and verified by SHA-256.
+The models are downloaded from their publishers under their own licenses (most are Apache 2.0 / MIT; LatentSync weights are OpenRAIL++, the audeering age/gender model is CC BY-NC-SA 4.0 and is used only for measurement; details in the guide). Third-party code is vendored under `setup\vendor\<name>` with a `SOURCE.txt` giving its origin, commit and license; the binary tools (7-Zip extractor, Node, ffmpeg, uv, Python, ComfyUI portable, llama.cpp, SageAttention, the environments' Pythons) are downloaded from this repository's own GitHub release (`tools-2026.10`; `setup\tools.json` lists size and SHA-256, which setup verifies), never from another site. Only Python packages (PyPI, pinned versions) and models come from elsewhere.
 
 ## Documentation
 

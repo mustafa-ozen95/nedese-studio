@@ -342,8 +342,12 @@ Data collection and image description are inside Nedese Studio (Training tab). T
   (origin, commit, license, the promotional media that was removed). `setup.ps1` copies them to their targets with `Copy-Vendor` (the `.setup-source` marker
   is a digest of SOURCE.txt; when it changes the copy is redone, the environment/output/weight files at the target are kept; when LatentSync is copied the patch is
   reapplied as well). To update: change the folder contents and update the commit in SOURCE.txt.
-- **Mirror of the binary tools:** the ComfyUI 7z, Node, ffmpeg, uv, 7zr, llama.cpp CUDA zips and the SageAttention wheel are in this repository's
-  GitHub release (`tools-2026.10`, the `$Mirror` variable in setup.ps1). The fetch helper tries the mirror first, then the upstream source (404/name not resolved → next address),
+- **The binary tools come from this repository's own GitHub release** (09.10.2026, user decision: nothing from another site, no version drift;
+  putting them in git was tried and dropped: GitHub refuses files over 100 MB and every tool update would add 2.5 GB to the history): release
+  `tools-2026.10` holds the ComfyUI 7z, Node, ffmpeg, uv, 7zr, Python 3.12.15, the llama.cpp CUDA zips, the SageAttention wheel and the
+  environments' Pythons (python-build-standalone 20260924). `setup\tools.json` lists file, size and SHA-256; `Get-Tool` in setup.ps1 downloads
+  into `setup\_downloads`, verifies the SHA-256 and returns the path. uv reads the Pythons from `setup\_downloads\python` through
+  `UV_PYTHON_INSTALL_MIRROR=file://…`. The fetch helper tries the mirror first, then the upstream source (404/name not resolved → next address),
   and verifies SHA-256. Python packages come from PyPI / download.pytorch.org at the versions pinned in the lock files (not mirrored: ~15 GB of wheels).
 - `extra_model_paths.yaml`: the models are outside ComfyUI and are not deleted by an update.
 - `uv\`: Python 3.14 and the package cache (for the voice environment).
@@ -432,10 +436,11 @@ DINOv2 similarity alone is not an identity measure: it also penalises scene chan
 - Top bar: an "Update available" badge when there is a new version ("Updating…" while installing); clicking it opens Settings › Updates.
   - The result of the last check is in `panel-data\settings.json` (`update.lastResult`): known even after the panel reopens. No badge in a development copy.
 - Applying:
+  - The new version's file list comes from the git tree (one API request, path + blob id per file). Every listed file is compared with the installed one by git blob SHA-1; only the changed and new files are downloaded from raw.githubusercontent.com (no request limit) and checked against the blob id before anything is written.
   - Only files in the repository are written. The old version of a changed file is moved to `update\backup-<old version>\`.
-  - A file that was in the previous version but not in the new one is deleted. A package containing an unsafe path is never applied.
+  - A file that was in the previous version but not in the new one is deleted. A version containing an unsafe path is never applied.
   - `panel-data` (settings, port, keys), `outputs`, `data`, `models` and `llm\models` are not in the repository and never change.
-  - If the Python environments changed (`setup\`, `uv.lock`, `requirements`) it warns: `setup\setup.ps1 -Models none`.
+  - If the Python environments changed (`setup\`, `uv.lock`, `requirements`) it warns: `setup.bat -Models none`.
 - Version: `version.json` (written by the updater, with the file list).
   - If absent, `panel\version.txt`: git archive and the GitHub zip write the commit id through `export-subst`.
   - A development copy (git repository) does not update itself; it is updated with `git pull`.

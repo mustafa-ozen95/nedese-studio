@@ -33,8 +33,8 @@ Windows için yerel yapay zekâ medya stüdyosu: görsel, video, ses, müzik, 3B
 
 ## Kurulum
 
-1. Depoyu indirin.
-2. `setup.bat` dosyasını çalıştırın. ComfyUI, Node, ffmpeg, Python ortamları ve isteğe bağlı olarak modeller bu klasörün içine kurulur.
+1. Depoyu indirin (Code › Download ZIP) ve örneğin `C:\nedese-studio` içine açın.
+2. `setup.bat` dosyasını çalıştırın. ComfyUI, Node, ffmpeg, Python, Python ortamları ve isteğe bağlı olarak modeller bu klasörün içine kurulur; bilgisayarda kurulu olanlar (başka sürüm Python, Node, ffmpeg ya da hiçbiri) kullanılmaz.
    - `setup.bat -Models all`: bütün modeller (~150 GB)
    - `setup.bat -Models none`: model indirmeden (sonra panelde Ayarlar › Modeller'den indirilir ya da "Varsayılan modelleri indir" kullanılır)
 3. Başlatın (aşağıda) ve tarayıcıda açın: <http://127.0.0.1:1071>
@@ -74,7 +74,7 @@ Arayüzün ana dili İngilizcedir, Türkçe çevirisi vardır: üst çubukta TR 
 
 ## Sohbet ve ajan
 
-Sohbet sekmesi yerel yazı modeliyle konuşur; model araç çağırabilir: panelin kendi API'si (iş açar, bekler, dosyaları döndürür), dosya, kabuk, SSH, web arama, MCP sunucuları (`panel-data\mcp.json`) ve beceriler (`panel-data\skills` altındaki `SKILL.md` klasörleri). **Ajan** kipinde tek mesaj çok adımlı iş olur (adım sınırı 40). Tehlikeli işlemler (silme, yıkıcı komutlar, ayar değişikliği) onay ister; onaysız oturumda sormadan yapılır. Tam erişim (dosya/kabuk/SSH/MCP) yalnız paneli çalıştıran bilgisayardan ya da API anahtarıyla açılan oturumlara verilir; ağdan anahtarsız tarayıcı yalnız panel işlemleri ve web araçlarını kullanır. Aynı ajan `/llm/v1/chat/completions` üzerinden `nedese-ajan` modeli olarak da çağrılır.
+Sohbet sekmesi yerel yazı modeliyle konuşur; model araç çağırabilir: panelin kendi API'si (iş açar, bekler, dosyaları döndürür), dosya, kabuk, SSH, web arama, MCP sunucuları (`panel-data\mcp.json`) ve beceriler (`panel-data\skills` altındaki `SKILL.md` klasörleri). Claude Code eklentileri, becerileri ve MCP sunucuları panele kurulabilir (Ayarlar › Asistan ya da `install_plugin` aracıyla GitHub deposundan, pazar yerinden ya da klasörden) ve ajan tarafından aynı biçimde kullanılır; proje klasöründeki `NEDESE.md`, `AGENTS.md` ya da `CLAUDE.md` kendi kurallarını ekler. **Ajan** kipinde tek mesaj çok adımlı iş olur (adım sınırı 40). Tehlikeli işlemler (silme, yıkıcı komutlar, ayar değişikliği) onay ister; onaysız oturumda sormadan yapılır. Tam erişim (dosya/kabuk/SSH/MCP) yalnız paneli çalıştıran bilgisayardan ya da API anahtarıyla açılan oturumlara verilir; ağdan anahtarsız tarayıcı yalnız panel işlemleri ve web araçlarını kullanır. Aynı ajan `/llm/v1/chat/completions` üzerinden `nedese-ajan` modeli olarak da çağrılır.
 
 ## Ağdan erişim
 
@@ -82,7 +82,7 @@ Panel `0.0.0.0:1071` dinler (ikisi de `panel\defaults.json` içinde) ve bilgisay
 
 ## Güncelleme
 
-Panel günde bir GitHub'daki son sürümü denetler ve kurar. Yeni sürüm varsa üst çubukta "Güncelleme var" görünür. Elle denetim: Ayarlar › Güncelleme ya da sağ alttaki simgenin menüsü. Ayarlar, çıktılar, modeller ve veriler güncellemede değişmez. Geliştirme kopyası (git) `git pull` ile güncellenir.
+Panel günde bir GitHub'daki son sürümü denetler ve kurar: yalnız değişen dosyalar iner. Yeni sürüm varsa üst çubukta "Güncelleme var" görünür. Elle denetim: Ayarlar › Güncelleme ya da sağ alttaki simgenin menüsü. Ayarlar, çıktılar, modeller ve veriler güncellemede değişmez. Geliştirme kopyası (git) `git pull` ile güncellenir.
 
 ## Daha güçlü ekran kartı
 
@@ -112,7 +112,7 @@ Nedese Studio [PolyForm Noncommercial License 1.0.0](../LICENSE.md) ile yayımla
 
 ## Üçüncü taraf bileşenler
 
-Modeller yayımcılarından kendi lisanslarıyla indirilir (çoğu Apache 2.0 / MIT; LatentSync ağırlıkları OpenRAIL++, audeering yaş-cinsiyet modeli CC BY-NC-SA 4.0 ve yalnız ölçümde kullanılır; ayrıntı kılavuzda). Üçüncü taraf kod `setup\vendor\<ad>` altında depodadır; her klasörde köken, commit ve lisansı veren `SOURCE.txt` bulunur. İkili araçlar (ComfyUI, Node, ffmpeg, uv, llama.cpp, SageAttention) bu deponun GitHub yayınında aynalanır ve SHA-256 ile doğrulanır.
+Modeller yayımcılarından kendi lisanslarıyla indirilir (çoğu Apache 2.0 / MIT; LatentSync ağırlıkları OpenRAIL++, audeering yaş-cinsiyet modeli CC BY-NC-SA 4.0 ve yalnız ölçümde kullanılır; ayrıntı kılavuzda). Üçüncü taraf kod `setup\vendor\<ad>` altında depodadır; her klasörde köken, commit ve lisansı veren `SOURCE.txt` bulunur. İkili araçlar (7-Zip açıcı, Node, ffmpeg, uv, Python, ComfyUI taşınabilir, llama.cpp, SageAttention, ortamların Python'ları) bu deponun kendi GitHub yayınından iner (`tools-2026.10`; `setup\tools.json` boyut ve SHA-256 verir, kurulum doğrular), başka siteden asla. Yalnız Python paketleri (PyPI, sabit sürüm) ve modeller başka yerden gelir.
 
 ## Belgeler
 

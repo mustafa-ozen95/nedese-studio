@@ -738,7 +738,7 @@
         const vSize = missingDefault.reduce((t, k) => t + (k.size ?? 0), 0);
         const vInList = missingDefault.length > 0 && missingDefault.every((k) => active.has(`${k.folder}/${k.file}`));
         const parent = el('div', { class: 'row row--between row--wrap' },
-            el('div', { class: 'text-sm text-muted', text: missingDefault.length ? `Default model set: ${missingDefault.length} of ${defaultValue.length} files missing (${gb(vSize)}). Voice and text models are installed by kur.bat.` : `Default model set installed (${defaultValue.length} files).` }),
+            el('div', { class: 'text-sm text-muted', text: missingDefault.length ? `Default model set: ${missingDefault.length} of ${defaultValue.length} files missing (${gb(vSize)}). Voice and text models are installed by setup.bat.` : `Default model set installed (${defaultValue.length} files).` }),
             !missingDefault.length
                 ? el('span', { class: 'badge badge--green', text: 'installed' })
                 : vInList

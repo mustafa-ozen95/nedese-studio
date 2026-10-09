@@ -4,18 +4,20 @@
  * - Local version: a development copy (.git) -> git; else <ai>\version.json (written by the updater: sha, date,
  *   message, file list) -> panel\version.txt (the commit via export-subst in a git archive / GitHub zip) -> unknown.
  * - Check: GET /repos/<repo>/commits/<branch>. The repository is public: the requests need no key.
- * - Apply: the zip (zipball) is downloaded; only the repository's files are written. An unchanged file is skipped,
- *   the old copy of a changed one goes to update\backup-<old sha>\, a file of the previous version that the new one
- *   does not have is deleted. panel-data (settings, port, keys), outputs, data and models are not in the repository
- *   and are not touched. Not applied while a job runs (except a collection without a limit that gives way: it pauses
- *   at shutdown and resumes at startup).
+ * - Apply: the file list of the new version (git tree, one request) is compared with the installed files by git blob
+ *   SHA; only the changed and new files are downloaded (raw.githubusercontent.com, no request limit) and written. The
+ *   repository carries the installer's tools (setup\tools, ~2.5 GB): they never download unless they change. The old
+ *   copy of a changed file goes to update\backup-<old sha>\, a file of the previous version that the new one does not
+ *   have is deleted. panel-data (settings, port, keys), outputs, data and models are not in the repository and are not
+ *   touched. Not applied while a job runs (except a collection without a limit that gives way: it pauses at shutdown
+ *   and resumes at startup).
  * - Automatic (the box in Settings, on by default): one check a day; a new version is applied when no job runs and
  *   the panel restarts. A development copy does not update itself (git pull).
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { zipInputs } from './read-document.mjs';
+import { createHash } from 'node:crypto';
 import { UserError } from './errors.mjs';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -43,9 +45,14 @@ export function localVersion(aiRoot) {
   return { sha: null, dateText: null, source: 'unknown' };
 }
 
-/** Whether a relative path in the zip is safe (does not leave the root, not absolute). */
+/** Whether a relative path from the repository is safe (does not leave the root, not absolute). */
 function safePath(rel) {
   return Boolean(rel) && !rel.startsWith('/') && !/^[a-zA-Z]:/.test(rel) && !rel.split('/').some((p) => p === '..' || p === '');
+}
+
+/** The git blob id of a file's content: what the repository tree lists for it. */
+export function blobSha(data) {
+  return createHash('sha1').update(`blob ${data.length}\0`).update(data).digest('hex');
 }
 
 export class Updater {
@@ -79,6 +86,11 @@ export class Updater {
 
   get api() {
     return String(this.setting.updateApi ?? 'https://api.github.com').replace(/\/$/, '');
+  }
+
+  /** Where a file's content is downloaded from (not the API: no request limit). */
+  get raw() {
+    return String(this.setting.updateRaw ?? 'https://raw.githubusercontent.com').replace(/\/$/, '');
   }
 
   headers() {
@@ -138,6 +150,21 @@ export class Updater {
     return r;
   }
 
+  /** One file of a version, checked against the blob id the tree lists. */
+  async rawFile(sha, path, blob) {
+    let r;
+    try {
+      r = await this.retrieve(`${this.raw}/${this.repo}/${sha}/${path.split('/').map(encodeURIComponent).join('/')}`, { headers: { 'User-Agent': 'NedeseStudio-Update' }, signal: AbortSignal.timeout(300000), redirect: 'follow' });
+    } catch (e) {
+      throw new UserError(`Could not reach GitHub (${e.cause?.code ?? e.message}).`);
+    }
+    if (r.status === 429) throw new UserError('GitHub request limit reached: try again in an hour.');
+    if (!r.ok) throw new UserError(`Could not download ${path.slice(0, 80)} (HTTP ${r.status}); no files were changed.`);
+    const data = Buffer.from(await r.arrayBuffer());
+    if (blobSha(data) !== blob) throw new UserError(`Downloaded file does not match the repository (${path.slice(0, 80)}); no files were changed.`);
+    return data;
+  }
+
   /** Checks the latest version. Returns: { dateText, local, remote: { sha, dateText, message }, fresh, setupRequired } */
   async check() {
     const local = localVersion(this.setting.aiRoot);
@@ -179,20 +206,28 @@ export class Updater {
         this.waiting = false;
         return { current: true, message: `Already up to date (${d.remote.sha.slice(0, 7)}).` };
       }
-      const r = await this.req(`/repos/${this.repo}/zipball/${d.remote.sha}`, { timeMs: 300000 });
-      const buf = Buffer.from(await r.arrayBuffer());
-      // The zip's top folder "<owner>-<repo>-<short sha>/" is dropped
+      // The new version's file list: path + git blob id of every file (one request; a repository this size is not truncated)
+      const t = await (await this.req(`/repos/${this.repo}/git/trees/${d.remote.sha}?recursive=1`, { timeMs: 60000 })).json();
+      if (t.truncated) throw new UserError('The repository file list is too large for one request; no files were changed.');
       const files = new Map();
-      for (const [name, data] of zipInputs(buf, { maxByte: 1024 * 2 ** 20 })) {
-        if (name.endsWith('/')) continue;
-        const rel = name.split('/').slice(1).join('/');
-        if (!rel) continue;
-        if (!safePath(rel)) throw new UserError(`Unsafe path in update package: ${rel.slice(0, 80)}`);
-        if (!data) throw new UserError(`Update package is corrupt (${rel.slice(0, 80)} could not be opened); no files were changed.`);
-        files.set(rel, data);
+      for (const x of t.tree ?? []) {
+        if (x.type !== 'blob') continue;
+        if (!safePath(x.path)) throw new UserError(`Unsafe path in update package: ${String(x.path).slice(0, 80)}`);
+        files.set(x.path, x.sha);
       }
-      if (!files.has('panel/server.mjs')) throw new UserError('The downloaded package does not have the expected layout (panel/server.mjs is missing).');
+      if (!files.has('panel/server.mjs')) throw new UserError('The repository does not have the expected layout (panel/server.mjs is missing).');
       const root = this.setting.aiRoot;
+      // Only the files whose content differs are downloaded; all of them before anything is written
+      const changed = new Map();
+      let same = 0;
+      for (const [rel, blob] of files) {
+        const target = join(root, ...rel.split('/'));
+        if (existsSync(target) && blobSha(readFileSync(target)) === blob) {
+          same++;
+          continue;
+        }
+        changed.set(rel, await this.rawFile(d.remote.sha, rel, blob));
+      }
       const backupDir = join(root, 'update', `backup-${local.sha ? local.sha.slice(0, 7) : 'first'}`);
       const backup = (rel, target) => {
         const y = join(backupDir, ...rel.split('/'));
@@ -200,16 +235,9 @@ export class Updater {
         copyFileSync(target, y);
       };
       let written = 0;
-      let same = 0;
-      for (const [rel, data] of files) {
+      for (const [rel, data] of changed) {
         const target = join(root, ...rel.split('/'));
-        if (existsSync(target)) {
-          if (Buffer.compare(readFileSync(target), data) === 0) {
-            same++;
-            continue;
-          }
-          backup(rel, target);
-        }
+        if (existsSync(target)) backup(rel, target);
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(`${target}.updating`, data);
         renameSync(`${target}.updating`, target);

@@ -342,8 +342,11 @@ Veri toplama ve görsel betimleme Nedese Studio'nun içinde (Eğitim sekmesi). 0
   (köken, commit, lisans, çıkarılan tanıtım medyası). `setup.ps1` `Copy-Vendor` ile hedefe kopyalar (`.setup-source` işareti
   SOURCE.txt özeti; değişince yeniden kopyalar, hedefteki ortam/çıktı/ağırlık dosyaları korunur; LatentSync kopyalanınca yama da
   yeniden uygulanır). Güncellemek için: klasör içeriğini değiştir, SOURCE.txt'deki commit'i güncelle.
-- **İkili araçların aynası:** ComfyUI 7z, Node, ffmpeg, uv, 7zr, llama.cpp CUDA zip'leri ve SageAttention tekerleği bu deponun
-  GitHub yayınında (`tools-2026.10`, `$Mirror`). `Fetch` önce aynayı, sonra üst kaynağı dener (404/ad çözülemedi → sonraki adres),
+- **İkili araçlar bu deponun kendi GitHub yayınından gelir** (09.10.2026, kullanıcı kararı: başka siteden indirme yok, sürüm kayması yok;
+  git'e koymak denenip bırakıldı: GitHub 100 MB üstü dosyayı almıyor, her araç güncellemesi geçmişe 2,5 GB eklerdi): `tools-2026.10` yayınında
+  ComfyUI 7z, Node, ffmpeg, uv, 7zr, Python 3.12.15, llama.cpp CUDA zip'leri, SageAttention tekerleği ve ortamların Python'ları
+  (python-build-standalone 20260924). `setup\tools.json` dosya, boyut ve SHA-256 verir; setup.ps1'deki `Get-Tool` `setup\_downloads` içine
+  indirir, SHA-256 doğrular, yolu döndürür. uv Python'ları `setup\_downloads\python`'dan okur (`UV_PYTHON_INSTALL_MIRROR=file://…`). `Fetch` önce aynayı, sonra üst kaynağı dener (404/ad çözülemedi → sonraki adres),
   SHA-256 doğrular. Python paketleri kilitlerdeki sabit sürümle PyPI / download.pytorch.org'dan gelir (aynalanmadı: ~15 GB tekerlek).
 - `extra_model_paths.yaml`: modeller ComfyUI dışında, güncellemede silinmez.
 - `uv\`: Python 3.14 ve paket önbelleği (ses ortamı için).
@@ -432,10 +435,11 @@ DINOv2 benzerliği tek başına kimlik ölçüsü değil: sahne değişimini de 
 - Üst çubuk: yeni sürüm varsa "Güncelleme var" rozeti (kuruluyorsa "Güncelleniyor…"); tıklayınca Ayarlar › Güncelleme.
   - Son denetimin sonucu `panel-data\settings.json`'da (`update.lastResult`): panel yeniden açılınca da bilinir. Geliştirme kopyasında rozet yok.
 - Uygulama:
+  - Yeni sürümün dosya listesi git ağacından gelir (tek API isteği, dosya başına yol + blob kimliği). Listedeki her dosya kurulu olanla git blob SHA-1'i üzerinden karşılaştırılır; yalnız değişen ve yeni dosyalar raw.githubusercontent.com'dan iner (istek sınırı yok) ve yazılmadan önce blob kimliğiyle doğrulanır.
   - Yalnız depodaki dosyalar yazılır. Değişenin eski hali `update\backup-<eski sürüm>\`'e alınır.
-  - Önceki sürümde olup yenisinde olmayan dosya silinir. Güvensiz yol içeren paket hiç uygulanmaz.
+  - Önceki sürümde olup yenisinde olmayan dosya silinir. Güvensiz yol içeren sürüm hiç uygulanmaz.
   - `panel-data` (ayarlar, port, anahtarlar), `outputs`, `data`, `models` ve `llm\models` depoda olmadığı için hiç değişmez.
-  - Python ortamları değiştiyse (`setup\`, `uv.lock`, `requirements`) uyarı verir: `setup\setup.ps1 -Models none`.
+  - Python ortamları değiştiyse (`setup\`, `uv.lock`, `requirements`) uyarı verir: `setup.bat -Models none`.
 - Sürüm: `version.json` (güncelleyicinin yazdığı, dosya listesiyle).
   - Yoksa `panel\version.txt`: git archive ve GitHub zip'i `export-subst` ile commit kimliğini yazar.
   - Geliştirme kopyası (git deposu) kendini güncellemez, `git pull` ile güncellenir.
