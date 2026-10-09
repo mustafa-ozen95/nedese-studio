@@ -152,16 +152,20 @@ test('update: deferred while a job is running, the scheduler applies it when the
   try {
     const queue = freeQueue();
     queue.active = { job: { type: 'image' } };
-    const g = new Updater({ setting: setting(root, gh.api), settingFile, queue });
+    const g = new Updater({ setting: { ...setting(root, gh.api), updateDeferredMs: 30 }, settingFile, queue });
     const r = await g.apply();
     assert.deepEqual([r.deferred, g.waiting], [true, true]);
     assert.equal(readFileSync(join(root, 'panel', 'server.mjs'), 'utf8'), 'old server', 'files are not touched while a job is running');
     await g.tick();
-    assert.equal(readFileSync(join(root, 'panel', 'server.mjs'), 'utf8'), 'old server', 'the scheduler also waits while a job is running');
+    await new Promise((ok) => setTimeout(ok, 120));
+    assert.equal(readFileSync(join(root, 'panel', 'server.mjs'), 'utf8'), 'old server', 'the scheduler and the deferred timer both wait while a job is running');
     queue.active = { job: { type: 'data' } }; // an unlimited collection that gives way: pauses at shutdown, resumes at startup
-    await g.tick();
+    // Applied by the deferred timer as soon as the queue is free, without waiting for the next tick (10.10.2026)
+    for (let n = 0; n < 100 && readFileSync(join(root, 'panel', 'server.mjs'), 'utf8') !== 'new server'; n++) await new Promise((ok) => setTimeout(ok, 20));
     assert.equal(readFileSync(join(root, 'panel', 'server.mjs'), 'utf8'), 'new server');
     assert.equal(g.waiting, false);
+    assert.equal(g.deferredTimer, null, 'the deferred timer is cleared');
+    g.stop();
 
     // A development copy (git): not applied, the scheduler does not ask GitHub
     const { root: root2, settingFile: s2 } = setupSetup();

@@ -197,6 +197,17 @@ export class Updater {
     if (this.applying) throw new UserError('Update is already being applied.');
     if (!this.noJob()) {
       this.waiting = true;
+      // Applied as soon as the queue is empty (checked every few seconds), not at the next 10-minute tick
+      // (a user who pressed "Update now" during a job waited up to 10 minutes after it, 10.10.2026).
+      if (!this.deferredTimer) {
+        this.deferredTimer = setInterval(() => {
+          if (this.applying || !this.waiting) return this.clearDeferred();
+          if (!this.noJob()) return;
+          this.clearDeferred();
+          this.apply().catch((e) => this.log(`Deferred update: ${e.message}`));
+        }, this.setting.updateDeferredMs ?? 15000);
+        this.deferredTimer.unref?.();
+      }
       return { deferred: true, message: 'A job is running or queued: the update will be applied when the jobs finish.' };
     }
     this.applying = true;
@@ -296,8 +307,14 @@ export class Updater {
     this.timer.unref?.();
   }
 
+  clearDeferred() {
+    clearInterval(this.deferredTimer);
+    this.deferredTimer = null;
+  }
+
   stop() {
     clearTimeout(this.firstTimer);
     clearInterval(this.timer);
+    this.clearDeferred();
   }
 }
