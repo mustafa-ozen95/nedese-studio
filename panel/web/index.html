@@ -1,0 +1,2235 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nedese Studio</title>
+    <link rel="icon" href="./icon.svg" type="image/svg+xml">
+    <!-- On the home screen (user request 08.10.2026): opens full screen like an app; js/pwa.js, sw.js -->
+    <link rel="manifest" href="./manifest.webmanifest">
+    <meta name="theme-color" content="#212426">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Nedese">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="./css/app.css">
+    <script>
+        /* Tema sayfa çizilmeden okunur: tasarim.js ertelenmiş yüklenir, arada parlama olmasın. */
+        try { var t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+    </script>
+</head>
+<body>
+<div class="shell">
+    <header class="topbar">
+        <a href="#image" class="topbar__mark" title="Local AI panel">Nedese Studio</a>
+
+        <nav class="topbar__nav" aria-label="Sections">
+            <a href="#chat" class="topbar__link" data-section-link="chat">Chat</a>
+            <a href="#image" class="topbar__link" data-section-link="single" data-single-link>Production</a>
+            <a href="#training" class="topbar__link" data-section-link="training">Training</a>
+            <a href="#gallery" class="topbar__link" data-section-link="gallery">Gallery</a>
+            <a href="#settings" class="topbar__link" data-section-link="settings">Settings</a>
+        </nav>
+
+        <span class="topbar__spacer"></span>
+
+        <a href="#settings/update" class="badge badge--blue top-update" data-top-update hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span data-top-update-text>Update available</span>
+        </a>
+
+        <button type="button" class="topbar__counts topbar__counts--button" data-modal-open="modal-system" title="System status: click for details">
+            <span class="status" data-status-comfy>
+                <span class="dot dot--gray"></span><span data-status-comfy-text>ComfyUI</span>
+            </span>
+            <span class="mono" data-status-gpu>GPU –</span>
+            <span class="mono" data-status-ram>RAM –</span>
+        </button>
+        <button type="button" class="btn btn--ghost btn--icon btn--sm system-mobile" data-modal-open="modal-system" aria-label="System status" title="System status">
+            <span class="dot dot--gray system-mobile__dot" data-status-comfy-dot aria-hidden="true"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 13h4l3-8 4 14 3-6h4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+
+
+        <div class="lang-select" role="group" aria-label="Language" translate="no"><button type="button" class="lang-select__button" data-language-select="en" aria-pressed="true">EN</button><span class="lang-select__sep" aria-hidden="true">|</span><button type="button" class="lang-select__button" data-language-select="tr" aria-pressed="false">TR</button></div>
+
+        <button type="button" class="btn btn--ghost btn--icon btn--sm" data-theme-toggle aria-label="Change theme">
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                <path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5a6.6 6.6 0 0 0 10.7 10.7z" stroke-linejoin="round" />
+            </svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round" />
+            </svg>
+        </button>
+    </header>
+
+    <div class="page" data-page>
+
+        <!-- Production sub-tabs (Film sits here too, left of Edit: user request 08.10.2026) -->
+        <nav class="sub-tabs" data-single-tabs aria-label="Production" hidden>
+            <a href="#image" class="tabs__link" data-sub-tab="image">Image</a>
+            <a href="#video" class="tabs__link" data-sub-tab="video">Video</a>
+            <a href="#voice" class="tabs__link" data-sub-tab="voice">Voice</a>
+            <a href="#music" class="tabs__link" data-sub-tab="music">Music</a>
+            <a href="#film" class="tabs__link" data-sub-tab="film">Film</a>
+            <a href="#edit" class="tabs__link" data-sub-tab="edit">Edit</a>
+            <a href="#model3d" class="tabs__link" data-sub-tab="model3d">3D</a>
+        </nav>
+
+        <!-- ── DÜZENLE (verdiğiniz görseli talimatla düzenleme) ───────────────── -->
+        <section data-section="edit" aria-labelledby="b-duzenle" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-duzenle">Edit</h1>
+                        <p class="page-head__subtitle">Give your own file and say how it should change.</p>
+                    </div>
+                </header>
+
+                <div class="mode-choice edit-type" data-edit-type role="radiogroup" aria-label="What to edit">
+                    <label class="mode-choice__option"><input type="radio" name="editType" value="image" checked><span>Image</span></label>
+                    <label class="mode-choice__option"><input type="radio" name="editType" value="song"><span>Song</span></label>
+                    <label class="mode-choice__option"><input type="radio" name="editType" value="voice"><span>Voice</span></label>
+                    <label class="mode-choice__option"><input type="radio" name="editType" value="video"><span>Video</span></label>
+                </div>
+
+                <div class="split">
+                    <div class="split__main">
+                        <form class="panel" data-job-form="audioEdit" data-edit-form="voice" novalidate autocomplete="off" hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Edit audio</h2>
+                                    <p class="text-sm text-muted">Give your audio (or a video's sound) and write what to do.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <span class="field__label">Voice <span class="required tag-note">required</span></span>
+                                    <input type="hidden" name="source" data-audio-edit-field>
+                                    <div class="row row--wrap">
+                                        <label class="btn btn--sm">Upload<input type="file" accept="audio/*,video/*" data-audio-edit-upload hidden></label>
+                                        <button type="button" class="btn btn--sm" data-voice-picker="audioEdit" data-modal-open="modal-voice-picker">Pick from gallery</button>
+                                        <span class="text-sm text-muted" data-audio-edit-name translate="no">No audio selected</span>
+                                    </div>
+                                    <audio controls preload="none" data-audio-edit-listen hidden></audio>
+                                    <span class="field__hint">Audio or video, any format.</span>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="sd-talimat">What should be done? <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="sd-talimat" name="instruction" rows="4" required
+                                              placeholder="E.g. cut the first 3 seconds, remove the noise, speed it up a little"></textarea>
+                                    <span class="field__hint">Possible: cutting, speed, higher/lower voice, noise removal, shortening long silences, loudness, echo, fade in/out, converting the voice to another voice from the library.</span>
+                                </div>
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="audioEdit"></span>
+                                    <button type="submit" class="btn btn--primary">Edit</button>
+                                </div>
+                            </div>
+                        </form>
+
+                        <form class="panel" data-job-form="videoEdit" data-edit-form="video" novalidate autocomplete="off" hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Edit video</h2>
+                                    <p class="text-sm text-muted">Give your video and write how it should be edited.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <span class="field__label">Video <span class="required tag-note">required</span></span>
+                                    <input type="hidden" name="source" data-video-edit-field>
+                                    <div class="row row--wrap">
+                                        <label class="btn btn--sm">Upload<input type="file" accept="video/*" data-video-edit-upload hidden></label>
+                                        <button type="button" class="btn btn--sm" data-voice-picker="videoEdit" data-modal-open="modal-voice-picker">Pick from gallery</button>
+                                        <span class="text-sm text-muted" data-video-edit-name translate="no">No video selected</span>
+                                    </div>
+                                    <video controls preload="none" playsinline class="edit-video" data-video-edit-watch hidden></video>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="vd-talimat">What should be done? <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="vd-talimat" name="instruction" rows="4" required
+                                              placeholder="E.g. make it vertical for Instagram, take the first 15 seconds, write &quot;New season&quot; at the bottom, fade out at the end"></textarea>
+                                    <span class="field__hint">Available: cut, speed and slow motion, rotate, mirror, vertical/square crop, resize, mute/lower audio, add text, color, black and white, fade, reverse, frame rate, add music.</span>
+                                </div>
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Fine settings</summary>
+                                    <div class="fine-setting__content stack">
+                                        <div class="field">
+                                            <span class="field__label">Music <span class="tag-note tag-note--optional">optional</span></span>
+                                            <input type="hidden" name="music" data-video-music-field>
+                                            <div class="row row--wrap">
+                                                <label class="btn btn--sm">Upload<input type="file" accept="audio/*,video/*" data-video-music-upload hidden></label>
+                                                <button type="button" class="btn btn--sm" data-voice-picker="videoMusic" data-modal-open="modal-voice-picker">Pick from gallery</button>
+                                                <button type="button" class="btn btn--sm btn--ghost" data-video-music-clear>Remove</button>
+                                                <span class="text-sm text-muted" data-video-music-name translate="no">No music</span>
+                                            </div>
+                                            <span class="field__hint">If the instruction says "add music", this music is placed under the video.</span>
+                                        </div>
+                                    </div>
+                                </details>
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="videoEdit"></span>
+                                    <button type="submit" class="btn btn--primary">Edit</button>
+                                </div>
+                            </div>
+                        </form>
+
+                        <form class="panel" data-job-form="song" data-edit-form="song" novalidate autocomplete="off" hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Edit song</h2>
+                                    <p class="text-sm text-muted">Re-interprets your song in a new style (remix / cover). ACE-Step 1.5.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <span class="field__label">Song <span class="required tag-note">required</span></span>
+                                    <input type="hidden" name="source" data-song-field>
+                                    <div class="row row--wrap">
+                                        <label class="btn btn--sm">Upload<input type="file" accept="audio/*,video/*" data-song-upload hidden></label>
+                                        <button type="button" class="btn btn--sm" data-voice-picker="song" data-modal-open="modal-voice-picker">Pick from gallery</button>
+                                        <span class="text-sm text-muted" data-song-name translate="no">No song selected</span>
+                                    </div>
+                                    <audio controls preload="none" data-song-listen hidden></audio>
+                                    <span class="field__hint">Up to 10 minutes. Audio or video (MP3, WAV, M4A, MP4, MOV…); the video's sound is used.</span>
+                                </div>
+
+                                <div class="field">
+                                    <label class="field__label" for="sk-tarz">New style <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="sk-tarz" name="style" rows="3" required
+                                              placeholder="E.g. lo-fi hip hop, soft piano, vinyl crackle, calm"></textarea>
+                                    <span class="field__hint">Genre, instruments and mood. English gives the best result.</span>
+                                </div>
+
+                                <div class="field">
+                                    <span class="field__label">How much should it change?</span>
+                                    <div class="mode-choice mode-choice--small">
+                                        <label class="mode-choice__option"><input type="radio" name="strength" value="little"><span>Little</span></label>
+                                        <label class="mode-choice__option"><input type="radio" name="strength" value="medium" checked><span>Medium</span></label>
+                                        <label class="mode-choice__option"><input type="radio" name="strength" value="much"><span>A lot</span></label>
+                                    </div>
+                                    <span class="field__hint">Little: instruments and sound change, the melody stays. A lot: the song is freely re-interpreted.</span>
+                                </div>
+
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Fine settings</summary>
+                                    <div class="fine-setting__content stack">
+                                        <div class="field">
+                                            <label class="field__label" for="sk-sozler">New lyrics <span class="tag-note tag-note--optional">optional</span></label>
+                                            <textarea class="textarea" id="sk-sozler" name="lyrics" rows="5" placeholder="[verse]&#10;…&#10;[chorus]&#10;…"></textarea>
+                                            <span class="field__hint">Empty means an instrumental version. Write with [verse], [chorus] tags.</span>
+                                        </div>
+                                        <div class="form-grid">
+                                            <div class="field">
+                                                <label class="field__label" for="sk-bpm">Tempo (BPM) <span class="tag-note tag-note--optional">optional</span></label>
+                                                <input type="number" class="input" id="sk-bpm" name="bpm" min="40" max="220" value="110">
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="sk-dil">Lyrics language <span class="tag-note tag-note--optional">optional</span></label>
+                                                <select class="select" id="sk-dil" name="lang"><option value="tr">Turkish</option><option value="en">English</option></select>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="sk-tohum">Seed <span class="tag-note tag-note--optional">optional</span></label>
+                                                <input type="number" class="input" id="sk-tohum" name="seed" min="0" placeholder="Random">
+                                                <span class="field__hint">The same number gives the same result.</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="song"></span>
+                                    <button type="submit" class="btn btn--primary">Edit</button>
+                                </div>
+                            </div>
+                        </form>
+
+                        <form class="panel" data-job-form="edit" data-edit-form="image" novalidate autocomplete="off">
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Edit image</h2>
+                                    <p class="text-sm text-muted">Qwen-Image-Edit: colour, objects, clothes, background, light, text and style change; the rest stays the same.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <span class="field__label">Image <span class="required tag-note">required</span></span>
+                                    <div class="edit-slots">
+                                        <div class="edit-slot" data-edit-slot="0">
+                                            <input type="hidden" name="source" data-slot-field>
+                                            <div class="media media--source" data-slot-box>
+                                                <div class="empty" data-slot-empty>
+                                                    <p class="empty__title">Image to edit</p>
+                                                    <p class="empty__text">Upload, drag or pick from the gallery.</p>
+                                                </div>
+                                                <img alt="" data-slot-picture hidden>
+                                            </div>
+                                            <div class="row row--wrap">
+                                                <label class="btn btn--sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp" data-slot-upload hidden></label>
+                                                <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="edit:0">Pick from gallery</button>
+                                                <button type="button" class="btn btn--sm btn--ghost" data-slot-clear hidden>Remove</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <label class="field__label" for="d-istem">What should change? <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="d-istem" name="prompt" rows="4" required
+                                              placeholder="E.g. turn the background into a beach at sunset; make the person's clothes red"></textarea>
+                                    <span class="field__hint">You can write in Turkish or English. If you give reference images, call them "image 1" and "image 2".</span>
+                                </div>
+
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Fine settings</summary>
+                                    <div class="fine-setting__content stack">
+                                        <div class="field">
+                                            <span class="field__label">Reference images <span class="tag-note tag-note--optional">optional</span></span>
+                                            <span class="field__hint">Up to 2. E.g. "put the jacket from image 2 on the person in image 1".</span>
+                                            <div class="edit-slots">
+                                                <div class="edit-slot" data-edit-slot="1">
+                                                    <input type="hidden" name="reference1" data-slot-field>
+                                                    <div class="media media--source" data-slot-box>
+                                                        <div class="empty" data-slot-empty><p class="empty__title">Image 2</p></div>
+                                                        <img alt="" data-slot-picture hidden>
+                                                    </div>
+                                                    <div class="row row--wrap">
+                                                        <label class="btn btn--sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp" data-slot-upload hidden></label>
+                                                        <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="edit:1">From gallery</button>
+                                                        <button type="button" class="btn btn--sm btn--ghost" data-slot-clear hidden>Remove</button>
+                                                    </div>
+                                                </div>
+                                                <div class="edit-slot" data-edit-slot="2">
+                                                    <input type="hidden" name="reference2" data-slot-field>
+                                                    <div class="media media--source" data-slot-box>
+                                                        <div class="empty" data-slot-empty><p class="empty__title">Image 3</p></div>
+                                                        <img alt="" data-slot-picture hidden>
+                                                    </div>
+                                                    <div class="row row--wrap">
+                                                        <label class="btn btn--sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp" data-slot-upload hidden></label>
+                                                        <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="edit:2">From gallery</button>
+                                                        <button type="button" class="btn btn--sm btn--ghost" data-slot-clear hidden>Remove</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-grid">
+                                            <div class="field">
+                                                <label class="field__label" for="d-adet">How many results <span class="tag-note tag-note--optional">optional</span></label>
+                                                <input type="number" class="input" id="d-adet" name="count" min="1" max="4" value="1">
+                                                <span class="field__hint">Different attempts; pick the one you like.</span>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="d-tohum">Seed <span class="tag-note tag-note--optional">optional</span></label>
+                                                <input type="number" class="input" id="d-tohum" name="seed" min="0" placeholder="Random">
+                                                <span class="field__hint">The same number gives the same result; leave empty for a different one each time.</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="edit"></span>
+                                    <button type="submit" class="btn btn--primary">Edit</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <aside class="split__side" data-side="edit"></aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── GÖRSEL ─────────────────────────────────────────────────── -->
+        <section data-section="image" aria-labelledby="b-gorsel" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-gorsel">Image</h1>
+                        <p class="page-head__subtitle">Describe what you want to see and an image is generated.</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main">
+                        <form class="panel" data-job-form="image" novalidate autocomplete="off">
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Image settings</h2>
+                                    <p class="text-sm text-muted">Writing the prompt in English gives the best results.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <label class="field__label" for="g-istem">Prompt <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="g-istem" name="prompt" rows="5" required
+                                              placeholder="e.g. A cozy wooden cabin in a snowy forest at dusk, warm light in the windows, 3D animation style"></textarea>
+                                    <span class="field__hint">For text in the image, put it in quotes: a sign that says "OPEN".</span>
+                                </div>
+
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="g-oran">Aspect ratio and size</label>
+                                        <select class="select" id="g-oran" name="ratio">
+                                            <option value="16:9">16:9 landscape</option>
+                                            <option value="9:16">9:16 portrait</option>
+                                            <option value="1:1">1:1 square</option>
+                                            <option value="4:3">4:3</option>
+                                            <option value="3:4">3:4</option>
+                                            <option value="3:2">3:2</option>
+                                            <option value="2:3">2:3</option>
+                                            <option value="custom">Custom size</option>
+                                        </select>
+                                        <span class="field__hint mono" data-size-hint></span>
+                                    </div>
+                                    <div class="field" data-custom-size hidden>
+                                        <label class="field__label" for="g-en">Width (pixels)</label>
+                                        <input class="input input--mono" type="number" id="g-en" name="en" min="256" max="2048" step="16" value="1664">
+                                    </div>
+                                    <div class="field" data-custom-size hidden>
+                                        <label class="field__label" for="g-boy">Height (pixels)</label>
+                                        <input class="input input--mono" type="number" id="g-boy" name="height" min="256" max="2048" step="16" value="928">
+                                    </div>
+                                </div>
+
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Fine settings</summary>
+                                    <div class="fine-setting__content form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="g-model">Model</label>
+                                            <select class="select" id="g-model" name="model" data-model-choice="image"></select>
+                                            <span class="field__hint" data-model-hint="image"></span>
+                                        </div>
+                                        <div class="field" data-image-lora hidden>
+                                            <label class="field__label" for="g-lora">LoRA (trained here)</label>
+                                            <select class="select" id="g-lora" name="lora" translate="no"><option value="">None</option></select>
+                                            <span class="field__hint" data-image-lora-hint></span>
+                                        </div>
+                                        <div class="field" data-image-lora-strength hidden>
+                                            <label class="field__label" for="g-lora-guc">LoRA strength</label>
+                                            <select class="select" id="g-lora-guc" name="loraStrength">
+                                                <option value="0.6">0.6 (light)</option>
+                                                <option value="0.8">0,8</option>
+                                                <option value="1" selected>1 (full)</option>
+                                                <option value="1.2">1.2 (strong)</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="g-adet">Count</label>
+                                            <select class="select" id="g-adet" name="count">
+                                                <option value="1">1</option>
+                                                <option value="2">2</option>
+                                                <option value="3">3</option>
+                                                <option value="4">4</option>
+                                                <option value="6">6</option>
+                                                <option value="8">8</option>
+                                            </select>
+                                            <span class="field__hint">How many images to generate from the same prompt; each one is slightly different.</span>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="g-adim">Steps <span class="slider__value" data-slider-value></span></label>
+                                            <input class="slider" type="range" id="g-adim" name="step" min="1" max="12" step="1" value="8">
+                                            <div class="slider__ends" aria-hidden="true"><span>Fast</span><span>Slow</span></div>
+                                            <span class="field__hint" data-step-hint>How many passes the image gets. Keep the recommended value.</span>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="g-tohum">Seed</label>
+                                            <input class="input input--mono" type="number" id="g-tohum" name="seed" min="0" placeholder="Random">
+                                            <span class="field__hint">Randomness number. Leave empty for a different result each time. The number of a result you like is shown in the job details; enter it here to get the same result again (or a similar one if you tweak the prompt).</span>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="image"></span>
+                                    <button type="submit" class="btn btn--primary">Add to queue</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <aside class="split__side" data-side="image"></aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── VİDEO ──────────────────────────────────────────────────── -->
+        <section data-section="video" aria-labelledby="b-video" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-video">Video</h1>
+                        <p class="page-head__subtitle">Turns an image into a video.</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main">
+                        <form class="panel" data-job-form="video" novalidate autocomplete="off">
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Video settings</h2>
+                                    <p class="text-sm text-muted">Pick an image and describe how it should move.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <span class="field__label">Source image <span class="required tag-note">required</span></span>
+                                    <input type="hidden" name="source" data-source-field>
+                                    <div class="media media--source" data-source-box>
+                                        <div class="empty" data-source-empty>
+                                            <p class="empty__title">No image selected</p>
+                                            <p class="empty__text">Upload, drag it here or pick from the gallery.</p>
+                                        </div>
+                                        <img alt="" data-source-picture hidden>
+                                    </div>
+                                    <div class="row row--wrap">
+                                        <label class="btn btn--sm">
+                                            Upload image
+                                            <input type="file" accept="image/png,image/jpeg,image/webp" data-image-upload hidden>
+                                        </label>
+                                        <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="video">Pick from gallery</button>
+                                        <button type="button" class="btn btn--sm btn--ghost" data-source-remove hidden>Remove</button>
+                                        <span class="text-sm text-muted mono" data-source-info></span>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <label class="field__label" for="v-istem">Motion prompt <span class="tag-note tag-note--optional">optional</span></label>
+                                    <textarea class="textarea" id="v-istem" name="prompt" rows="3"
+                                              placeholder="e.g. The camera slowly pushes in while snow falls gently and smoke rises from the chimney"></textarea>
+                                    <span class="field__hint">If left empty, a natural, gentle camera motion is used. In a long video each line is one part (≈5 s); with a single line the continuation is written automatically without repeating the action.</span>
+                                    <label class="checkbox">
+                                        <input type="checkbox" name="translate" value="1" checked>
+                                        <span>Translate to English</span>
+                                    </label>
+                                    <span class="field__hint">The video model understands English much better; a Turkish prompt is translated before sending.</span>
+                                </div>
+
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="v-sure-hazir">Duration</label>
+                                        <select class="select" id="v-sure-hazir" data-duration-preset>
+                                            <option value="5" selected>5 seconds</option>
+                                            <option value="10">10 seconds</option>
+                                            <option value="15">15 seconds</option>
+                                            <option value="30">30 seconds</option>
+                                            <option value="60">1 minute</option>
+                                            <option value="300">5 minutes</option>
+                                            <option value="900">15 minutes</option>
+                                            <option value="1800">30 minutes</option>
+                                            <option value="3600">1 hour</option>
+                                            <option value="custom">Custom…</option>
+                                        </select>
+                                        <span class="field__hint" data-duration-hint>Long videos are generated in 5-second parts and joined.</span>
+                                    </div>
+                                    <div class="field" data-duration-custom hidden>
+                                        <label class="field__label" for="v-sure">Custom duration</label>
+                                        <div class="row">
+                                            <input class="input input--mono" type="number" id="v-sure" name="duration" min="1" step="1" value="5" data-duration-value>
+                                            <select class="select" data-duration-unit aria-label="Unit" style="width: auto">
+                                                <option value="1">seconds</option>
+                                                <option value="60">minutes</option>
+                                                <option value="3600">hours</option>
+                                            </select>
+                                        </div>
+                                        <span class="field__hint">No upper limit; a very long video can take days.</span>
+                                    </div>
+                                </div>
+
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Fine settings</summary>
+                                    <div class="fine-setting__content form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="v-model">Model</label>
+                                            <select class="select" id="v-model" name="model" data-model-choice="video"></select>
+                                            <span class="field__hint" data-model-hint="video"></span>
+                                        </div>
+                                        <div class="field" data-video-lora hidden>
+                                            <label class="field__label" for="v-lora">LoRA (trained here)</label>
+                                            <select class="select" id="v-lora" name="lora" translate="no"><option value="">None</option></select>
+                                            <span class="field__hint" data-video-lora-hint></span>
+                                        </div>
+                                        <div class="field" data-video-lora-strength hidden>
+                                            <label class="field__label" for="v-lora-guc">LoRA strength</label>
+                                            <select class="select" id="v-lora-guc" name="loraStrength">
+                                                <option value="0.6">0.6 (light)</option>
+                                                <option value="0.8">0,8</option>
+                                                <option value="1" selected>1 (full)</option>
+                                                <option value="1.2">1.2 (strong)</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="v-cozunurluk">Resolution</label>
+                                            <select class="select" id="v-cozunurluk" name="resolution">
+                                                <option value="720p">720p</option>
+                                                <option value="480p">480p (faster)</option>
+                                                <option value="1080p">1080p</option>
+                                            </select>
+                                            <span class="field__hint mono" data-video-size-hint></span>
+                                        </div>
+                                        <div class="field">
+                                            <span class="field__label">Long video</span>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="colorPin" value="1" checked>
+                                                <span>Color stabilization</span>
+                                            </label>
+                                            <span class="field__hint">Reduces color and brightness drift between parts; each part's first frame is corrected to match the original image.</span>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="keyFrame" value="1" checked>
+                                                <span>Keep the character with keyframes (A14B)</span>
+                                            </label>
+                                            <span class="field__hint">The end of each part is drawn from the first image with Qwen-Image-Edit and the part is generated between the two frames; a frame with a duplicated character is rejected by the local vision model. Measured (06.10.2026, 60 s): with it off the cat lost its outfit after 12 s (25 of 60 frames), with it on in 4; takes ~50% longer. Not used for single-part videos or 5B.</span>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="idProtect" value="1">
+                                                <span>Keep the character consistent across parts (experimental)</span>
+                                            </label>
+                                            <span class="field__hint">Experimental, not recommended: in the 06.10.2026 test it duplicated the character (2-3 cats in the scene), added a text strip at the top and made the job 18% slower. Before each continuation part, the last frame is corrected with Qwen-Image-Edit to match the character in the first image. Not used when keyframes are on.</span>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="v-fps">Frame rate (FPS)</label>
+                                            <select class="select" id="v-fps" data-fps-preset>
+                                                <option value="">Model's native rate (fastest)</option>
+                                                <option value="24">24 (cinema)</option>
+                                                <option value="30">30 (standard)</option>
+                                                <option value="60">60 (very smooth)</option>
+                                                <option value="custom">Custom…</option>
+                                            </select>
+                                            <input class="input input--mono" type="number" name="fps" min="1" max="240" step="1" placeholder="e.g. 120" aria-label="Custom frame rate" data-fps-value hidden>
+                                            <span class="field__hint" data-smooth-hint></span>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="v-tohum">Seed</label>
+                                            <input class="input input--mono" type="number" id="v-tohum" name="seed" min="0" placeholder="Random">
+                                            <span class="field__hint">Randomness number. Leave empty for a different result each time. The number of a result you like is shown in the job details; enter it here to get the same result again (or a similar one if you tweak the prompt).</span>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="video"></span>
+                                    <button type="submit" class="btn btn--primary">Add to queue</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <aside class="split__side" data-side="video"></aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── SES ────────────────────────────────────────────────────── -->
+        <section data-section="voice" aria-labelledby="b-ses" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-ses">Voice</h1>
+                        <p class="page-head__subtitle">Reads your text aloud in the voice you choose.</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main">
+                        <form class="panel" data-job-form="voice" novalidate autocomplete="off">
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Voice-over</h2>
+                                    <p class="text-sm text-muted">Write the text and choose a voice.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <label class="field__label" for="s-metin">Text <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="s-metin" name="text" rows="6" required
+                                              placeholder="Come sit, child… Let me tell you a legend."></textarea>
+                                    <span class="field__hint">Write foreign words as they sound. Long text is read sentence by sentence and joined.</span>
+                                </div>
+
+                                <div class="form-grid" data-voice-fields></div>
+
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Fine settings</summary>
+                                    <div class="fine-setting__content form-grid" data-voice-fine></div>
+                                </details>
+
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="voice"></span>
+                                    <button type="submit" class="btn btn--primary">Add to queue</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <aside class="split__side" data-side="voice">
+                        <section class="panel" data-voice-library>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Voice library</h2>
+                                    <p class="text-sm text-muted">Reference voices to clone. About 10 s of clean speech works best.</p>
+                                </div>
+                                <div class="panel__actions">
+                                    <button type="button" class="btn btn--sm btn--primary" data-modal-open="modal-own-voice">Train</button>
+                                    <label class="btn btn--sm">
+                                        Upload voice
+                                        <input type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac" data-voice-upload hidden>
+                                    </label>
+                                </div>
+                            </header>
+                            <div class="panel__body panel__body--flush" data-voice-list></div>
+                            <div class="panel__body" data-voice-pagination></div>
+                        </section>
+                    </aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── MÜZİK ──────────────────────────────────────────────────── -->
+        <section data-section="music" aria-labelledby="b-muzik" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-muzik">Music</h1>
+                        <p class="page-head__subtitle">Describe the style and music is generated; songs with lyrics too.</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main">
+                        <form class="panel" data-job-form="music" novalidate autocomplete="off">
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Music settings</h2>
+                                    <p class="text-sm text-muted">Writing the style in English gives the best results.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <label class="field__label" for="m-tarz">Style <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="m-tarz" name="style" rows="3" required
+                                              placeholder="e.g. epic cinematic orchestral, mysterious, slow build, no vocals"></textarea>
+                                    <span class="field__hint">Genre, instruments and mood, like "epic orchestral, mysterious, slow build".</span>
+                                </div>
+
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="m-sure">Duration</label>
+                                        <select class="select" id="m-sure" name="duration">
+                                            <option value="15">15 seconds</option>
+                                            <option value="30">30 seconds</option>
+                                            <option value="60" selected>1 minute</option>
+                                            <option value="120">2 minutes</option>
+                                            <option value="180">3 minutes</option>
+                                            <option value="300">5 minutes</option>
+                                            <option value="600">10 minutes</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Fine settings</summary>
+                                    <div class="fine-setting__content form-grid">
+                                        <div class="field field--wide">
+                                            <label class="field__label" for="m-sozler">Lyrics <span class="tag-note tag-note--optional">optional</span></label>
+                                            <textarea class="textarea" id="m-sozler" name="lyrics" rows="5"
+                                                      placeholder="Leave empty for an instrumental track."></textarea>
+                                            <span class="field__hint">Separate sections with tags like [verse], [chorus].</span>
+                                        </div>
+                                        <div class="field field--wide" data-lyrics-writer hidden>
+                                            <label class="field__label" for="m-konu">Let the panel write the lyrics <span class="tag-note tag-note--optional">optional</span></label>
+                                            <input class="input" id="m-konu" data-lyrics-topic maxlength="2000" placeholder="Song topic (if empty, based on the style)">
+                                            <div class="form-actions">
+                                                <span class="text-sm text-muted" data-lyrics-write-status></span>
+                                                <button type="button" class="btn btn--secondary" data-lyrics-write>Write lyrics</button>
+                                            </div>
+                                            <span class="field__hint">Lyrics with sections are written for the song language and length; you can edit them afterwards.</span>
+                                        </div>
+                                        <div class="field" data-music-lora hidden>
+                                            <label class="field__label" for="m-lora">LoRA (trained here)</label>
+                                            <select class="select" id="m-lora" name="lora" translate="no"><option value="">None</option></select>
+                                            <span class="field__hint" data-music-lora-hint></span>
+                                        </div>
+                                        <div class="field" data-music-lora-strength hidden>
+                                            <label class="field__label" for="m-lora-guc">LoRA strength</label>
+                                            <select class="select" id="m-lora-guc" name="loraStrength">
+                                                <option value="0.6">0.6 (light)</option>
+                                                <option value="0.8">0,8</option>
+                                                <option value="1" selected>1 (full)</option>
+                                                <option value="1.2">1.2 (strong)</option>
+                                                <option value="1.5">1,5</option>
+                                                <option value="2">2 (strongest)</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="m-dil">Lyrics language</label>
+                                            <select class="select" id="m-dil" name="lang">
+                                                <option value="tr">Turkish</option>
+                                                <option value="en">English</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="m-bpm">Tempo (BPM) <span class="slider__value" data-slider-value></span></label>
+                                            <input class="slider" type="range" id="m-bpm" name="bpm" min="40" max="220" step="1" value="110">
+                                            <div class="slider__ends" aria-hidden="true"><span>Slow</span><span>Fast</span></div>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="m-tohum">Seed</label>
+                                            <input class="input input--mono" type="number" id="m-tohum" name="seed" min="0" placeholder="Random">
+                                            <span class="field__hint">Randomness number. Leave empty for a different result each time. The number of a result you like is shown in the job details; enter it here to get the same result again (or a similar one if you tweak the prompt).</span>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="music"></span>
+                                    <button type="submit" class="btn btn--primary">Add to queue</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <aside class="split__side" data-side="music"></aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── 3D MODEL (görselden ya da videodan; TRELLIS.2 + Blender) ──────── -->
+        <section data-section="model3d" aria-labelledby="b-model3d" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-model3d">3D model</h1>
+                        <p class="page-head__subtitle">A textured 3D model from an image or a video; a turntable video and FBX/OBJ/STL with Blender.</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main">
+                        <form class="panel" data-job-form="model3d" novalidate autocomplete="off">
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Source</h2>
+                                    <p class="text-sm text-muted">Only what the image shows is modeled: a chest-up portrait becomes a bust.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="mode-choice" data-m3-type role="radiogroup" aria-label="Source type">
+                                    <label class="mode-choice__option"><input type="radio" name="sourceType" value="image" checked><span>Image</span></label>
+                                    <label class="mode-choice__option"><input type="radio" name="sourceType" value="video"><span>Frame from video</span></label>
+                                </div>
+
+                                <div class="field" data-m3-image>
+                                    <span class="field__label">Image <span class="required tag-note">required</span></span>
+                                    <div class="edit-slots">
+                                        <div class="edit-slot" data-m3-slot>
+                                            <input type="hidden" name="imageSource" data-slot-field>
+                                            <div class="media media--source" data-slot-box>
+                                                <div class="empty" data-slot-empty>
+                                                    <p class="empty__title">Image to model</p>
+                                                    <p class="empty__text">Upload, drag or pick from the gallery.</p>
+                                                </div>
+                                                <img alt="" data-slot-picture hidden>
+                                            </div>
+                                            <div class="row row--wrap">
+                                                <label class="btn btn--sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp" data-slot-upload hidden></label>
+                                                <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="model3d">Pick from gallery</button>
+                                                <button type="button" class="btn btn--sm btn--ghost" data-m3-remove hidden>Remove</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="field" data-m3-video hidden>
+                                    <span class="field__label">Video <span class="required tag-note">required</span></span>
+                                    <input type="hidden" name="videoSource" data-m3v-field>
+                                    <div class="row row--wrap">
+                                        <label class="btn btn--sm">Upload<input type="file" accept="video/*" data-m3v-upload hidden></label>
+                                        <button type="button" class="btn btn--sm" data-voice-picker="model3d" data-modal-open="modal-voice-picker">Pick from gallery</button>
+                                        <span class="text-sm text-muted" data-m3v-name translate="no">No video selected</span>
+                                    </div>
+                                    <video controls preload="metadata" playsinline class="edit-video" data-m3v-watch hidden></video>
+                                    <div class="row row--wrap">
+                                        <label class="field__label" for="m3-time">Frame (seconds)</label>
+                                        <input class="input input--mono" type="number" id="m3-time" name="time" min="0" step="0.1" value="0">
+                                    </div>
+                                    <span class="field__hint">Pause the video on the frame to model; the second is filled in automatically. Pick a sharp frame that shows the whole subject.</span>
+                                </div>
+
+                                <div class="field">
+                                    <label class="checkbox">
+                                        <input type="checkbox" name="complete" value="1">
+                                        <span>Complete to full body</span>
+                                    </label>
+                                    <span class="field__hint">If the image is cropped (portrait, partial object), Qwen-Image-Edit first draws the same person or object head to toe on a plain background; the model is made from that (about 1 min extra).</span>
+                                </div>
+
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="m3-quality">Quality</label>
+                                        <select class="select" id="m3-quality" name="quality">
+                                            <option value="high" selected>High (Pixal3D, 1 million triangles, ~3 min)</option>
+                                            <option value="fast">Fast (TRELLIS.2, 500k triangles, ~2 min)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Fine settings</summary>
+                                    <div class="fine-setting__content form-grid">
+                                        <div class="field field--wide">
+                                            <label class="field__label" for="m3-title">Title <span class="tag-note tag-note--optional">optional</span></label>
+                                            <input class="input" id="m3-title" name="title" maxlength="120" placeholder="Name shown in the gallery">
+                                        </div>
+                                        <div class="field field--wide">
+                                            <label class="checkbox"><input type="checkbox" name="deleteBackPlan" value="1" checked><span>Remove background</span></label>
+                                            <span class="field__hint">The subject is separated from the background. Turn off if the image already has a clean background.</span>
+                                        </div>
+                                        <div class="field field--wide" data-m3-blender>
+                                            <label class="checkbox"><input type="checkbox" name="intro" value="1" checked><span>Turntable video (Blender)</span></label>
+                                            <span class="field__label">Export</span>
+                                            <div class="row row--wrap">
+                                                <label class="checkbox"><input type="checkbox" name="format_fbx" value="1" checked><span>FBX (game engines, textures embedded)</span></label>
+                                                <label class="checkbox"><input type="checkbox" name="format_obj" value="1" checked><span>OBJ (ZIP, with textures)</span></label>
+                                                <label class="checkbox"><input type="checkbox" name="format_stl" value="1" checked><span>STL (3D printing)</span></label>
+                                            </div>
+                                            <span class="field__hint">GLB is always produced (textured; opens in Blender, Windows 3D Viewer and most apps).</span>
+                                        </div>
+                                        <div class="field" data-m3-print>
+                                            <label class="field__label" for="m3-print-height">Print height (mm)</label>
+                                            <input class="input input--mono" type="number" id="m3-print-height" name="printHeight" min="10" max="1000" step="1" value="100">
+                                            <span class="field__hint">The STL is a solid, closed copy cut flat at the bottom so it stands on the bed; slicers read it in millimetres.</span>
+                                        </div>
+                                        <p class="field__hint field--wide" data-m3-blender-missing hidden>Blender not found: only GLB is produced. For the turntable video and FBX/OBJ/STL, install Blender from blender.org (any version) and restart the panel.</p>
+                                        <div class="field">
+                                            <label class="field__label" for="m3-seed">Seed</label>
+                                            <input class="input input--mono" type="number" id="m3-seed" name="seed" min="0" placeholder="Random">
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="model3d"></span>
+                                    <button type="submit" class="btn btn--primary">Add to queue</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <aside class="split__side" data-side="model3d"></aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── FILM ───────────────────────────────────────────────────── -->
+        <section data-section="film" aria-labelledby="b-tek-parca" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-tek-parca">Film</h1>
+                        <p class="page-head__subtitle">Write a topic or enter the scenes yourself; images, video, voice-over and music are combined into one film.</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main">
+                        <form class="stack" data-job-form="film" novalidate autocomplete="off">
+                            <div class="mode-choice" data-scene-mode>
+                                <label class="mode-choice__option">
+                                    <input type="radio" name="sceneMode" value="automatic" checked>
+                                    <span>Write scenes for me</span>
+                                </label>
+                                <label class="mode-choice__option">
+                                    <input type="radio" name="sceneMode" value="manual">
+                                    <span>I'll write them</span>
+                                </label>
+                            </div>
+
+                            <section class="panel" data-scene-writer>
+                                <div class="panel__body">
+                                    <div class="field">
+                                        <label class="field__label" for="t-konu">Topic <span class="required tag-note">required</span></label>
+                                        <textarea class="textarea" id="t-konu" data-topic rows="2" maxlength="2000" placeholder="A little fox lost in the forest finds its way home"></textarea>
+                                    </div>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="t-sahne-sayisi">Number of scenes</label>
+                                            <input class="input input--mono" type="number" id="t-sahne-sayisi" data-scene-count min="1" max="1000" step="1" value="5">
+                                            <span class="field__hint">Each scene is 5-15 s. More than 15 scenes are written in batches.</span>
+                                        </div>
+                                    </div>
+                                    <label class="check">
+                                        <input type="checkbox" data-speech checked>
+                                        <span>Characters speak too</span>
+                                    </label>
+                                    <span class="field__hint">Speaking characters with their own voice (female/male, by age); when off, narrator only.</span>
+                                    <div class="form-actions">
+                                        <span class="text-sm text-muted" data-scene-write-status></span>
+                                        <button type="button" class="btn btn--primary" data-scene-write>Write scenes</button>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <div class="stack" data-scene-area>
+                                <div data-scenes></div>
+                                <div class="row row--between row--wrap">
+                                    <button type="button" class="btn" data-scene-add>Add scene</button>
+                                    <span class="text-sm text-muted" data-scene-summary></span>
+                                </div>
+                            </div>
+
+                            <section class="panel" data-characters hidden>
+                                <header class="panel__head">
+                                    <div>
+                                        <h2 class="panel__title">Characters</h2>
+                                        <p class="text-sm text-muted">Speaking characters get a voice by gender and age; if the library has no match, one is designed from a description.</p>
+                                    </div>
+                                </header>
+                                <div class="panel__body stack" data-character-list></div>
+                            </section>
+
+                            <section class="panel">
+                                <header class="panel__head">
+                                    <div>
+                                        <h2 class="panel__title">Film</h2>
+                                    </div>
+                                </header>
+                                <div class="panel__body">
+                                    <input type="hidden" name="music" data-music-source>
+                                    <input type="hidden" name="musicName" data-music-name-field>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="t-oran">Format</label>
+                                            <select class="select" id="t-oran" name="ratio">
+                                                <option value="16:9">Landscape (YouTube)</option>
+                                                <option value="9:16">Portrait (phone, Shorts)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="form-grid" data-voice-fields></div>
+                                    <div class="field">
+                                        <span class="field__label">Music <span class="tag-note tag-note--optional">optional</span></span>
+                                        <div class="mode-choice mode-choice--small" data-music-mode>
+                                            <label class="mode-choice__option"><input type="radio" name="musicMode" value="none" checked><span>None</span></label>
+                                            <label class="mode-choice__option"><input type="radio" name="musicMode" value="generate"><span>Generate</span></label>
+                                            <label class="mode-choice__option"><input type="radio" name="musicMode" value="gallery"><span>From gallery</span></label>
+                                            <label class="mode-choice__option"><input type="radio" name="musicMode" value="load"><span>Upload</span></label>
+                                        </div>
+                                        <div data-music-section="generate" hidden>
+                                            <textarea class="textarea" name="musicStyle" rows="2" aria-label="Music style" placeholder="Leave empty to match the film (e.g. cinematic orchestral, no vocals)"></textarea>
+                                            <span class="field__hint">Music is generated for the film: it follows the mood of the scenes and changes section by section in long films. If you write a style, it becomes the base.</span>
+                                        </div>
+                                        <div class="row row--wrap" data-music-section="gallery" hidden>
+                                            <button type="button" class="btn btn--sm" data-voice-picker="music" data-modal-open="modal-voice-picker">Choose music</button>
+                                            <span class="text-sm text-muted" data-music-name-gallery>No music selected</span>
+                                        </div>
+                                        <div class="row row--wrap" data-music-section="load" hidden>
+                                            <label class="btn btn--sm">
+                                                <input type="file" accept="audio/*,video/*" data-music-upload hidden>
+                                                <span>Choose file</span>
+                                            </label>
+                                            <span class="text-sm text-muted" data-music-name>No music</span>
+                                        </div>
+                                        <span class="field__hint" data-music-hint hidden>Plays in the background and ducks under the narration.</span>
+                                    </div>
+                                    <details class="fine-setting">
+                                        <summary class="fine-setting__title">Fine settings</summary>
+                                        <div class="fine-setting__content form-grid">
+                                            <div class="field">
+                                                <label class="field__label" for="t-baslik">Title <span class="tag-note tag-note--optional">optional</span></label>
+                                                <input class="input" id="t-baslik" name="title" maxlength="80" placeholder="Film">
+                                                <span class="field__hint">Used as the video file name.</span>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="t-muzik-seviye">Music volume</label>
+                                                <select class="select" id="t-muzik-seviye" name="musicLevel">
+                                                    <option value="low">Low (narration stays clear)</option>
+                                                    <option value="medium">Medium</option>
+                                                    <option value="high">High</option>
+                                                </select>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="t-gorsel-model">Image model</label>
+                                                <select class="select" id="t-gorsel-model" name="imageModel" data-model-choice="image"></select>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="t-video-model">Video model</label>
+                                                <select class="select" id="t-video-model" name="videoModel" data-model-choice="video"></select>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="t-oncelik">Production priority</label>
+                                                <select class="select" id="t-oncelik" name="priority">
+                                                    <option value="quality" selected>Quality (recommended)</option>
+                                                    <option value="speed">Speed: fewer parts</option>
+                                                    <option value="draft">Draft: 480p, fastest</option>
+                                                </select>
+                                                <span class="field__hint">Speed: allows 2× slow motion in scenes with long narration, one part (≈ 6 min) fewer per scene. Draft: for previews.</span>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="t-cozunurluk">Resolution</label>
+                                                <select class="select" id="t-cozunurluk" name="resolution">
+                                                    <option value="720p" selected>720p</option>
+                                                    <option value="1080p">1080p</option>
+                                                </select>
+                                                <span class="field__hint">1080p: Wan generates 720p and each scene is upscaled to 1920×1080 with a 2x AI model.</span>
+                                            </div>
+                                            <div class="field field--wide">
+                                                <span class="field__label">Editing</span>
+                                                <div class="choices">
+                                                    <label class="checkbox">
+                                                        <input type="checkbox" name="subtitle" value="1">
+                                                        <span>Burn subtitles into the video</span>
+                                                    </label>
+                                                    <label class="checkbox">
+                                                        <input type="checkbox" name="transition" value="1" checked>
+                                                        <span>Smooth transitions between scenes</span>
+                                                    </label>
+                                                    <label class="checkbox">
+                                                        <input type="checkbox" name="character" value="1">
+                                                        <span>Keep characters the same in every scene</span>
+                                                    </label>
+                                                    <label class="checkbox">
+                                                        <input type="checkbox" name="lip" value="1">
+                                                        <span>Speakers' lips move with their voice</span>
+                                                    </label>
+                                                </div>
+                                                <span class="field__hint">A subtitle file (.srt) is always saved as well.</span>
+                                                <span class="field__hint">Same character: scene 1's image becomes the reference; later scenes are drawn with that person (face, hair, clothes) using Qwen-Image-Edit. If you pick a gallery image for scene 1, that person is used.</span>
+                                                <span class="field__hint">Lip sync: in dialogue scenes the speaker's mouth moves with their own voice, animals talk too (InfiniteTalk, 25 fps); gaze and colour come from Wan 2.2. It is slow: each second of a dialogue scene takes ≈ 3.4 min (normal scene ≈ 1 min).</span>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="t-fps">Frame rate (FPS)</label>
+                                                <select class="select" id="t-fps" data-fps-preset>
+                                                    <option value="30">30 (standard)</option>
+                                                    <option value="24">24 (cinema)</option>
+                                                    <option value="60">60 (very smooth)</option>
+                                                    <option value="custom">Custom…</option>
+                                                </select>
+                                                <input class="input input--mono" type="number" name="fps" min="1" max="240" step="1" value="30" aria-label="Custom frame rate" data-fps-value hidden>
+                                                <span class="field__hint">A higher frame rate gives smoother motion but takes longer (more interpolated frames).</span>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="t-tohum">Seed</label>
+                                                <input class="input input--mono" type="number" id="t-tohum" name="seed" min="0" placeholder="Random">
+                                                <span class="field__hint">Randomness number. Leave empty for a different result each time. The number of a result you like is shown in the job details; enter it here to get the same result again (or a similar one if you tweak the prompt).</span>
+                                            </div>
+                                            <div class="form-grid field--wide" data-voice-fine></div>
+                                        </div>
+                                    </details>
+                                </div>
+                            </section>
+
+                            <div class="form-actions">
+                                <span class="text-sm text-muted" data-estimate="film"></span>
+                                <button type="submit" class="btn btn--primary">Make the film</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <aside class="split__side" data-side="film"></aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── CHAT (web/chat.js) ─────────────────────────────────────── -->
+        <section data-section="chat" aria-labelledby="b-chat" hidden>
+            <div class="page__inner page__inner--wide">
+                <div class="chat">
+                    <aside class="chat__list" data-chat-list>
+                        <div class="chat__list-head">
+                            <button type="button" class="btn btn--ghost btn--sm chat__list-toggle" data-chat-list-toggle aria-label="Chats">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg>
+                                <span>Chats</span>
+                            </button>
+                            <button type="button" class="btn btn--ghost btn--icon btn--sm chat__search-toggle" data-chat-search-toggle aria-label="Search chats" aria-expanded="false" title="Search chats">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2" stroke-linecap="round"/></svg>
+                            </button>
+                            <button type="button" class="btn btn--ghost btn--sm chat__new" data-chat-new aria-label="New chat" title="New chat">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M11 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V13" stroke-linecap="round"/><path d="M17.6 3.9a2 2 0 0 1 2.8 2.8L12 15.1l-3.6.9.9-3.6z" stroke-linejoin="round"/></svg>
+                                <span class="chat__new-label">New chat</span>
+                            </button>
+                            <form class="chat__delete chat__delete--row" data-chat-delete-form hidden>
+                                <button type="submit" class="btn btn--ghost btn--icon btn--sm" data-chat-delete data-confirm="Delete this chat?" data-confirm-title="Delete chat" data-confirm-variant="danger" aria-label="Delete chat" title="Delete chat">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M9.5 7V4.5h5V7M6 7l1 12.5h10L18 7M10 11v5.5M14 11v5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                </button>
+                            </form>
+                        </div>
+                        <input type="search" class="input chat__search" data-chat-search placeholder="Search chats" aria-label="Search chats" autocomplete="off" hidden>
+                        <select class="select chat__search-sort" data-chat-search-sort aria-label="Order of the results" hidden>
+                            <option value="recent">Newest first</option>
+                            <option value="relevance">Best match first</option>
+                        </select>
+                        <div class="chat__items" data-chat-items></div>
+                        <button type="button" class="btn btn--ghost btn--sm chat__more" data-chat-more hidden>See all</button>
+                        <button type="button" class="btn btn--ghost btn--sm chat__more chat__archived-button" data-chat-archived hidden>Archived</button>
+                        <button type="button" class="btn btn--ghost btn--sm chat__more chat__import-button" data-chat-import title="A chat exported as JSON (here or on another Nedese Studio), or a list of { role, content } messages">Import a chat</button>
+                        <input type="file" accept=".json,application/json" data-chat-import-file hidden>
+                    </aside>
+                    <div class="chat__main">
+                        <header class="chat__head">
+                            <div class="chat__name">
+                                <h1 class="chat__title" id="b-chat" data-chat-title>New chat</h1>
+                            </div>
+                            <div class="chat__tools">
+                                <div class="chat__running-box">
+                                    <button type="button" class="btn btn--ghost btn--sm chat__running" data-chat-running aria-haspopup="dialog" aria-expanded="false" aria-label="Running agents" title="Running agents" hidden>
+                                        <span class="dot dot--blue" aria-hidden="true"></span>
+                                        <span class="chat__running-count" data-chat-running-count translate="no">0</span>
+                                        <span class="chat__running-label">running</span>
+                                    </button>
+                                    <div class="chat__running-panel" data-chat-running-panel role="dialog" aria-label="Running agents" hidden></div>
+                                </div>
+                                <div class="chat__menu-box">
+                                    <button type="button" class="btn btn--ghost btn--icon btn--sm" data-chat-menu aria-haspopup="menu" aria-expanded="false" aria-label="More for this chat" title="More for this chat" hidden>
+                                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+                                    </button>
+                                    <div class="chat__menu" data-chat-menu-panel role="menu" aria-label="More for this chat" hidden></div>
+                                </div>
+                                <form class="chat__delete" data-chat-delete-form hidden>
+                                    <button type="submit" class="btn btn--ghost btn--icon btn--sm chat__delete-button" data-chat-delete data-confirm="Delete this chat?" data-confirm-title="Delete chat" data-confirm-variant="danger" aria-label="Delete chat" title="Delete chat">
+                                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M9.5 7V4.5h5V7M6 7l1 12.5h10L18 7M10 11v5.5M14 11v5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    </button>
+                                </form>
+                            </div>
+                        </header>
+                        <div class="chat__temporary" data-chat-temporary hidden>
+                            <span>Temporary chat: not saved, gone when you leave it.</span>
+                            <button type="button" class="btn btn--ghost btn--sm" data-chat-keep hidden>Keep this chat</button>
+                        </div>
+                        <div class="chat__messages" data-chat-messages aria-live="polite"></div>
+                        <div class="chat__status" data-chat-status></div>
+                        <form class="chat__compose" data-chat-form novalidate autocomplete="off">
+                            <div class="chat__box" data-chat-composer>
+                                <div class="chat__attachments" data-chat-attachments></div>
+                                <textarea rows="1" data-chat-input placeholder="Message Nedese" aria-label="Message"></textarea>
+                                <div class="chat__bar">
+                                    <button type="button" class="btn btn--ghost btn--icon btn--sm" data-chat-attach aria-label="Attach files" title="Attach files: images, PDF, Word, Excel, PowerPoint, text and code (or paste an image with Ctrl+V)">
+                                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    </button>
+                                    <input type="file" data-chat-file multiple hidden>
+                                    <div class="chat__options">
+                                        <button type="button" class="btn btn--ghost btn--sm chat__options-button" data-chat-options aria-haspopup="dialog" aria-expanded="false" aria-label="Chat options" title="Chat options: approval mode and text model (can be changed while the chat runs)">
+                                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke-linecap="round"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+                                            <span class="chat__options-label" data-chat-options-label></span>
+                                        </button>
+                                        <div class="chat__options-panel" data-chat-options-panel role="dialog" aria-label="Chat options" hidden></div>
+                                    </div>
+                                    <div class="chat__options">
+                                        <button type="button" class="btn btn--ghost btn--sm chat__options-button" data-chat-context aria-haspopup="dialog" aria-expanded="false" aria-label="Context" title="Context: how full it is; compact">
+                                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8h-8z" fill="currentColor" stroke="none"/></svg>
+                                            <span class="chat__options-label" data-chat-context-label translate="no"></span>
+                                        </button>
+                                        <div class="chat__options-panel" data-chat-context-panel role="dialog" aria-label="Context" hidden></div>
+                                    </div>
+                                    <span class="chat__spacer"></span>
+                                    <button type="button" class="btn chat__send chat__stop" data-chat-stop aria-label="Stop" title="Stop" hidden>
+                                        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor"/></svg>
+                                    </button>
+                                    <button type="submit" class="btn btn--primary chat__send" data-chat-send aria-label="Send" title="Send">
+                                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.25" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── EĞİTİM (yazı modelini kendi verinle eğit: ince ayar ya da sıfırdan) ── -->
+        <section data-section="training" aria-labelledby="b-training" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-training">Training</h1>
+                        <p class="page-head__subtitle" data-training-part="model">Train with your own data: text model (text, code; improve an existing one or start from scratch), image, music and video LoRA. The text model appears in the Settings &gt; Text model list, the LoRA in the Image, Music or Video tab.</p>
+                        <p class="page-head__subtitle" data-training-part="data">Collect training data from the web: a topic, sites or Wikimedia Commons; collected collections are selected as data in the Model training tab.</p>
+                    </div>
+                </header>
+                <nav class="tabs" aria-label="Training sections" data-training-tabs>
+                    <a href="#training" class="tabs__link" data-training-tab="">Model training</a>
+                    <a href="#training/data" class="tabs__link" data-training-tab="data">Data collection</a>
+                </nav>
+                <div class="split">
+                    <div class="split__main stack">
+                        <div class="alert alert--warning" data-training-not-installed data-training-part="model" hidden><span>The training environment is not installed (training\.venv). Run setup.bat.</span></div>
+                        <form class="panel" data-training-form data-training-part="model" novalidate autocomplete="off">
+                            <div class="panel__body stack">
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="eg-ad">Model name <span class="required tag-note">required</span></label>
+                                        <input type="text" class="input" id="eg-ad" name="name" maxlength="60" placeholder="Nedese author" required>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="eg-alan">Field</label>
+                                        <select class="select" id="eg-alan" name="field">
+                                            <option value="text" selected>Text</option>
+                                            <option value="code">Code (software)</option>
+                                            <option value="image">Image (LoRA: style, product, character)</option>
+                                            <option value="music">Music (LoRA: style, vocals, instruments)</option>
+                                            <option value="video">Video (LoRA: motion, style, character)</option>
+                                            <option value="general">General (image + text, all in one)</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="eg-yontem">Method</label>
+                                        <select class="select" id="eg-yontem" name="method">
+                                            <option value="fine" selected>Improve an existing model (fine-tune)</option>
+                                            <option value="scratch">Train from scratch</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="field" data-training-fine>
+                                    <label class="field__label" for="eg-temel">Base model</label>
+                                    <select class="select" id="eg-temel" name="base"></select>
+                                    <span class="field__hint">A ready model is downloaded from Hugging Face the first time. If you pick a model you trained here, it is improved with the new data. For another text model, type "org/model".</span>
+                                    <input type="text" class="input" name="baseCustom" placeholder="org/model (optional)" translate="no" hidden data-training-base-custom>
+                                </div>
+                                <div class="stack" data-training-image hidden>
+                                    <p class="text-sm text-muted">LoRA for FLUX.2 klein 4B: teaches a style, product or character with 15-30 images. When done it is selected as "LoRA" with FLUX.2 klein in the Image tab; the trigger word calls the LoRA in the prompt. Same-name .txt files become captions (otherwise trigger word + general description). ~20 images at 1024 px take 1-2 hours.</p>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="eg-tetik">Trigger word</label>
+                                            <input type="text" class="input" id="eg-tetik" name="trigger" maxlength="32" placeholder="e.g. nedesestil (from the name if empty)" translate="no">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-aciklama">General description</label>
+                                            <input type="text" class="input" id="eg-aciklama" name="description" maxlength="300" placeholder="e.g. flat vector illustration, pastel colors" translate="no">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-cozunurluk">Resolution</label>
+                                            <select class="select" id="eg-cozunurluk" name="resolution">
+                                                <option value="1024" selected>1024 px (best)</option>
+                                                <option value="768">768 px (faster)</option>
+                                                <option value="512">512 px (fastest)</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-adim">Steps</label>
+                                            <input type="number" class="input" id="eg-adim" name="step" min="0" max="10000" step="50" placeholder="automatic (~60 per image)">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-rank">LoRA size</label>
+                                            <select class="select" id="eg-rank" name="rank">
+                                                <option value="8">8 (small, style)</option>
+                                                <option value="16" selected>16 (recommended)</option>
+                                                <option value="32">32 (detailed character/product)</option>
+                                                <option value="64">64 (much detail, large file)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="stack" data-training-music hidden>
+                                    <p class="text-sm text-muted">LoRA for ACE-Step 1.5: teaches a style, vocal timbre or instrument sound from a few songs (Turkish songs also improve Turkish pronunciation). When done it is selected as "LoRA" in the Music tab; the trigger word is added to the start of the style. A same-name .txt file becomes the lyrics, .caption.txt the description. Time: 10 three-minute songs take ~2 hours with the default 800 epochs.</p>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="eg-m-tetik">Trigger word</label>
+                                            <input type="text" class="input" id="eg-m-tetik" name="mTrigger" maxlength="32" placeholder="e.g. nedesemuzik (from the name if empty)" translate="no">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-m-aciklama">Style description</label>
+                                            <input type="text" class="input" id="eg-m-aciklama" name="mDescription" maxlength="300" placeholder="e.g. turkish pop, warm female vocals, acoustic guitar" translate="no">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-m-dil">Lyrics language</label>
+                                            <select class="select" id="eg-m-dil" name="mLanguage">
+                                                <option value="tr" selected>Turkish</option>
+                                                <option value="en">English</option>
+                                                <option value="de">German</option>
+                                                <option value="fr">French</option>
+                                                <option value="es">Spanish</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-m-devir">Epochs</label>
+                                            <input type="number" class="input" id="eg-m-devir" name="mEpoch" min="0" max="5000" step="50" placeholder="automatic (≤20 songs 800)">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-m-rank">LoRA size</label>
+                                            <select class="select" id="eg-m-rank" name="mRank">
+                                                <option value="16">16 (small)</option>
+                                                <option value="32" selected>32 (recommended)</option>
+                                                <option value="64">64 (detailed)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="stack" data-training-video hidden>
+                                    <p class="text-sm text-muted">LoRA for Wan 2.2 5B: teaches a motion, visual style or character from a few clips or images. Uses the installed model, no download; training runs in ComfyUI. When done, it is selected as "LoRA" in the Video tab under Fine settings &gt; Model: Wan 2.2 5B; the trigger word is added to the prompt. A .txt file with the same name as the clip or image becomes its caption. Time: at 480p with 33 frames ~3.4 s per step; 1000 steps ~1 hour.</p>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="eg-v-tetik">Trigger word</label>
+                                            <input type="text" class="input" id="eg-v-tetik" name="vTrigger" maxlength="32" placeholder="e.g. nedesevideo (from the name if empty)" translate="no">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-v-aciklama">General description</label>
+                                            <input type="text" class="input" id="eg-v-aciklama" name="vDescription" maxlength="300" placeholder="e.g. slow cinematic dolly shot, warm light" translate="no">
+                                            <span class="field__hint">For clips without captions (English works best).</span>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-v-cozunurluk">Resolution</label>
+                                            <select class="select" id="eg-v-cozunurluk" name="vResolution">
+                                                <option value="480p" selected>480p (recommended)</option>
+                                                <option value="320p">320p (fast)</option>
+                                                <option value="720p" data-fine-required="trainingVideo720p" hidden disabled>720p (24 GB and larger cards)</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-v-kare">Clip length</label>
+                                            <select class="select" id="eg-v-kare" name="vFrame">
+                                                <option value="17">17 frames (0.7 s)</option>
+                                                <option value="33" selected>33 frames (1.4 s, recommended)</option>
+                                                <option value="49">49 frames (2 s)</option>
+                                                <option value="81" data-fine-required="trainingVideo720p" hidden disabled>81 frames (3.4 s; 24 GB and larger cards)</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-v-adim">Steps</label>
+                                            <input type="number" class="input" id="eg-v-adim" name="vStep" min="0" max="10000" step="50" placeholder="automatic (100 per sample; 300-2000)">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-v-rank">LoRA size</label>
+                                            <select class="select" id="eg-v-rank" name="vRank">
+                                                <option value="8">8 (small)</option>
+                                                <option value="16" selected>16 (recommended)</option>
+                                                <option value="32">32 (detailed)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-muted" data-training-general hidden>A single model that understands image and text together (Qwen3.5): it learns to caption your images in your own style and to answer your questions with your own knowledge. When done, it appears in the Settings &gt; Text model list as "understands images"; /llm/v1 requests can send images (image_url). 4B: 20 examples ~1 min, ~9 GB is downloaded the first time.</p>
+                                <div class="field" data-training-scratch hidden>
+                                    <label class="field__label" for="eg-boyut">Model size</label>
+                                    <select class="select" id="eg-boyut" name="size"></select>
+                                    <span class="field__hint">Training from scratch needs a lot of data: at least a few MB of text. A small model takes minutes, a large one hours. It has no general language knowledge; it only learns the style and topics of your texts.</span>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="eg-veri">Data files <span class="required tag-note">required</span></label>
+                                    <div class="file-pick">
+                                        <label class="btn btn--sm">Choose files<input type="file" id="eg-veri" name="dataItems" multiple accept=".txt,.md,.html,.htm,.jsonl,.json,.csv,.tsv,.zip,.py,.js,.mjs,.ts,.tsx,.jsx,.php,.java,.kt,.go,.rs,.c,.h,.cpp,.cs,.rb,.swift,.dart,.sql,.sh,.ps1,.vue,.css,.scss,.yaml,.yml,.png,.jpg,.jpeg,.webp,.wav,.mp3,.flac,.ogg,.opus,.m4a,.mp4,.mov,.webm,.mkv,.avi" hidden></label>
+                                        <span class="file-pick__names" data-file-names>No file chosen</span>
+                                    </div>
+                                    <div class="row row--wrap" data-training-collection-choice hidden></div>
+                                    <span class="field__hint" data-training-data-hint>Plain text (TXT, MD, HTML): the model learns the style and knowledge of the text. Q&A: JSONL or CSV; each line has a prompt and a response (JSONL: prompt/response fields or a messages list; CSV: question,answer columns). Multiple files can be selected.</span>
+                                </div>
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Advanced</summary>
+                                    <div class="fine-setting__content stack">
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="eg-devir">Epochs</label>
+                                            <input type="number" class="input" id="eg-devir" name="epoch" min="0.1" max="50" step="0.1" placeholder="fine-tune 2 · scratch 3">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-baglam">Context (tokens)</label>
+                                            <input type="number" class="input" id="eg-baglam" name="context" min="128" max="8192" step="128" placeholder="fine-tune 2048 · scratch 512">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-oran">Learning rate</label>
+                                            <input type="number" class="input" id="eg-oran" name="ratio" min="0" max="0.01" step="0.00001" placeholder="auto">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-niceleme">GGUF quantization</label>
+                                            <select class="select" id="eg-niceleme" name="quantization">
+                                                <option value="">Automatic (fine-tune Q4_K_M · scratch Q8_0)</option>
+                                                <option value="Q4_K_M">Q4_K_M (small, fast)</option>
+                                                <option value="Q5_K_M">Q5_K_M</option>
+                                                <option value="Q8_0">Q8_0 (high quality)</option>
+                                                <option value="F16">F16 (lossless)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="eg-ornek">Sample question</label>
+                                        <input type="text" class="input" id="eg-ornek" name="examplePrompt" maxlength="500" placeholder="Asked to the model after training (empty: the first question in the data)">
+                                    </div>
+                                    <div class="field" data-training-general hidden>
+                                        <label class="field__label" for="eg-gorsel-istem">Image question</label>
+                                        <input type="text" class="input" id="eg-gorsel-istem" name="imagePrompt" maxlength="300" placeholder="Describe this image in detail.">
+                                        <span class="field__hint">The question asked for images that have a same-name .txt answer (the answer is the text in the .txt).</span>
+                                    </div>
+                                    </div>
+                                </details>
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-training-status aria-live="polite"></span>
+                                    <button type="submit" class="btn btn--primary">Start training</button>
+                                </div>
+                            </div>
+                        </form>
+                        <section class="panel" data-training-part="model">
+                            <header class="panel__head"><div><h2 class="panel__title">Trained models</h2><p class="text-sm text-muted">Can be picked as a base for retraining.</p></div></header>
+                            <div class="panel__body" data-training-models><p class="text-sm text-muted">No trained models yet.</p></div>
+                        </section>
+                        <form class="panel" data-data-form data-training-part="data" novalidate autocomplete="off">
+                            <header class="panel__head"><div><h2 class="panel__title">Data collection</h2><p class="text-sm text-muted">Collect training data from the web: given a topic, it searches and discovers sites on its own; it collects text, documents (PDF/Office), image/video/audio metadata, SEO meta and translation pairs; the local model extracts the content and tags it with quality, accuracy, category and labels.</p></div></header>
+                            <div class="panel__body stack">
+                                <div class="field">
+                                    <label class="field__label" for="vt-ad">Collection name <span class="required tag-note">required</span></label>
+                                    <input type="text" class="input" id="vt-ad" name="name" maxlength="60" placeholder="game-news" required>
+                                    <span class="field__hint">Running again with the same name adds new articles; the same article is never taken twice.</span>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="vt-konu">Topic (automatic discovery)</label>
+                                    <textarea class="textarea" id="vt-konu" name="topic" rows="2" maxlength="300" placeholder="e.g. game guides and reviews"></textarea>
+                                    <span class="field__hint">With a topic the tool works on its own: it generates search queries (the search services of Settings › Web search first, then Bing, DuckDuckGo, Google News, Wikipedia; MCP servers and skills below), collects the result pages, discovers the feed, sitemap or WordPress API of productive sites, crawls within them and hops from site to site via links on on-topic pages. When media is downloaded it also searches Wikimedia Commons. With target 0 it collects until you stop it; if another job is added meanwhile it yields the queue and resumes where it left off once that job is done. A source list can be given too; both together also work.</span>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="vt-kaynaklar">Sources</label>
+                                    <textarea class="textarea" id="vt-kaynaklar" name="sources" rows="5" placeholder="https://ornek.com  (site: feed/sitemap found automatically)&#10;https://ornek.com/feed/  (RSS/Atom)&#10;https://ornek.com/sitemap.xml&#10;https://ornek.com/wp-json/  (WordPress API)&#10;https://okuyucu.com/abonelikler.opml  (feed list)&#10;cc:ornek.com  (from the Common Crawl archive)&#10;commons:Category:Ottoman miniatures  (Wikimedia Commons category)&#10;commons:cat photo  (Wikimedia Commons search)" translate="no"></textarea>
+                                    <span class="field__hint">One address per line: site, RSS/Atom, OPML, sitemap, WordPress API, page or a PDF/Word/Excel/PowerPoint link. Internal links are classified as article / listing / static / document and followed up to the depth. Sequential requests per site, robots.txt, back-off and rest on 429/503.</span>
+                                </div>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="vt-hedef">Target article count (topic; 0 unlimited)</label>
+                                        <input type="number" class="input" id="vt-hedef" name="target" min="0" max="1000000" value="0">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-enfazla">Max per site</label>
+                                        <input type="number" class="input" id="vt-enfazla" name="max" min="1" max="5000" value="50">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-ayikla">Extraction and labeling</label>
+                                        <select class="select" id="vt-ayikla" name="extract">
+                                            <option value="model" selected>Local model (quality, accuracy, category, tags)</option>
+                                            <option value="rule">Rules (no model needed, rougher)</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-kalite">Minimum quality (1-5)</label>
+                                        <input type="number" class="input" id="vt-kalite" name="minQuality" min="1" max="5" value="3">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-dogruluk">Min accuracy (1-5)</label>
+                                        <input type="number" class="input" id="vt-dogruluk" name="minAccuracy" min="1" max="5" value="2">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-diller">Languages</label>
+                                        <input type="text" class="input" id="vt-diller" name="languages" placeholder="topic: tr · sources: all (e.g. tr,en)" translate="no">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-derinlik">In-site crawl depth</label>
+                                        <select class="select" id="vt-derinlik" name="depth">
+                                            <option value="0">Off (only the given/discovered list)</option>
+                                            <option value="1" selected>1 (follow listing pages)</option>
+                                            <option value="2">2</option>
+                                            <option value="3">3 (deep)</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-tarayici">Browser (Edge/Chrome)</label>
+                                        <select class="select" id="vt-tarayici" name="browser">
+                                            <option value="automatic" selected>When needed (script-heavy pages)</option>
+                                            <option value="always">On every page</option>
+                                            <option value="agent">Agent: the model clicks (read more etc.)</option>
+                                            <option value="closed">Off</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-media">Images, video, audio</label>
+                                        <select class="select" id="vt-media" name="media">
+                                            <option value="meta">Metadata (address, alt text, caption)</option>
+                                            <option value="download" selected>Metadata + download files (until 10 GB of disk is left free)</option>
+                                            <option value="none">Do not collect</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-sure">Time limit (min, 0 unlimited)</label>
+                                        <input type="number" class="input" id="vt-sure" name="durationMin" min="0" max="10080" value="0">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-paralel">Sites in parallel</label>
+                                        <input type="number" class="input" id="vt-paralel" name="parallel" min="1" max="8" value="4">
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <span class="field__label">Search engines (topic)</span>
+                                    <div class="row row--wrap" data-data-engines><span class="text-sm text-muted">Loading…</span></div>
+                                    <span class="field__hint">The search services set in Settings › Web search are asked first, one search at a time; Bing and DuckDuckGo only for the queries no service answered. A service that is not set cannot be picked here.</span>
+                                </div>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="vt-service-limit">Searches per service (per run, 0 unlimited)</label>
+                                        <input type="number" class="input" id="vt-service-limit" name="serviceLimit" min="0" max="100000" value="100">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="vt-mcp-calls">MCP calls per run</label>
+                                        <input type="number" class="input" id="vt-mcp-calls" name="mcpCalls" min="1" max="500" value="20">
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="vt-mcp">MCP servers (topic)</label>
+                                    <select class="select" id="vt-mcp" name="mcpMode">
+                                        <option value="" selected>None</option>
+                                        <option value="auto">Every server that is on</option>
+                                        <option value="pick">Choose servers…</option>
+                                    </select>
+                                    <div class="choice-list" data-data-mcp-list hidden></div>
+                                    <span class="field__hint">Beside the web search the local model calls the tools of these servers that search or read (never one that writes, deletes or sends); their text becomes articles and the addresses in them are crawled. Every call is in the job log.</span>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="vt-skills">Skills (topic, local model)</label>
+                                    <select class="select" id="vt-skills" name="skillsMode">
+                                        <option value="" selected>None</option>
+                                        <option value="auto">Auto: the model picks the ones that fit the topic</option>
+                                        <option value="pick">Choose skills…</option>
+                                    </select>
+                                    <input type="search" class="input" data-data-skill-filter placeholder="Filter skills" aria-label="Filter skills" hidden>
+                                    <div class="choice-list" data-data-skill-list hidden></div>
+                                    <span class="field__hint">The SKILL.md text of a skill guides the local model where it plans the crawl (search queries, the manager, MCP calls) as instructions for finding and judging sources. Its scripts are not run.</span>
+                                </div>
+                                <div class="row row--wrap" data-data-options>
+                                    <label class="checkbox"><input type="checkbox" name="hopSites" checked><span>Hop from site to site (links on on-topic pages)</span></label>
+                                    <label class="checkbox"><input type="checkbox" name="manager" checked><span>Let the model manage (site choice, new directions)</span></label>
+                                    <label class="checkbox"><input type="checkbox" name="translationPairs" checked><span>Translation pairs (hreflang)</span></label>
+                                    <label class="checkbox"><input type="checkbox" name="documents" checked><span>PDF/Office documents</span></label>
+                                    <label class="checkbox"><input type="checkbox" name="wpApi" checked><span>WordPress API</span></label>
+                                    <label class="checkbox"><input type="checkbox" name="maskPersonalData" checked><span>Mask personal data</span></label>
+                                    <label class="checkbox"><input type="checkbox" name="commonCrawl"><span>Common Crawl archive</span></label>
+                                    <label class="checkbox"><input type="checkbox" name="onlyNew"><span>Only new since the last run</span></label>
+                                </div>
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-data-status aria-live="polite"></span>
+                                    <button type="submit" class="btn btn--primary">Start collecting</button>
+                                </div>
+                            </div>
+                        </form>
+                        <section class="panel" data-training-part="data">
+                            <header class="panel__head"><div><h2 class="panel__title">Collections</h2><p class="text-sm text-muted">Can be selected as training data (data\collections\).</p></div></header>
+                            <div class="panel__body" data-data-collections><p class="text-sm text-muted">No collections yet.</p></div>
+                        </section>
+                    </div>
+                    <aside class="split__side" data-side="training"></aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── GALERİ ─────────────────────────────────────────────────── -->
+        <section data-section="gallery" aria-labelledby="b-galeri" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-galeri">Gallery</h1>
+                        <p class="page-head__subtitle">Everything the panel has generated. Folder: <span class="mono" data-output-folder translate="no">outputs</span></p>
+                    </div>
+                </header>
+                <nav class="tabs" aria-label="Filter" data-gallery-tabs>
+                    <a href="#gallery" class="tabs__link" data-filter="">All</a>
+                    <a href="#gallery/image" class="tabs__link" data-filter="image">Image</a>
+                    <a href="#gallery/video" class="tabs__link" data-filter="video">Video</a>
+                    <a href="#gallery/voice" class="tabs__link" data-filter="voice">Voice</a>
+                    <a href="#gallery/music" class="tabs__link" data-filter="music">Music</a>
+                    <a href="#gallery/film" class="tabs__link" data-filter="film">Film</a>
+                    <a href="#gallery/model3d" class="tabs__link" data-filter="model3d">3D</a>
+                    <a href="#gallery/error" class="tabs__link" data-filter="error">Failed</a>
+                </nav>
+                <div class="gallery" data-gallery></div>
+                <div data-gallery-pagination></div>
+            </div>
+        </section>
+
+        <!-- ── AYARLAR ────────────────────────────────────────────────── -->
+        <section data-section="settings" aria-labelledby="b-ayarlar" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-ayarlar">Settings</h1>
+                        <p class="page-head__subtitle">Models, downloads and programmatic access (API).</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main stack">
+                        <section class="panel" data-setting-models>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Installed models</h2>
+                                    <p class="text-sm text-muted" data-model-disk>Measuring free space…</p>
+                                </div>
+                                <div class="panel__actions">
+                                    <button type="button" class="btn btn--sm" data-setting-refresh>Refresh</button>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <form class="form-grid" data-quantization-form></form>
+                                <div data-model-list></div>
+                                <details class="fine-setting" data-model-add>
+                                    <summary class="fine-setting__title">Add a model file I already have</summary>
+                                    <div class="fine-setting__content stack">
+                                        <form class="stack" data-local-add>
+                                            <input type="hidden" name="path">
+                                            <div class="field">
+                                                <span class="field__label">File on this computer <span class="required tag-note">required</span></span>
+                                                <div class="row row--wrap">
+                                                    <button type="button" class="btn btn--sm" data-modal-open="modal-browse">Browse</button>
+                                                    <span class="text-sm text-muted" data-selected-file>No file selected</span>
+                                                </div>
+                                                <span class="field__hint">The selected file is moved into the model folder.</span>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="m-klasor">Folder</label>
+                                                <select class="select" id="m-klasor" name="folder" data-folder-choice></select>
+                                                <span class="field__hint">Guessed from the file name; change it if needed.</span>
+                                            </div>
+                                            <div class="form-actions">
+                                                <button type="submit" class="btn btn--primary" disabled>Move</button>
+                                            </div>
+                                        </form>
+                                        <div class="field" data-upload-box>
+                                            <span class="field__label">Upload from another device <span class="tag-note tag-note--optional">phone, another computer</span></span>
+                                            <div class="row row--wrap">
+                                                <select class="select" data-upload-folder data-folder-choice aria-label="Folder" style="width: auto"></select>
+                                                <label class="btn">
+                                                    Choose file
+                                                    <input type="file" accept=".gguf,.safetensors,.ckpt,.pt,.pth,.bin" data-model-upload hidden>
+                                                </label>
+                                                <span class="text-sm text-muted">or drag the file into this box. No size limit; it is written straight to disk.</span>
+                                            </div>
+                                            <div data-upload-status></div>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+                        </section>
+
+                        <section class="panel" data-setting-download>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Download models</h2>
+                                    <p class="text-sm text-muted">Directly from Hugging Face; size and SHA-256 are verified, and interrupted downloads resume.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <div data-download-list></div>
+                                <div data-download-pagination></div>
+                                <div data-catalog></div>
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Download from a custom URL</summary>
+                                    <form class="fine-setting__content form-grid" data-custom-download>
+                                        <div class="field field--wide">
+                                            <label class="field__label" for="a-url">URL <span class="required tag-note">required</span></label>
+                                            <input class="input input--mono" id="a-url" name="url" placeholder="huggingface.co/…/resolve/main/file.safetensors (https)" required>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="a-klasor">Folder</label>
+                                            <select class="select" id="a-klasor" name="folder" data-folder-choice></select>
+                                            <span class="field__hint">Guessed from the file name; change it if needed.</span>
+                                        </div>
+                                        <div class="form-actions field--wide">
+                                            <button type="submit" class="btn btn--primary">Start download</button>
+                                        </div>
+                                    </form>
+                                </details>
+                            </div>
+                        </section>
+                    </div>
+
+                    <aside class="split__side stack" data-side="settings">
+                        <section class="panel" data-setting-comfy>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">ComfyUI</h2>
+                                    <p class="text-sm text-muted">The engine that generates images and video.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <div data-comfy-info></div>
+                                <div class="row row--wrap">
+                                    <button type="button" class="btn btn--sm" data-comfy-operation="start">Start</button>
+                                    <button type="button" class="btn btn--sm" data-comfy-operation="flush">Free memory</button>
+                                    <button type="button" class="btn btn--sm btn--ghost" data-comfy-operation="stop">Pause</button>
+                                    <a class="btn btn--sm btn--ghost" data-comfy-open target="_blank" rel="noopener" hidden>Open ComfyUI interface</a>
+                                </div>
+                                <span class="field__hint">Free memory: ComfyUI stays open and releases models from GPU memory and RAM.</span>
+                            </div>
+                        </section>
+
+                        <section class="panel" data-setting-update hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Updates</h2>
+                                    <p class="text-sm text-muted">Gets the new version from GitHub. Settings (including the port), outputs, models and data are not changed.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <div class="text-sm stack stack--tight" data-update-info></div>
+                                <label class="checkbox"><input type="checkbox" data-update-auto> <span>Daily update check: checks once a day and installs a new version (the panel restarts)</span></label>
+                                <div class="row row--wrap">
+                                    <button type="button" class="btn btn--sm" data-update-check>Check for updates</button>
+                                    <button type="button" class="btn btn--sm btn--primary" data-update-apply hidden>Update now</button>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="panel" data-setting-prompt>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Prompts</h2>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <label class="checkbox"><input type="checkbox" data-prompt-translate checked> <span>Translate prompts to English before sending them to the model</span></label>
+                                <span class="field__hint">Wan, FLUX, Qwen-Image-Edit and ACE-Step understand Turkish poorly; when off, prompts are sent as you wrote them.</span>
+                            </div>
+                        </section>
+                        <section class="panel" data-setting-rules hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Assistant rules</h2>
+                                    <p class="text-sm text-muted">Rules every chat follows (Markdown). A project can add its own in NEDESE.md, AGENTS.md or CLAUDE.md in its folder; the assistant reads them from the working folder and the folders above it.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <textarea class="textarea" rows="7" data-rules-text aria-label="Assistant rules" placeholder="- Answer briefly.&#10;- Write code comments in English.&#10;- Ask before adding a new library." translate="no"></textarea>
+                                <div class="row row--wrap">
+                                    <button type="button" class="btn btn--primary btn--sm" data-rules-save>Save rules</button>
+                                    <span class="field__hint" data-rules-path translate="no"></span>
+                                </div>
+                                <div class="stack stack--tight" data-ratings hidden>
+                                    <div class="row row--wrap">
+                                        <span class="text-sm" data-ratings-count></span>
+                                        <button type="button" class="btn btn--sm" data-ratings-download>Download good answers (JSONL)</button>
+                                    </div>
+                                    <span class="field__hint">Rate the assistant's answers with the thumbs under them. The good ones are training examples: tick "Good answers from rated chats" in Training, or download them.</span>
+                                </div>
+                            </div>
+                        </section>
+                        <!-- What the assistant keeps (user request 08.10.2026): scheduled tasks, lasting notes, skills, MCP servers; assistant-settings.js -->
+                        <section class="panel" data-setting-assistant hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Assistant</h2>
+                                    <p class="text-sm text-muted">What the assistant keeps between chats: its scheduled tasks, its lasting notes, its skills and its MCP servers.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <details class="fine-setting" data-assistant-part="schedules">
+                                    <summary class="fine-setting__title">Scheduled tasks <span class="tag-note" data-assistant-count="schedules"></span></summary>
+                                    <div class="fine-setting__content stack" data-assistant-body="schedules"></div>
+                                </details>
+                                <details class="fine-setting" data-assistant-part="background">
+                                    <summary class="fine-setting__title">Running in the background <span class="tag-note" data-assistant-count="background"></span></summary>
+                                    <div class="fine-setting__content stack" data-assistant-body="background"></div>
+                                </details>
+                                <details class="fine-setting" data-assistant-part="memory">
+                                    <summary class="fine-setting__title">Lasting notes <span class="tag-note" data-assistant-count="memory"></span></summary>
+                                    <div class="fine-setting__content stack" data-assistant-body="memory"></div>
+                                </details>
+                                <details class="fine-setting" data-assistant-part="skills">
+                                    <summary class="fine-setting__title">Skills <span class="tag-note" data-assistant-count="skills"></span></summary>
+                                    <div class="fine-setting__content stack" data-assistant-body="skills"></div>
+                                </details>
+                                <details class="fine-setting" data-assistant-part="mcp">
+                                    <summary class="fine-setting__title">MCP servers <span class="tag-note" data-assistant-count="mcp"></span></summary>
+                                    <div class="fine-setting__content stack" data-assistant-body="mcp"></div>
+                                </details>
+                                <details class="fine-setting" data-assistant-part="plugins">
+                                    <summary class="fine-setting__title">Plugins <span class="tag-note" data-assistant-count="plugins"></span></summary>
+                                    <div class="fine-setting__content stack" data-assistant-body="plugins"></div>
+                                </details>
+                            </div>
+                        </section>
+                        <section class="panel" data-setting-search hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Web search</h2>
+                                    <p class="text-sm text-muted">The assistant's web search (search_web) uses a search service set here before the browser: steadier answers. Without one it searches DuckDuckGo and Bing in a headless browser.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <div class="stack" data-search-services></div>
+                                <span class="field__hint">Tried in this order: Brave, Tavily, SearXNG; if none gives results, the browser. Keys stay on this computer (panel-data) and the page shows only their last 4 characters.</span>
+                                <span class="field__hint">SearXNG: your own server, e.g. http://127.0.0.1:8888; its settings.yml must allow the json format (search.formats).</span>
+                            </div>
+                        </section>
+                        <section class="panel" data-setting-remote hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Remote model</h2>
+                                    <p class="text-sm text-muted">An OpenAI-compatible text model served elsewhere: OpenAI, OpenRouter, DeepSeek, Groq, or vLLM, Ollama and LM Studio on another computer. A chat can choose it as its text model in Options.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <form class="stack" data-remote-form autocomplete="off">
+                                    <div class="field">
+                                        <label class="field__label" for="remote-url">Address</label>
+                                        <input class="input input--mono" id="remote-url" name="url" type="text" spellcheck="false" placeholder="https://api.openai.com/v1">
+                                        <span class="field__hint">The base address; the panel sends to it + /chat/completions.</span>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="remote-key">API key</label>
+                                        <input class="input input--mono" id="remote-key" name="key" type="password" spellcheck="false" placeholder="sk-…">
+                                        <span class="field__hint" data-remote-key-hint>Not set</span>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="remote-model">Model name</label>
+                                        <input class="input input--mono" id="remote-model" name="model" type="text" spellcheck="false" placeholder="gpt-4o-mini">
+                                        <span class="field__hint">As the server lists it, e.g. gpt-4o-mini, deepseek-chat, qwen2.5:14b.</span>
+                                    </div>
+                                    <label class="checkbox"><input type="checkbox" name="whenBusy"> <span>Use it while the GPU is busy</span></label>
+                                    <span class="field__hint">Chats on the local model answer with the remote model while an image or video job holds the GPU, instead of waiting for it.</span>
+                                    <div class="row row--wrap">
+                                        <button type="submit" class="btn btn--sm btn--primary" data-remote-save>Save</button>
+                                        <button type="button" class="btn btn--sm" data-remote-check>Test</button>
+                                    </div>
+                                </form>
+                                <form class="row" data-remote-remove-form hidden>
+                                    <button type="submit" class="btn btn--sm btn--ghost" data-remote-remove data-confirm="The address, key and model name are removed; chats on the remote model go back to the local one." data-confirm-title="Remove the remote model" data-confirm-variant="danger">Remove the remote model</button>
+                                </form>
+                                <span class="field__hint">The key stays on this computer (panel-data) and the page shows only its last 4 characters. Images in a chat are not sent to the remote model.</span>
+                            </div>
+                        </section>
+                        <section class="panel" data-setting-fine hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Fine settings (by graphics card)</h2>
+                                    <p class="text-sm text-muted">The defaults are this machine's measured setup (RTX 5070 12 GB, 16 GB RAM). On a stronger card, turn them off or on.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <details class="fine-setting">
+                                    <summary class="fine-setting__title">Show settings</summary>
+                                    <div class="fine-setting__content stack" data-fine-settings></div>
+                                    <div class="row row--wrap">
+                                        <button type="button" class="btn btn--sm" data-fine-default>Reset to this machine's setup</button>
+                                    </div>
+                                </details>
+                            </div>
+                        </section>
+                        <section class="panel" data-setting-network hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Network</h2>
+                                    <p class="text-sm text-muted">Where the panel opens from. A change applies after a restart.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <div class="row row--wrap network-fields">
+                                    <label class="field">
+                                        <span class="field__label">Open from</span>
+                                        <select class="select" data-listen-address>
+                                            <option value="0.0.0.0">All networks of this computer (phone, other computers)</option>
+                                            <option value="127.0.0.1">This computer only</option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <div class="text-sm stack stack--tight" data-listen-now></div>
+                                <div class="row row--wrap">
+                                    <button type="button" class="btn btn--primary btn--sm" data-listen-save>Save</button>
+                                    <button type="button" class="btn btn--sm" data-listen-restart>Restart the panel</button>
+                                </div>
+                                <label class="checkbox"><input type="checkbox" data-network-access checked> <span>Other devices that open the panel can use files and commands in chat</span></label>
+                                <span class="field__hint">Who can open the panel is up to your router and the firewall rule. When off, only this computer (or a client with the API key) can; other devices get panel jobs, web search and reading.</span>
+                            </div>
+                        </section>
+                        <section class="panel" data-setting-api>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">API</h2>
+                                    <p class="text-sm text-muted">Everything the panel can do is also available to programs.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body stack">
+                                <div class="field">
+                                    <span class="field__label">API key</span>
+                                    <div class="secret" data-secret data-secret-open="false">
+                                        <span class="secret__value mono" data-secret-value>••••••••</span>
+                                        <button type="button" class="btn btn--ghost btn--sm secret__toggle" data-secret-show aria-label="Show key">Show</button>
+                                        <button type="button" class="btn btn--ghost btn--sm secret__copy" data-secret-copy hidden aria-label="Copy">Copy</button>
+                                    </div>
+                                    <span class="field__hint">Add the <span class="mono">Authorization: Bearer &lt;key&gt;</span> header to requests. File: <span class="mono" data-setting-file></span></span>
+                                </div>
+                                <div class="row row--wrap">
+                                    <a class="btn btn--sm" href="/api/documents" data-language-link target="_blank" rel="noopener">API docs</a>
+                                    <a class="btn btn--sm btn--ghost" href="/api/v1/openapi.json" data-language-link target="_blank" rel="noopener">openapi.json</a>
+                                    <span data-key-refresh></span>
+                                </div>
+                                <pre class="config-preview" data-api-example></pre>
+                            </div>
+                        </section>
+                    </aside>
+                </div>
+            </div>
+        </section>
+
+        <footer class="page-foot">
+            <span>Made by</span> <a href="https://mustafaozen.com" target="_blank" rel="noopener" translate="no">Mustafa ÖZEN</a>
+        </footer>
+    </div>
+</div>
+
+<!-- Ses alanlari: Ses ve Tek parca formlarina ayni alanlar kopyalanir (tek tanim). -->
+<template id="voice-fields-template">
+    <div class="field">
+        <label class="field__label" data-for="voice">Voice</label>
+        <select class="select" name="voice" data-voice-choice></select>
+        <span class="field__hint" data-voice-hint></span>
+    </div>
+    <div class="field field--wide" data-spec-field hidden>
+        <label class="field__label" data-for="spec">Voice description (English) <span class="required tag-note">required</span></label>
+        <textarea class="textarea" name="spec" rows="3"
+                  placeholder="e.g. A very old man with a deep, warm and slightly raspy voice, speaking slowly like a storyteller by the fire"></textarea>
+        <span class="field__hint">A new voice is created from the description and added to the library; the text is read in this voice.</span>
+    </div>
+    <div class="field" data-spec-field hidden>
+        <label class="field__label" data-for="recordName">Name in library <span class="tag-note tag-note--optional">optional</span></label>
+        <input class="input" name="recordName" maxlength="60" placeholder="Old narrator">
+    </div>
+    <div data-voice-fine-part>
+        <div class="field">
+            <label class="field__label" data-for="quality">Quality</label>
+            <select class="select" name="quality" data-quality-choice></select>
+        </div>
+        <div class="field">
+            <label class="field__label" data-for="lang">Language</label>
+            <select class="select" name="lang">
+                <option value="tr">Turkish</option>
+                <option value="en">English</option>
+            </select>
+        </div>
+        <div class="field">
+            <label class="field__label" data-for="speed">Speed <span class="slider__value" data-slider-value></span></label>
+            <input class="slider" type="range" name="speed" min="0.85" max="1.15" step="0.05" value="1" data-slider-extra="×">
+            <div class="slider__ends" aria-hidden="true"><span>Slow</span><span>Normal</span><span>Fast</span></div>
+            <span class="field__hint">Speeds up or slows down without changing the pitch.</span>
+        </div>
+        <div class="field">
+            <label class="field__label" data-for="exaggeration">Emotion <span class="slider__value" data-slider-value></span></label>
+            <input class="slider" type="range" name="exaggeration" min="0.25" max="2" step="0.05" value="0.5">
+            <div class="slider__ends" aria-hidden="true"><span>Calm</span><span>Excited</span></div>
+            <span class="field__hint">How emotional the reading is. 0.5 is natural; 0.8 and above is very excited.</span>
+        </div>
+        <div class="field">
+            <label class="field__label" data-for="cfg">Reading pace <span class="slider__value" data-slider-value></span></label>
+            <input class="slider" type="range" name="cfg" min="0" max="1" step="0.05" value="0.5">
+            <div class="slider__ends" aria-hidden="true"><span>Slow / calm</span><span>Fast</span></div>
+            <span class="field__hint">Lower values read slower and calmer; 0.3 suits a storyteller.</span>
+        </div>
+    </div>
+</template>
+
+<!-- Sahne düzenleyici (Tek parça) -->
+<template id="scene-template">
+    <section class="panel" data-scene>
+        <header class="panel__head">
+            <div class="row">
+                <button type="button" class="scene-handle" data-scene-handle aria-label="Move scene (drag or use arrow keys)" title="Drag to reorder">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="3" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg>
+                </button>
+                <h2 class="panel__title" data-scene-title>Scene</h2>
+            </div>
+            <div class="panel__actions">
+                <button type="button" class="btn btn--ghost btn--sm" data-scene-remove>Remove</button>
+            </div>
+        </header>
+        <div class="panel__body">
+            <div class="field">
+                <label class="field__label" data-for="narration">Narration <span class="required tag-note">required</span></label>
+                <div class="mode-choice mode-choice--small" data-narration-mode>
+                    <label class="mode-choice__option"><input type="radio" value="speak" checked><span>Voice it</span></label>
+                    <label class="mode-choice__option"><input type="radio" value="gallery"><span>Audio from gallery</span></label>
+                </div>
+                <div class="row row--wrap" data-narration-gallery hidden>
+                    <button type="button" class="btn btn--sm" data-voice-picker="scene" data-modal-open="modal-voice-picker">Choose audio</button>
+                    <span class="text-sm text-muted" data-narration-voice-name>No audio selected</span>
+                </div>
+                <textarea class="textarea" data-field="narration" rows="3" placeholder="Once upon a time, there were endless worlds made of blocks."></textarea>
+                <span class="field__hint" data-scene-duration></span>
+            </div>
+            <div class="field">
+                <label class="field__label" data-for="dialogue">Dialogue <span class="tag-note tag-note--optional">optional</span></label>
+                <textarea class="textarea" data-field="dialogue" rows="2" placeholder="Elif: Pamuk! Where are you?&#10;Pamuk: Here I am!"></textarea>
+                <span class="field__hint">One line each: "Name: line". Characters speak in their own voice (gender and age from the Characters list below).</span>
+            </div>
+            <div class="field">
+                <span class="field__label">Image <span class="required tag-note">required</span></span>
+                <div class="mode-choice mode-choice--small" data-image-mode>
+                    <label class="mode-choice__option"><input type="radio" value="generate" checked><span>Generate</span></label>
+                    <label class="mode-choice__option"><input type="radio" value="gallery"><span>From gallery</span></label>
+                </div>
+                <div class="stack stack--tight" data-image-generate>
+                    <textarea class="textarea" data-field="image" rows="3" aria-label="Image prompt" placeholder="e.g. A vast world made of colorful blocks under a sunrise, 3D family animation style"></textarea>
+                    <span class="field__hint">Describe what should be in the image; English works best.</span>
+                </div>
+                <div class="row row--wrap" data-scene-source hidden>
+                    <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="scene">Choose image</button>
+                    <span class="text-sm text-muted" data-scene-source-name>No image selected</span>
+                </div>
+            </div>
+            <div class="field">
+                <label class="field__label" data-for="motion">Motion prompt (English) <span class="tag-note tag-note--optional">optional</span></label>
+                <input class="input" data-field="motion" placeholder="e.g. Slow aerial push-in, clouds drifting">
+            </div>
+        </div>
+    </section>
+</template>
+
+<div class="toast-host" data-toast-host></div>
+
+<!-- Onay penceresi (tasarim.js). Gerekçe alanı yok: panel denetim kaydı tutmuyor; silme kalıcı (AI_PANEL_SILME=geri-donusum ile geri dönüşüm kutusuna). -->
+<div class="modal" data-confirm-dialog hidden role="dialog" aria-modal="true" aria-labelledby="approval-title">
+    <div class="modal__box">
+        <header class="modal__header">
+            <div>
+                <h2 class="modal__title" id="approval-title" data-confirm-title></h2>
+            </div>
+            <button type="button" class="modal__close" data-confirm-cancel aria-label="Close">×</button>
+        </header>
+        <div class="modal__body">
+            <p data-confirm-message></p>
+            <label class="checkbox" data-confirm-check-field hidden>
+                <input type="checkbox" data-confirm-check-input>
+                <span data-confirm-check-label></span>
+            </label>
+            <div class="field" data-confirm-verify-field hidden>
+                <label class="field__label" for="approval-input">
+                    To confirm, type <strong data-confirm-expected class="mono"></strong> 
+                </label>
+                <input type="text" class="input mono" id="approval-input" data-confirm-input autocomplete="off">
+            </div>
+        </div>
+        <footer class="modal__footer">
+            <button type="button" class="btn btn--secondary" data-confirm-cancel>Cancel</button>
+            <button type="button" class="btn btn--primary" data-confirm-accept>Confirm</button>
+        </footer>
+    </div>
+</div>
+
+<!-- Kendi sesim: kayıttan ses klonu (isteğe bağlı eğitim) -->
+<div class="modal" data-modal id="modal-own-voice" hidden role="dialog" aria-modal="true" aria-labelledby="own-voice-title">
+    <div class="modal__box">
+        <header class="modal__header">
+            <div>
+                <h2 class="modal__title" id="own-voice-title">My voice</h2>
+                <p class="text-sm text-muted">Give your recording; the panel learns your voice and speaks with it.</p>
+            </div>
+            <button type="button" class="modal__close" data-modal-close aria-label="Close">×</button>
+        </header>
+        <form class="modal__body stack" data-own-voice-form novalidate>
+            <div class="field">
+                <label class="field__label" for="ks-ad">Voice name <span class="required tag-note">required</span></label>
+                <input type="text" class="input" id="ks-ad" name="name" maxlength="60" placeholder="My voice" required>
+            </div>
+            <div class="field">
+                <label class="field__label" for="ks-kayit">Recordings <span class="required tag-note">required</span></label>
+                <div class="file-pick">
+                    <label class="btn btn--sm">Choose files<input type="file" id="ks-kayit" name="records" multiple accept="audio/*,video/*,.mp4,.mov,.mkv,.webm,.mp3,.m4a,.wav,.ogg,.opus,.flac" hidden></label>
+                    <span class="file-pick__names" data-file-names>No file chosen</span>
+                </div>
+                <span class="field__hint">Video or audio, any format; you can pick several files. Only you speaking, no music, a quiet room is best. 1 minute is enough; 5-10 minutes gives the closest result.</span>
+            </div>
+            <div class="field">
+                <label class="checkbox">
+                    <input type="checkbox" name="train" value="1" checked>
+                    <span>Train my voice (closer match; takes longer)</span>
+                </label>
+                <span class="field__hint">Without training the voice is ready in a few minutes (quick clone). Training is skipped if the recording is under 1 minute.</span>
+            </div>
+            <p class="text-sm text-muted" data-own-voice-status aria-live="polite"></p>
+        </form>
+        <footer class="modal__footer">
+            <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+            <button type="button" class="btn btn--primary" data-own-voice-submit>Start</button>
+        </footer>
+    </div>
+</div>
+
+<!-- Galeriden görsel seçme penceresi -->
+<div class="modal" data-modal id="modal-picker" hidden role="dialog" aria-modal="true" aria-labelledby="picker-title">
+    <div class="modal__box modal__box--wide">
+        <header class="modal__header">
+            <div>
+                <h2 class="modal__title" id="picker-title">Pick image from gallery</h2>
+                <p class="text-sm text-muted">Images generated by the panel and uploaded images.</p>
+            </div>
+            <button type="button" class="modal__close" data-modal-close aria-label="Close">×</button>
+        </header>
+        <div class="modal__body">
+            <div class="picker" data-picker-list></div>
+            <div data-picker-pagination></div>
+        </div>
+        <footer class="modal__footer">
+            <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+            <button type="button" class="btn btn--primary" data-picker-select disabled>Select</button>
+        </footer>
+    </div>
+</div>
+
+<!-- Sistem durumu (üst çubuktaki özete tıklayınca) -->
+<div class="modal" data-modal id="modal-system" hidden role="dialog" aria-modal="true" aria-labelledby="system-title">
+    <div class="modal__box modal__box--wide">
+        <header class="modal__header">
+            <div>
+                <h2 class="modal__title" id="system-title">System status</h2>
+                <p class="text-sm text-muted" data-system-sub>Live values; charts show the last 3 minutes.</p>
+            </div>
+            <button type="button" class="modal__close" data-modal-close aria-label="Close">×</button>
+        </header>
+        <div class="modal__body">
+            <div class="system" data-system></div>
+        </div>
+    </div>
+</div>
+
+<!-- Ses seçici (Tek parça: film müziği ya da sahne anlatımı galeriden) -->
+<div class="modal" data-modal id="modal-voice-picker" hidden role="dialog" aria-modal="true" aria-labelledby="voice-picker-title">
+    <div class="modal__box modal__box--wide">
+        <header class="modal__header">
+            <div>
+                <h2 class="modal__title" id="voice-picker-title">Choose audio from gallery</h2>
+                <p class="text-sm text-muted">Generated music, voice-overs and uploaded music.</p>
+            </div>
+            <button type="button" class="modal__close" data-modal-close aria-label="Close">×</button>
+        </header>
+        <div class="modal__body stack">
+            <div class="stack stack--tight" data-voice-picker-list></div>
+            <div data-voice-picker-pagination></div>
+        </div>
+    </div>
+</div>
+
+<!-- Dosya gezgini (Ayarlar > Elimdeki model dosyasını ekle) -->
+<div class="modal" data-modal id="modal-browse" hidden role="dialog" aria-modal="true" aria-labelledby="browse-title">
+    <div class="modal__box modal__box--wide">
+        <header class="modal__header">
+            <div>
+                <h2 class="modal__title" id="browse-title">Choose a model file</h2>
+                <p class="text-sm text-muted">Only model files (.gguf, .safetensors…) are shown.</p>
+            </div>
+            <button type="button" class="modal__close" data-modal-close aria-label="Close">×</button>
+        </header>
+        <div class="modal__body stack">
+            <div class="row row--wrap" data-browse-shortcuts></div>
+            <div class="code browser__path" data-browse-path translate="no"></div>
+            <div class="browser" data-browse-list></div>
+        </div>
+        <footer class="modal__footer">
+            <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+            <button type="button" class="btn btn--primary" data-browse-select disabled>Select</button>
+        </footer>
+    </div>
+</div>
+
+<!-- Önizleme penceresi -->
+<div class="modal" data-modal id="modal-preview" hidden role="dialog" aria-modal="true" aria-labelledby="preview-title">
+    <div class="modal__box modal__box--wide">
+        <header class="modal__header">
+            <div class="truncate">
+                <h2 class="modal__title truncate" id="preview-title"></h2>
+                <p class="text-sm text-muted" data-preview-sub></p>
+            </div>
+            <button type="button" class="modal__close" data-modal-close aria-label="Close">×</button>
+        </header>
+        <div class="modal__body" data-preview-body></div>
+        <footer class="modal__footer" data-preview-actions></footer>
+    </div>
+</div>
+
+<script src="./lang/dictionary.js"></script>
+<script src="./js/lang.js"></script>
+<script src="./js/design.js" defer></script>
+<script src="./js/modal.js" defer></script>
+<script src="./js/image-viewer.js" defer></script>
+<script src="./app.js" defer></script>
+<script src="./settings.js" defer></script>
+<script src="./assistant-settings.js" defer></script>
+<script src="./js/markdown.js" defer></script>
+<script src="./js/highlight.js" defer></script>
+<script src="./chat.js" defer></script>
+<script src="./js/pwa.js" defer></script>
+</body>
+</html>

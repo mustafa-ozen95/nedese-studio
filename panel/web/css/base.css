@@ -1,0 +1,209 @@
+/* ── Sayfalar arası geçiş ─────────────────────────────────────────────────
+ *
+ * Panelde gezinme TARAYICI YENİLEMEDEN olur: `components/gezinme.js` hedefi
+ * getirip yalnızca değişwidth bölgeleri yerine koyar. Buradaki rules o anın
+ * nasıl ÇİZİLECEĞİNİ söyler.
+ *
+ * `@view-transition` ise full yükleme yapılan statuses içdownload (form gönderimi,
+ * fresh sekme, betiğin devre dışı kaldığı hâller): orada da beyaz parlama olmaz.
+ */
+@view-transition {
+    navigation: auto;
+}
+
+/* Tıklamayla geçiş: kıhour bir çapraz geçiş. */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 180ms;
+}
+
+/*
+ * Sayfa gelene kadar fine bir progress çizgisi. Önden getirme sayesinde çoğu
+ * geçişte hiç görünmez; yavaş bağlantıda "bir şey oluyor" der.
+ */
+:root[data-navigation='loading'] .page::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 60;
+    width: 100%;
+    height: 2px;
+    background: var(--color-accent);
+    animation: nds-progress 900ms ease-out;
+    transform-origin: 0 50%;
+}
+
+@keyframes nds-progress {
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(0.9); }
+}
+
+/* Hareket azaltma isteyen kullanıcıda geçiş animasyonu olmaz. */
+@media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+        animation: none !important;
+    }
+
+    :root[data-navigation='loading'] .page::before {
+        animation: none;
+        transform: scaleX(1);
+    }
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+* {
+    margin: 0;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--color-page);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Teknik değerler daima mono: IP, port nameı, hız, hour, sayaç. */
+.mono,
+code,
+kbd,
+samp {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+h1, h2, h3 {
+    font-weight: var(--weight-semibold);
+    line-height: 1.3;
+}
+
+h1 { font-size: var(--text-lg); }
+h2 { font-size: var(--text-md); }
+h3 { font-size: var(--text-base); }
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+img, svg {
+    display: block;
+    flex-shrink: 0;
+}
+
+button, input, select, textarea {
+    font: inherit;
+    color: inherit;
+}
+
+:focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: -1px;
+}
+
+/* Bölüm başlığı — sütun ve panel başlıklarının common biçimi. */
+.eyebrow {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.kbd {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    padding: 1px 5px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+}
+
+::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--radius-full);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/*
+ * Koşullu field gizleme. [hidden] öznitelikli gizleme bazı alanlarda
+ * bileşenin own görünürlük mantığıyla çakışıyor; sınıf tabanlı gizleme
+ * yalnızca ilgili fieldı closeır.
+ */
+.is-hidden {
+    display: none !important;
+}
+
+/*
+ * Dokunmatikte ÇİFT DOKUNUŞLA YAKINLAŞMA olmaz.
+ *
+ * Menüyü açmak için üst üste iki kez dokunulduğunda tarayıcı bunu
+ * "yakınlaştır" sanıp sayfayı büyütüyordu (kullanıcı bildirimi, 12.09.2026 —
+ * hesap menüsüne dokununca). `manipulation`, kaydırma ve sıkıştırmayı açık
+ * bırakır; yalnızca çift dokunuş yakınlaştırmasını closeır.
+ *
+ * Alanlara odaklanınca yakınlaşma detailı bir topic ve form.css'te çözülüyor
+ * (dar ekranda writeı boyu 16px).
+ */
+button,
+a,
+label,
+summary,
+[role='button'],
+[data-menu-open],
+[data-dropdown-trigger] {
+    touch-action: manipulation;
+}
+
+/*
+ * İKONUN DEFAULT ÖLÇÜSÜ.
+ *
+ * İkon bileşenleri bilerek `width`/`height` vermez — boyutu kullanıldığı
+ * yerin CSS'i belirler (`.badge svg`, `.row-inner svg`, `.btn svg`…). Ama
+ * hiçbir rule olmayan bir yere konulduğunda `viewBox`lu bir SVG kabına
+ * emitılıp DEVLEŞİYOR (üye sayfasındaki profile ikonu, 12.09.2026).
+ *
+ * Bu yüzden güvenli bir varsayılan: writeıyla aynı height. Bağlama özel rules
+ * daha özgül olduğu için bunu ezmeye proceed eder.
+ */
+.icon {
+    width: 1em;
+    height: 1em;
+}

@@ -1,0 +1,92 @@
+/* Image viewer (js/image-viewer.js): a picture over the page, dark in both themes like any photo viewer.
+   Above an open window (the gallery preview opens pictures too) and under the approval window. */
+
+.image-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-viewer);
+    display: flex;
+    flex-direction: column;
+    /* 92% left the page's header readable behind the picture on a phone */
+    background: rgb(0 0 0 / 97%);
+    color: #fff;
+    touch-action: none;
+    overscroll-behavior: contain;
+}
+
+.image-viewer__stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    cursor: zoom-in;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.image-viewer[data-zoomed="true"] .image-viewer__stage {
+    cursor: grab;
+}
+
+.image-viewer[data-zoomed="true"] .image-viewer__stage:active {
+    cursor: grabbing;
+}
+
+.image-viewer__image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    transform-origin: center;
+    will-change: transform;
+    -webkit-touch-callout: none;
+}
+
+.image-viewer[data-loading="true"] .image-viewer__image {
+    opacity: 0;
+}
+
+.image-viewer__note {
+    position: absolute;
+    margin: 0;
+    color: rgb(255 255 255 / 80%);
+}
+
+.image-viewer__bar {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4) calc(var(--space-2) + env(safe-area-inset-bottom));
+}
+
+.image-viewer__button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid rgb(255 255 255 / 25%);
+    border-radius: var(--radius-full);
+    background: rgb(255 255 255 / 12%);
+    color: #fff;
+    font-size: 20px;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.image-viewer__button:hover {
+    background: rgb(255 255 255 / 22%);
+}
+
+.image-viewer__button:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+/* Chat and gallery pictures that open in the viewer */
+[data-image-viewer] {
+    cursor: zoom-in;
+}

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Nedese Studio CLI: chat with the panel's agent in the current folder (nedese --help).
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+NODE="$DIR/node/bin/node"
+[ -x "$NODE" ] || NODE="$DIR/node/node"
+[ -x "$NODE" ] || NODE=node
+exec "$NODE" "$DIR/panel/cli/nedese.mjs" "$@"

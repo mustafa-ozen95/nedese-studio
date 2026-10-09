@@ -1,0 +1,267 @@
+/* Zeminden kopan single layer: bu yüzden gölge yalnızca burada kullanılır. */
+
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: grid;
+    place-items: center;
+    padding: var(--space-5);
+    background: var(--color-scrim);
+}
+
+.modal__box {
+    width: 100%;
+    max-width: 420px;
+    max-height: calc(100dvh - 2 * var(--space-5));
+    display: flex;
+    flex-direction: column;
+    background: var(--color-column);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-overlay);
+    overflow: hidden;
+}
+
+.modal__box--wide {
+    max-width: 680px;
+}
+
+.modal__header {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.modal__title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+}
+
+/*
+ * `<button>` ya da `<a>` olabilir: sunucunun açtığı pencerede kapatma
+ * gerçek bir bağlantıdır (script yokken de listeye döner). İkisi de aynı
+ * görünsün diye bağlantı varsayılanları (sub çizgi, satır içi box)
+ * burada sıfırlanır.
+ */
+.modal__close {
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+    padding: 0 var(--space-2);
+    background: none;
+    border: 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-lg);
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.modal__close:hover {
+    color: var(--color-text);
+}
+
+.modal__body [data-confirm-message] {
+    white-space: pre-line;
+    line-height: 1.6;
+}
+
+/*
+ * Onay penceresinin bölümleri çizgiyle detailılır: message, gerekçe, writeılı
+ * doğrulama. Ayrılmadıklarında messageın last satırı ile field etiketi
+ * birbirine yapışıyor ve tag messageın proceedı gibi okunuyordu.
+ */
+.modal__body [data-confirm-reason-field],
+.modal__body [data-confirm-verify-field] {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-line);
+}
+
+/*
+ * Yazılması requested değer OLDUĞU GİBİ gösterilir.
+ *
+ * Alan etiketleri büyük harfe çevrilir; bu değer de çevrildiğinde modal
+ * "TEST1 writeın" diyor ama karşılaştırma büyük/küçük harfe duyarlı olduğu
+ * için "TEST1" accept edilmiyordu. Kullanıcıya yazamayacağı bir şey
+ * yazdırılıyordu.
+ */
+.modal__body [data-confirm-expected] {
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/*
+ * Is penceresi sub basligi (status · dateText · duration · summary) telefonda kesilmesin: satira kirilir. Sarmalayici
+ * .truncate (title single line kalir); sub title nowrap'i miras alip kirpiliyordu (07.10.2026, 390 px: 379/324).
+ */
+[data-preview-sub] {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.modal__body {
+    padding: var(--space-4);
+    /* Pencere ekranı aşmadıkça kaydırma çubuğu çıkmaz. */
+    max-height: calc(100dvh - 14rem);
+    overflow-y: auto;
+    font-size: var(--text-md);
+}
+
+/*
+ * SATIR RİTMİ — pencerenin içindeki fields arasındaki boşluk.
+ *
+ * Kartta bu işi `.card-pad > * + *` yapıyor; pencerede karşılığı YOKTU ve
+ * fields birbirine yapışıyordu (kullanıcı bildirimi, 12.09.2026 — "Aktif
+ * tiki bitişik olmuş"). Boşluk KABIN işidir: single single alanlara `margin`
+ * yazmak aynı hatayı her fresh pencerede tekrarlatır.
+ *
+ * `form` ve `.panel` araya giren kaplardır, ritmi kesmesinler diye
+ * onların çocukları da countılır. Gizli fields (`_token`, `_method`)
+ * `display: none` olduğu için boşluk üretmez.
+ */
+.modal__body > * + *,
+.modal__body > form > * + *,
+.modal__body .panel > * + *,
+.modal__body .panel__body > * + * {
+    margin-top: var(--space-4);
+}
+
+/* Başlık ile onu açıklayan satır AYNI şeydir: aralarında full boşluk olmaz. */
+.modal__body .panel__title + p,
+.modal__body .panel__head p {
+    margin-top: var(--space-1);
+}
+
+/*
+ * Pencerenin içindeki long form.
+ *
+ * Err list formun üstünde durur: field subındaki single satırlık uyarı
+ * kaydırma çubuğunun subında kalıyor, kullanıcı "kaydetmedi ama reason"
+ * diye lookıyordu.
+ */
+.modal__alert {
+    margin-bottom: var(--space-4);
+}
+
+/*
+ * Pencerenin gövdesi zaten çerçevelidir; içindeki panellerin own
+ * çerçevesi second bir box çizip formu daraltıyordu. Panel burada
+ * yalnızca BAŞLIKLI BÖLÜM olarak kalır: çizgi üstte, box none.
+ */
+.modal__body .panel {
+    border: 0;
+    border-radius: 0;
+    background: none;
+}
+
+/*
+ * Bölüm separatorı: çizgi. İlk öğede YAZILMAZ — başlığın own sub çizgisinin
+ * immediately subına second bir çizgi düşüyor ve çift görünüyordu.
+ */
+.modal__body .panel:not(:first-child) {
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-line);
+}
+
+.modal__body .panel__head {
+    padding: 0 0 var(--space-3);
+    border-bottom: 0;
+}
+
+.modal__body .panel__body {
+    padding: 0;
+}
+
+/*
+ * SAYFA FORMU PENCEREDE.
+ *
+ * Aynı form hem own sayfasında hem pencerede görünüyor. Pencere için
+ * second bir işaretleme yazmak, iki sürümün schedule detailışması demek —
+ * bu panellerde defalarca olan şey. Onun yerine sayfanın kapları burada
+ * pencereye uyarlanır:
+ *
+ *   .card      pencerenin own çerçevesi zaten var; second box çizmesin.
+ *   .card-pad  boşluğu `.modal__body` veriyor, second kez verilmesin.
+ *   .form-actions  gövdenin dibine YAPIŞIR ve sub şerit gibi durur; long
+ *                  formda Kaydet düğmesi kaydırmayla gözden kaybolmasın.
+ */
+.modal__body .card {
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+}
+
+.modal__body .card-pad {
+    padding: 0;
+}
+
+.modal__body .card + .card {
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-line);
+}
+
+.modal__body .form-actions {
+    position: sticky;
+    bottom: calc(-1 * var(--space-4));
+    z-index: 1;
+
+    /* Gövdenin iç boşluğunu cancel edip kenardan kenara uzanır. */
+    margin: var(--space-4) calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-column);
+    border-top: 1px solid var(--color-line);
+}
+
+.modal__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--color-line);
+}
+
+@media (max-width: 480px) {
+    /*
+     * Telefonda modal alttan açılır ama ekranın edgeına DAYANMAZ: fine
+     * bir boşluk kalır, böylece box köşelere denk gelmez ve yuvarlatma
+     * görünür kalır. Boşluk bilinçli olarak küçüktür; büyütmek dar ekranda
+     * içeriğe place bırakmaz.
+     */
+    .modal {
+        align-items: flex-end;
+        padding: 0 var(--space-2) var(--space-2);
+    }
+
+    .modal__box {
+        max-width: none;
+        max-height: calc(100dvh - var(--space-2));
+        border-radius: var(--radius-lg);
+    }
+
+    /* Telefonda da kaydırma çıkmasın diye boşluklar sıkılaşır. */
+    .modal__body {
+        max-height: calc(100dvh - 8rem - var(--space-2));
+        padding: var(--space-3);
+        gap: var(--space-3);
+    }
+
+    .modal__body .textarea {
+        height: 4.5rem;
+        min-height: 0;
+    }
+}
+
+/*
+ * Onay penceresi başka bir pencerenin (iş detailıntısı, seçici) içinden açılır:
+ * DOM'da önce geldiği için aynı katmanda below kalıyordu. Kendi layerı var.
+ */
+.modal[data-confirm-dialog] {
+    z-index: var(--z-approval);
+}

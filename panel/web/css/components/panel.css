@@ -1,0 +1,220 @@
+/*
+ * Panel — card değil. Gölgesiz, yalnızca çizgiyle detailılmış bölüm.
+ */
+
+.panel {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+
+    /*
+     * Grid/flex çocuğunun width küçük genişliği varsayılan olarak İÇERİĞİ
+     * kadardır: içeride sarmalanmayan geniş bir text (config diffı, long
+     * mono satır) panelin kendisini gerer ve page landscape kayar. Sıfırlanınca
+     * taşan içerik own kutusunda kayar, page kaymaz.
+     */
+    min-width: 0;
+}
+
+/*
+ * Ardışık paneller birbirine yapışmaz.
+ *
+ * Panelin own dış boşluğu yoktu; iki card side yana geldiğinde aralarında
+ * yalnızca iki çizgi kalıyor ve single bir kutuymuş gibi görünüyorlardı. Aynı
+ * form içindeki paneller de bu kurala girer.
+ */
+.panel + .panel {
+    margin-top: var(--space-5);
+}
+
+/*
+ * Yan yana panel ızgarası.
+ *
+ * Aralığı KAP verir (gap); kardeş boşluğu burada geçersizdir. Aksi hâlde
+ * ızgaradaki ilk karttan next her card bir boşluk kadar aşağı kayıyor ve
+ * aynı satırdaki cards farklı yükseklikte görünüyordu — ölçüldü: 126px'e
+ * karşı 110px.
+ *
+ * Kartlar satır boyunca EŞİT yükseklikte olur: ızgara varsayılanı zaten
+ * gerer, kardeş boşluğu kalkınca da öyle kalır.
+ */
+.panel-grid {
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+
+.panel-grid > .panel + .panel,
+.panel-grid > .panel {
+    margin-top: 0;
+}
+
+.panel__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.panel__title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+}
+
+.panel__actions {
+    margin-left: auto;
+    display: flex;
+    gap: var(--space-2);
+}
+
+.panel__body {
+    padding: var(--space-4);
+}
+
+/*
+ * Gövdedeki ardışık blocks birbirine YAPIŞMAZ.
+ *
+ * Sistemin her yerinde ritim kabın işidir (`.page__inner > * + *`,
+ * `.card-pad > * + *`, `.modal__body > * + *`); panel gövdesinde bu rule
+ * eksikti. Çoğu panelde gövdede single bir öğe olduğu için görünmüyordu —
+ * status sayfasında 90 günlük point şeridi ile subındaki dateText satırı
+ * arasında SIFIR boşluk kaldı (kullanıcı bildirimi, 12.09.2026).
+ */
+.panel__body > * + * {
+    margin-top: var(--space-4);
+}
+
+.panel__body--flush {
+    padding: 0;
+}
+
+/*
+ * Flush panelde own landscape boşluğunu taşıside bölüm.
+ *
+ * Tablo hücreleri own boşluklarını taşıdığı için tabloyla aynı panelde
+ * stopped bir text bloğu, panelin gövde boşluğuna bırakılırsa tablodan
+ * içeride başlar ve iki block hizasız görünür. Boşluk tablo hücresiyle
+ * BİREBİR aynıdır; both aynı yerde başlayıp aynı yerde biter.
+ */
+.panel__block {
+    padding: var(--space-3) var(--space-4);
+}
+
+.panel__block:not(:last-child) {
+    border-bottom: 1px solid var(--color-line);
+}
+
+/* Anahtar/değer list — detay panelinin omurgası. */
+.facts {
+    display: flex;
+    flex-direction: column;
+}
+
+.facts__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-line);
+}
+
+.facts__row:last-child {
+    border-bottom: 0;
+}
+
+.facts__key {
+    color: var(--color-text-muted);
+    font-size: var(--text-base);
+}
+
+.facts__value {
+    /* Uzun model dosyasi name / path satira kirilir: esnek satirda min-width: 0 olmadan telefonda govdeyi
+       landscape tasiriyordu (07.10.2026, 390 px: 451/376). Onceden yalniz Ayarlar'da duzeltilmisti. */
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+    text-align: right;
+}
+
+/* Rakam — kartsız stats. */
+.figure__value {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-medium);
+    line-height: 1;
+    letter-spacing: -0.02em;
+}
+
+/* Rakamın tonu bir status bilgisidir; sınıf olarak verilir. */
+.figure__value--green  { color: var(--color-green-fg); }
+.figure__value--red    { color: var(--color-red-fg); }
+.figure__value--yellow { color: var(--color-yellow-fg); }
+.figure__value--blue   { color: var(--color-blue-fg); }
+.figure__value--gray   { color: var(--color-gray-fg); }
+
+.figure__label {
+    margin-top: var(--space-2);
+    font-size: var(--text-sm);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: var(--space-5);
+}
+
+/* Detay panelinde üç rakam side yana sığmalı. */
+.figures--tight {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+.figures--tight .figure__value {
+    font-size: var(--text-xl);
+}
+
+.recipient-list {
+    gap: var(--space-4);
+    align-items: center;
+}
+
+/* "Tümü" kutusu listeden çizgiyle detailılır, single single getıcılarla karışmasın. */
+.recipient-list__all {
+    padding-right: var(--space-4);
+    border-right: 1px solid var(--color-line);
+    font-weight: var(--weight-medium);
+}
+
+.announcement-result {
+    margin-top: var(--space-6);
+}
+
+/* Anons önizlemesi: gönderilecek metnin birebir hali */
+.announcement-preview {
+    margin: var(--space-3) 0 0;
+    padding: var(--space-4);
+    background: var(--color-sunken);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-x: auto;
+}
+
+/* Model eğitimi sonucu: kayıp eğrisi ve örnek sideıtlar */
+.loss-curve {
+    width: 100%;
+    max-width: 320px;
+    height: 64px;
+    color: var(--color-blue-fg);
+}
+.training-response {
+    white-space: pre-wrap;
+}

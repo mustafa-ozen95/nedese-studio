@@ -1,0 +1,188 @@
+/*
+ * Ayarlar bölümü: model tabloları ve download satırları.
+ * Eylem hücresi hourğa yaslı ve single satır; download satırı queue satırıyla aynı düzen.
+ */
+.table .table__row-actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.table .table__row-actions > form {
+    display: inline-flex;
+}
+
+/* Katalog groupsı art arda: her group own çizgisiyle detailılır, ilk grubun üst çizgisi none. */
+[data-catalog] > .fine-setting:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+/*
+ * A long model file name (wan2.2_i2v_lightx2v_…) breaks inside its cell instead of pushing the size column. Only a
+ * word that does not fit is broken; the notes beside it wrap at spaces (09.10.2026: "break-all" split every word,
+ * "t he", "als o").
+ */
+[data-model-list] .table td:first-child,
+[data-catalog] .table td:first-child {
+    overflow-wrap: anywhere;
+    min-width: 0;
+}
+
+[data-model-list] .table td.mono:nth-child(2) {
+    white-space: nowrap;
+}
+
+/* Sürükleme sırasında yükleme kutusu belirginleşir. */
+[data-upload-box][data-drag] {
+    outline: 2px dashed var(--color-accent);
+    outline-offset: 4px;
+    border-radius: var(--radius);
+}
+
+/*
+ * Kurulu model tablosu kutuya sığar: sütunlar sabit oranlı, long file nameı ve
+ * "Kullanan" rozetleri satıra kırılır; Sil düğmesi taşmaz (landscape kaydırma none).
+ */
+@media (min-width: 721px) {
+    [data-model-list] .table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    [data-model-list] .table th:nth-child(2),
+    [data-model-list] .table td:nth-child(2) {
+        width: 96px;
+    }
+
+    [data-model-list] .table th:nth-child(3),
+    [data-model-list] .table td:nth-child(3) {
+        width: 72px;
+    }
+}
+
+[data-model-list] .table .badge {
+    white-space: normal;
+    height: auto;
+    line-height: 1.35;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+/* Dosya gezgini (Gözat): folderör ve model dosyası satırları; seçili file vurgulu. */
+.browser {
+    display: flex;
+    flex-direction: column;
+    max-height: min(56vh, 520px);
+    overflow-y: auto;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+}
+
+.browser__path {
+    word-break: break-all;
+}
+
+.browser__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: 40px;
+    padding: var(--space-2) var(--space-3);
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--color-line);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+    cursor: pointer;
+}
+
+.browser__row:last-child {
+    border-bottom: 0;
+}
+
+.browser__row:hover {
+    background: var(--color-sunken);
+}
+
+.browser__row[aria-pressed='true'] {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-text);
+}
+
+.browser__folder {
+    color: var(--color-text-muted);
+}
+
+.browser > .text-sm {
+    padding: var(--space-3);
+}
+
+/* Kaydet düğmesi hourğda, açıklaması immediately subında. */
+.save-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-1, 4px);
+}
+
+/* Ayarlar info satırları: long path ve argümanlar kutudan taşmaz, satıra kırılır. */
+[data-comfy-info] .facts__value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Settings › Assistant: scheduled tasks, lasting notes, skills, MCP servers (one card each) */
+.assistant-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+}
+
+.assistant-item__name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.assistant-item__text {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.assistant-item__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+}
+
+.assistant-item .row-actions,
+.assistant-item__controls {
+    flex-wrap: wrap;
+    margin-top: var(--space-1);
+}
+
+.assistant-item__number {
+    width: 7em;
+}
+
+.assistant-item__limit {
+    align-items: center;
+}
+
+.assistant-form {
+    padding-top: var(--space-2);
+}
+
+.assistant-form__title {
+    margin: 0;
+    font-size: var(--text-md);
+}

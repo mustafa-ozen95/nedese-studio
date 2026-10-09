@@ -1,0 +1,2255 @@
+/*
+ * Chat / agent section (web/chat.js): chat list on the left, messages and the composer on the right.
+ * On phones the list opens and closes at the top; the composer sticks to the bottom of the page scroller.
+ */
+
+/*
+ * The chat fills the visible page (the section, its inner box and the chat are a column that takes the page's height):
+ * the rows on top stay where they are and only the messages scroll, inside their own box. Sticky layers over a
+ * scrolling page flickered on phones while the tab row hid and came back (user report 08.10.2026), and the "New chat"
+ * row looked glued to the top.
+ */
+[data-section='chat']:not([hidden]) {
+    height: 100%;
+}
+
+[data-section='chat'] .page__inner {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.chat {
+    display: grid;
+    flex: 1;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: var(--space-5);
+    align-items: stretch;
+    min-height: 0;
+}
+
+.chat__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* The list scrolls as a whole: its parts keep their height (they shrank and clipped the items) */
+.chat__list > * {
+    flex-shrink: 0;
+}
+
+/* Delete: in the chat header on wide screens, at the right of the list row on phones */
+.chat__delete--row {
+    display: none;
+}
+
+.chat__list-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+/* Search opens from the magnifier icon (the box is not shown all the time); New chat at the right of the row */
+.chat__search-toggle {
+    color: var(--color-text-secondary);
+}
+
+.chat__new {
+    gap: 6px;
+    margin-left: auto;
+}
+
+.chat__search-toggle[aria-expanded='true'] {
+    background: var(--color-hover);
+    color: var(--color-text);
+}
+
+.chat__items {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.chat__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text);
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+}
+
+.chat__item:hover {
+    background: var(--color-hover);
+}
+
+.chat__item[aria-current='true'] {
+    background: var(--color-selected);
+}
+
+.chat__item--sub {
+    padding-left: var(--space-5);
+    font-size: 0.92em;
+    color: var(--color-text-secondary);
+}
+
+.chat__item-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.chat__item-name,
+.chat__item-match {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.chat__item-match {
+    color: var(--color-text-muted);
+    font-size: 0.82em;
+}
+
+.chat__search,
+.chat__search-sort {
+    flex: none;
+}
+
+.chat__more {
+    align-self: flex-start;
+}
+
+/* Infinite scroll: the next page loads when this comes into view */
+.chat__sentinel {
+    height: 1px;
+}
+
+.chat__tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+/* Options (approval mode, text model): an icon in the composer; the popover opens above it */
+/* The popovers open from the composer's left edge (the composer box is their position context), so they always fit */
+.chat__options {
+    position: static;
+}
+
+.chat__options-button {
+    gap: 6px;
+    color: var(--color-text-secondary);
+}
+
+.chat__options-button--auto {
+    color: var(--color-orange-fg, var(--color-text-secondary));
+}
+
+.chat__options-label {
+    max-width: 180px;
+    overflow: hidden;
+    font-size: 0.85em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.chat__options-label:empty {
+    display: none;
+}
+
+.chat__options-panel {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: var(--space-2);
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    width: min(340px, calc(100% - 2 * var(--space-2)));
+    max-height: 60dvh;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-overlay);
+}
+
+.chat__options-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.chat__options-title {
+    padding: 2px var(--space-2);
+    color: var(--color-text-muted);
+    font-size: 0.75em;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.chat__option {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: 6px var(--space-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.chat__option:hover {
+    background: var(--color-hover);
+}
+
+.chat__option input {
+    flex: none;
+    margin-top: 3px;
+    accent-color: var(--color-accent);
+}
+
+.chat__option-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.chat__option-name {
+    overflow: hidden;
+    font-size: 0.92em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.chat__option-note {
+    color: var(--color-text-muted);
+    font-size: 0.8em;
+}
+
+/* Assistant presets: the open chat's one, the button that opens their window */
+.chat__options-note {
+    padding: 2px var(--space-2);
+    font-size: 0.92em;
+}
+
+.chat__options-manage {
+    align-self: flex-start;
+}
+
+.preset-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.preset-list__item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.preset-list__item:hover {
+    background: var(--color-hover);
+}
+
+.preset-list__item--current {
+    border-color: var(--color-accent-edge);
+    background: var(--color-accent-soft);
+}
+
+.preset-list__name {
+    font-weight: 600;
+}
+
+.preset-list__note {
+    overflow: hidden;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.preset-form__title {
+    margin: 0;
+    font-size: var(--text-md);
+}
+
+/* Knowledge window: the documents (a box to use one in this chat, its name and size, Remove), a search to try */
+.knowledge__list,
+.knowledge__results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.knowledge__results:empty {
+    display: none;
+}
+
+.knowledge__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+}
+
+.knowledge__item input[type='checkbox'] {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-accent);
+}
+
+.knowledge__item-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.knowledge__name {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.knowledge__meta {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+}
+
+.knowledge__remove {
+    flex: none;
+}
+
+.knowledge__search {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.knowledge__search .input {
+    flex: 1;
+    min-width: 0;
+}
+
+.knowledge__result {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--color-accent-edge);
+    background: var(--color-sunken);
+    border-radius: var(--radius-sm);
+}
+
+.knowledge__result-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+}
+
+.knowledge__result-text {
+    font-size: var(--text-sm);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.chat__usage {
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.chat__status .chat__usage:not(:first-child)::before {
+    content: '· ';
+}
+
+/* Where the conversation was compacted (the summary the model keeps opens on click) */
+.chat__note {
+    align-self: stretch;
+    color: var(--color-text-muted);
+    font-size: 0.88em;
+    text-align: center;
+}
+
+.chat__note > summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.chat__note > summary::before,
+.chat__note > summary::after {
+    content: ' —— ';
+    opacity: 0.5;
+}
+
+.chat__note-body {
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+    border: 1px dashed var(--color-line-strong);
+    border-radius: var(--radius);
+    text-align: left;
+    white-space: pre-wrap;
+}
+
+.chat__main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* The chat header stays at the top while the messages scroll (below the list row on phones: --chat-list-h) */
+.chat__head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.chat__context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 2px var(--space-2) 4px;
+}
+
+.chat__compact {
+    margin-left: auto;
+}
+
+.chat__context-bar {
+    flex: 1;
+    height: 6px;
+    overflow: hidden;
+    border-radius: var(--radius-full);
+    background: var(--color-sunken);
+}
+
+.chat__context-fill {
+    display: block;
+    height: 100%;
+    background: var(--color-accent);
+}
+
+.chat__context-fill--high {
+    background: var(--color-orange-fg);
+}
+
+.chat__option input[type='checkbox'] {
+    flex: none;
+    margin-top: 3px;
+    accent-color: var(--color-accent);
+}
+
+/* The title and the pencil that renames it, side by side (user request 08.10.2026: a smaller title, an edit icon next
+   to it instead of clicking the text) */
+.chat__name {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.chat__title {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.chat__messages {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-height: 0;
+    /* The scrollbar sits in the page's right padding, beside the cards (phones draw it over the content) */
+    margin-right: calc(-1 * var(--chat-edge, var(--space-5)));
+    padding: var(--space-4) var(--chat-edge, var(--space-5)) var(--space-4) 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+.chat__empty {
+    margin: auto;
+    max-width: 560px;
+    text-align: center;
+    color: var(--color-text-muted);
+}
+
+.chat__suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+}
+
+.chat__status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 1.5em;
+    color: var(--color-text-secondary);
+    font-size: 0.92em;
+}
+
+.chat__status .dot {
+    animation: chat-pulse 1.2s ease-in-out infinite;
+}
+
+/* The line's parts (chat.js): what runs now, the tokens, the background button (user request 09.10.2026) */
+.chat__status {
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.chat__status-work,
+.chat__status-usage {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.chat__status-work:empty,
+.chat__status-usage:empty {
+    display: none;
+}
+
+.chat__status-work:not(:empty) ~ .chat__status-usage > .chat__usage::before,
+.chat__status-work:not(:empty) ~ .chat__background-toggle > :first-child::before {
+    content: '· ';
+}
+
+.chat__status-parent[hidden],
+.chat__background-toggle[hidden] {
+    display: none;
+}
+
+.chat__background-toggle {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 6px;
+    min-width: 0;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.chat__background-toggle:hover,
+.chat__background-toggle[aria-expanded='true'] {
+    background: var(--color-hover);
+}
+
+.chat__background-toggle:focus-visible {
+    outline: 2px solid var(--color-focus, currentColor);
+    outline-offset: 1px;
+}
+
+.chat__background-toggle > .chat__background-count {
+    color: var(--color-text);
+}
+
+.chat__background-toggle > .chat__background-count:not(:first-child)::before {
+    content: '· ';
+    color: var(--color-text-muted);
+}
+
+.chat__background-chevron {
+    width: 0.45em;
+    height: 0.45em;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+}
+
+.chat__background-toggle[aria-expanded='true'] .chat__background-chevron {
+    transform: translateY(1px) rotate(-135deg);
+}
+
+/* Its list: one row per sub-agent or background item, stacked right above the composer */
+.chat__background {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 40dvh;
+    margin-bottom: var(--space-2);
+    padding: var(--space-1);
+    overflow-y: auto;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.chat__background[hidden] {
+    display: none;
+}
+
+.chat__background-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 4px var(--space-2);
+    border-radius: var(--radius-sm);
+}
+
+.chat__background-item:hover {
+    background: var(--color-hover);
+}
+
+.chat__background-item > .dot {
+    flex: none;
+}
+
+.chat__background-item--running > .dot {
+    animation: chat-pulse 1.2s ease-in-out infinite;
+}
+
+.chat__background-item > .btn {
+    flex: none;
+}
+
+.chat__background-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.chat__background-name {
+    overflow: hidden;
+    font-size: 0.92em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.chat__background-meta {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+    color: var(--color-text-muted);
+    font-size: 0.8em;
+    font-variant-numeric: tabular-nums;
+}
+
+.chat__background-meta > span {
+    overflow: hidden;
+    max-width: 100%;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.chat__background-meta > span + span::before {
+    content: ' · ';
+    white-space: pre;
+}
+
+/* What woke the chat from the background, between the messages */
+.chat__note--wake > summary > .chat__note-id {
+    margin-left: 0.4em;
+    font-family: var(--font-mono, monospace);
+    opacity: 0.8;
+}
+
+@keyframes chat-pulse {
+    50% {
+        opacity: 0.3;
+    }
+}
+
+/* Messages */
+.message {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-width: min(820px, 100%);
+}
+
+.message--user {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+.message__bubble {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    overflow-wrap: anywhere;
+    line-height: 1.55;
+}
+
+.message--user .message__bubble {
+    border-color: var(--color-accent-edge);
+    background: var(--color-accent-soft);
+    white-space: pre-wrap;
+}
+
+.message--assistant .message__bubble {
+    padding-inline: 0;
+    border: 0;
+    background: transparent;
+}
+
+.message--error .message__bubble {
+    color: var(--color-red-fg);
+}
+
+/* Actions under a message (rating; on the user's messages: edit, branches): quiet until hovered or chosen */
+/* Source links under an answer that used the web (user request 08.10.2026): one chip per site, they wrap on phones */
+.message__sources {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.message__sources-label {
+    margin-right: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+}
+
+.message__source {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    min-height: 28px;
+    padding: 0 var(--space-2);
+    overflow: hidden;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-full);
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.message__source:hover,
+.message__source:focus-visible {
+    border-color: var(--color-accent-edge);
+    background: var(--color-accent-soft);
+    color: var(--color-text);
+}
+
+/* Follow-up suggestions under the last answer (user request 08.10.2026): one per line, a click sends it */
+.message__follow-ups {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.message__follow-ups-label {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+}
+
+.message__follow-up {
+    max-width: 100%;
+    min-height: 32px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-lg);
+    background: transparent;
+    color: var(--color-text-secondary);
+    font: inherit;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.message__follow-up:hover,
+.message__follow-up:focus-visible {
+    border-color: var(--color-accent-edge);
+    background: var(--color-accent-soft);
+    color: var(--color-text);
+}
+
+.message__actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-top: calc(-1 * var(--space-1));
+    color: var(--color-text-muted);
+}
+
+.message__action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    min-width: 32px;
+    height: 32px;
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+}
+
+.message__action:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+}
+
+.message__action:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.message__action[data-rate='1'][aria-pressed='true'] {
+    color: var(--color-green-fg);
+}
+
+.message__action[data-rate='-1'][aria-pressed='true'] {
+    color: var(--color-red-fg);
+}
+
+.message__action[aria-pressed='true'] svg {
+    fill: currentColor;
+    fill-opacity: 0.25;
+}
+
+/* The user's messages: Edit shows on hover with a mouse (always on touch screens); the version switcher always */
+@media (hover: hover) {
+    .message--user .message__actions:not(:has([data-branch-label])) {
+        opacity: 0;
+        transition: opacity 0.15s;
+    }
+
+    .message--user:hover .message__actions,
+    .message--user .message__actions:focus-within {
+        opacity: 1;
+    }
+}
+
+.message__branch {
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Editing a message: the box takes the column's width */
+.message--editing {
+    align-self: stretch;
+    max-width: 100%;
+}
+
+.message__edit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    width: 100%;
+}
+
+.message__edit-input.textarea {
+    width: 100%;
+    height: auto;
+    resize: vertical;
+}
+
+.message__bubble p {
+    margin: 0 0 var(--space-2);
+}
+
+.message__bubble p:last-child {
+    margin-bottom: 0;
+}
+
+.message__bubble pre {
+    margin: var(--space-2) 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--color-sunken);
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 0.9em;
+}
+
+.message__bubble code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.92em;
+}
+
+/* An HTML or SVG code block: its language and the Preview button above it */
+.message__code {
+    margin: var(--space-2) 0;
+}
+
+.message__code-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    background: var(--color-sunken);
+    border-bottom: 1px solid var(--color-line);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+}
+
+.message__code pre {
+    margin: 0;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.message__code-buttons {
+    display: flex;
+    flex: none;
+    gap: var(--space-1);
+}
+
+.message__code-lang {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.message__action[data-copied='true'] {
+    color: var(--color-green-fg);
+}
+
+/* Syntax colors (js/highlight.js): the same roles in both themes, darker on the light one */
+.message__bubble pre code {
+    --hl-comment: var(--color-text-muted);
+    --hl-keyword: #c792ea;
+    --hl-string: #a5d6a7;
+    --hl-number: #f7a76c;
+    --hl-fn: #82aaff;
+    --hl-prop: #7fdbca;
+    --hl-tag: #f07178;
+    --hl-attr: #ffcb6b;
+}
+
+:root[data-theme='light'] .message__bubble pre code {
+    --hl-comment: var(--color-text-muted);
+    --hl-keyword: #8a3ab9;
+    --hl-string: #22863a;
+    --hl-number: #b35900;
+    --hl-fn: #005cc5;
+    --hl-prop: #00707a;
+    --hl-tag: #b31d28;
+    --hl-attr: #8a6100;
+}
+
+.hl-comment {
+    color: var(--hl-comment);
+    font-style: italic;
+}
+
+.hl-keyword {
+    color: var(--hl-keyword);
+}
+
+.hl-string {
+    color: var(--hl-string);
+}
+
+.hl-number,
+.hl-literal {
+    color: var(--hl-number);
+}
+
+.hl-fn {
+    color: var(--hl-fn);
+}
+
+.hl-prop,
+.hl-var {
+    color: var(--hl-prop);
+}
+
+.hl-tag,
+.hl-meta {
+    color: var(--hl-tag);
+}
+
+.hl-attr {
+    color: var(--hl-attr);
+}
+
+/* Quote: beside text selected in an answer */
+.chat__quote {
+    position: fixed;
+    z-index: var(--z-toast);
+    min-height: 36px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-accent-edge);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: var(--shadow-overlay);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.chat__quote[hidden] {
+    display: none;
+}
+
+.message__preview-button {
+    color: var(--color-text);
+    font-weight: 600;
+}
+
+/* The preview beside the chat (full screen on phones); the page runs in a sandboxed frame */
+.artifact {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    flex-direction: column;
+    width: min(760px, 50vw);
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-line);
+    box-shadow: var(--shadow-overlay);
+}
+
+.artifact__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.artifact__title {
+    font-weight: 600;
+}
+
+.artifact__frame {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    background: #fff;
+}
+
+@media (max-width: 900px) {
+    .artifact {
+        left: 0;
+        width: 100%;
+        border-left: 0;
+    }
+}
+
+.message__bubble ul,
+.message__bubble ol {
+    margin: 0 0 var(--space-2);
+    padding-left: 1.3em;
+}
+
+/* The model's thinking (user request 08.10.2026): folded above its answer, open while it is written */
+.message__thinking {
+    color: var(--color-text-muted);
+    font-size: 0.88em;
+}
+
+.message__thinking > summary {
+    width: fit-content;
+    cursor: pointer;
+    user-select: none;
+}
+
+.message--live .message__thinking[open] > summary {
+    animation: chat-pulse 1.2s ease-in-out infinite;
+}
+
+.message__thinking-body {
+    max-height: 40vh;
+    margin-top: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    overflow-y: auto;
+    border-left: 2px solid var(--color-line-strong);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+}
+
+/* Full Markdown in answers (user request 08.10.2026): nested lists, tasks, headings, quotes, rules, links, tables;
+   colors from the theme tokens, so light and dark both work */
+.message__bubble li > ul,
+.message__bubble li > ol {
+    margin: var(--space-1) 0 0;
+}
+
+.message__bubble li + li {
+    margin-top: 2px;
+}
+
+.message__task {
+    list-style: none;
+    margin-left: -1.3em;
+}
+
+.message__task input {
+    margin: 0 0.45em 0 0;
+    vertical-align: -0.1em;
+}
+
+.message__heading {
+    margin: var(--space-4) 0 var(--space-2);
+    line-height: 1.3;
+    font-weight: 650;
+}
+
+.message__heading:first-child {
+    margin-top: 0;
+}
+
+.message__heading--1 {
+    font-size: 1.3em;
+}
+
+.message__heading--2 {
+    font-size: 1.15em;
+}
+
+.message__heading--3,
+.message__heading--4 {
+    font-size: 1.02em;
+}
+
+.message__bubble blockquote {
+    margin: 0 0 var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border-left: 3px solid var(--color-line-strong);
+    color: var(--color-text-secondary);
+}
+
+.message__bubble hr {
+    margin: var(--space-3) 0;
+    border: 0;
+    border-top: 1px solid var(--color-line);
+}
+
+.message__bubble a {
+    color: var(--color-blue-fg);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.message__bubble :not(pre) > code {
+    padding: 0.08em 0.35em;
+    border-radius: var(--radius-sm);
+    background: var(--color-sunken);
+}
+
+/* Wide tables scroll inside the bubble (phones), never the page */
+.message__table {
+    max-width: 100%;
+    margin: 0 0 var(--space-2);
+    overflow-x: auto;
+}
+
+.message__table table {
+    border-collapse: collapse;
+    font-size: 0.94em;
+}
+
+.message__table th,
+.message__table td {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line);
+    text-align: left;
+    vertical-align: top;
+    /* The bubble breaks words anywhere; in a table that let a column shrink to one letter a line (09.10.2026,
+       phone: "Size" read S-i-z-e). Cells wrap at spaces only; a wider table scrolls in its box. */
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+.message__table th {
+    background: var(--color-sunken);
+    font-weight: 600;
+}
+
+.message__table .message__cell--center {
+    text-align: center;
+}
+
+.message__table .message__cell--right {
+    text-align: right;
+}
+
+.message__table .message__cell--nowrap {
+    white-space: nowrap;
+}
+
+.message__media {
+    display: block;
+    max-width: min(480px, 100%);
+    max-height: 60vh;
+    margin-top: var(--space-2);
+    border-radius: var(--radius-sm);
+}
+
+.message__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.message__attachments > a {
+    display: block;
+    line-height: 0;
+}
+
+.message__attachment {
+    width: 96px;
+    height: 96px;
+    object-fit: cover;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+}
+
+/* Files on a message and in the composer (a PDF, a workbook, code): the type over the name, long names cut */
+.message__files {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    max-width: 100%;
+}
+
+.file-chip {
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    width: 168px;
+    max-width: 100%;
+    min-height: 52px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+a.file-chip:hover,
+a.file-chip:focus-visible {
+    border-color: var(--color-accent-edge);
+}
+
+.file-chip__type {
+    color: var(--color-accent-text);
+    font-size: 0.72em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.file-chip__name {
+    overflow: hidden;
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Tool call card */
+.tool {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    background: var(--color-sunken);
+    font-size: 0.93em;
+}
+
+.tool > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    list-style: none;
+}
+
+.tool > summary::-webkit-details-marker {
+    display: none;
+}
+
+.tool__name {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-weight: 600;
+}
+
+.tool__summary {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--color-text-secondary);
+}
+
+.tool__body {
+    padding: 0 var(--space-3) var(--space-3);
+}
+
+.tool__body pre {
+    max-height: 320px;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-2);
+    overflow: auto;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.88em;
+}
+
+.tool__outputs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.tool__outputs .message__media {
+    max-width: min(360px, 100%);
+    margin: 0;
+}
+
+.approval-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-orange-fg);
+    border-radius: var(--radius-sm);
+    background: var(--color-orange-bg);
+}
+
+.approval-card pre {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.88em;
+}
+
+/* Always allow: the rules an approval offers (on its card) and those a chat keeps (in its Options) */
+.approval-card__allow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+}
+
+.allow-rule {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    padding: 2px 8px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    font-size: 0.88em;
+    overflow-wrap: anywhere;
+}
+
+.allow-rule__kind {
+    color: var(--color-text-muted);
+}
+
+.allow-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+}
+
+/* Composer: sticks to the bottom of the page scroller */
+.chat__compose {
+    flex: none;
+    padding: var(--space-3) 0 var(--space-2);
+}
+
+.chat__box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+}
+
+/* Slash command suggestions ("/" in the box), above the composer */
+.chat__commands {
+    position: absolute;
+    right: var(--space-2);
+    bottom: calc(100% + 6px);
+    left: var(--space-2);
+    z-index: 30;
+    max-height: 50dvh;
+    overflow-y: auto;
+    padding: var(--space-1);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-overlay);
+}
+
+.chat__command {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: 6px var(--space-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.chat__command[aria-selected='true'],
+.chat__command:hover {
+    background: var(--color-hover);
+}
+
+.chat__command-name {
+    flex: none;
+    min-width: 6.5em;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+.chat__command-note {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text-muted);
+    font-size: 0.85em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* A prompt template's variables, asked for above the composer */
+.chat__template {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+}
+
+.chat__template-title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+}
+
+.chat__help {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* File edit: path, +added −removed, Undo, colored diff lines */
+.diff {
+    overflow: hidden;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+    background: var(--color-sunken);
+}
+
+.diff__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 2px var(--space-2);
+    border-bottom: 1px solid var(--color-line);
+    font-size: 0.85em;
+}
+
+.diff__path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.diff__add,
+.diff__line--add {
+    color: var(--color-green-fg);
+}
+
+.diff__del,
+.diff__line--del {
+    color: var(--color-red-fg);
+}
+
+.diff__body {
+    /* one column as wide as the longest line: scrolled sideways, every line keeps its colour to the end (09.10.2026) */
+    display: grid;
+    max-height: 280px;
+    margin: 0;
+    overflow: auto;
+    padding: 4px 0;
+    font-size: 0.8em;
+    line-height: 1.45;
+}
+
+.diff__line {
+    display: block;
+    min-width: max-content;
+    padding: 0 var(--space-2);
+    white-space: pre;
+}
+
+.diff__line--add {
+    background: var(--color-green-bg);
+}
+
+.diff__line--del {
+    background: var(--color-red-bg);
+}
+
+.diff__line--hunk {
+    color: var(--color-text-muted);
+}
+
+.diff__more {
+    padding: 2px var(--space-2) 4px;
+}
+
+/* Edited files of a turn: "Edited N files +X −Y", a row per file (its diffs open under it), "Show N more" */
+.edits {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+    background: var(--color-sunken);
+    font-size: 0.93em;
+}
+
+.edits__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    list-style: none;
+}
+
+.edits__head::-webkit-details-marker,
+.edits__file > summary::-webkit-details-marker {
+    display: none;
+}
+
+/* a chevron after the totals: down when the list is open */
+.edits__head::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    margin-left: 2px;
+    border-right: 1.5px solid var(--color-text-muted);
+    border-bottom: 1.5px solid var(--color-text-muted);
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform 0.15s ease;
+}
+
+.edits:not([open]) > .edits__head::after {
+    transform: rotate(-45deg);
+}
+
+.edits__title {
+    font-weight: 600;
+}
+
+.edits__head .diff__stat,
+.edits__file .diff__stat {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+.edits__list {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-1);
+    border-top: 1px solid var(--color-line);
+}
+
+.edits__file > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 5px var(--space-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    list-style: none;
+}
+
+.edits__file > summary:hover,
+.edits__file[open] > summary {
+    background: var(--color-hover);
+}
+
+.edits__name {
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.edits__folder {
+    flex: none;
+    max-width: 30%;
+    overflow: hidden;
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.edits__tag {
+    flex: none;
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    background: var(--color-green-bg);
+    color: var(--color-green-fg);
+    font-size: 0.78em;
+}
+
+.edits__mark {
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    width: 24px;
+    height: 17px;
+    border-radius: 4px;
+    background: var(--color-gray-bg);
+    color: var(--color-gray-fg);
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.edits__mark--js {
+    background: var(--color-yellow-bg);
+    color: var(--color-yellow-fg);
+}
+
+.edits__mark--ts,
+.edits__mark--css {
+    background: var(--color-blue-bg);
+    color: var(--color-blue-fg);
+}
+
+.edits__mark--html {
+    background: var(--color-orange-bg);
+    color: var(--color-orange-fg);
+}
+
+.edits__mark--json {
+    background: var(--color-purple-bg);
+    color: var(--color-purple-fg);
+}
+
+.edits__mark--py {
+    background: var(--color-green-bg);
+    color: var(--color-green-fg);
+}
+
+.edits__mark--sh {
+    background: var(--color-pink-bg);
+    color: var(--color-pink-fg);
+}
+
+.edits__diffs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: var(--space-1) 0 var(--space-2);
+    overflow: hidden;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+}
+
+.edits__more {
+    align-self: flex-start;
+    padding: 5px var(--space-2);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: 0.92em;
+    cursor: pointer;
+}
+
+.edits__more:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+}
+
+/* The answer while it is being written: a blinking caret at the end */
+.message--live .message__bubble > :last-child::after {
+    content: '▍';
+    margin-left: 1px;
+    animation: chat-caret 1s steps(1) infinite;
+    color: var(--color-accent);
+}
+
+@keyframes chat-caret {
+    50% {
+        opacity: 0;
+    }
+}
+
+.chat__box.dragging {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.chat__box textarea {
+    width: 100%;
+    min-height: 2.6em;
+    max-height: 40vh;
+    resize: none;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    line-height: 1.5;
+}
+
+/* One row: a long model name shortens with "…" instead of pushing Send to the next line (user report 08.10.2026) */
+.chat__bar {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.chat__bar > * {
+    flex: none;
+}
+
+.chat__bar > .chat__options:first-of-type {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.chat__bar > .chat__options:first-of-type .chat__options-button {
+    max-width: 100%;
+    min-width: 0;
+    flex-shrink: 1;
+}
+
+.chat__options-button svg {
+    flex: none;
+}
+
+.chat__options-button .chat__options-label {
+    min-width: 0;
+}
+
+.chat__bar > .chat__spacer {
+    flex: 1 1 0;
+}
+
+/* Send and Stop: square buttons with an icon, like other chat apps (user request 08.10.2026) */
+.chat__send {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 10px;
+}
+
+.chat__send svg {
+    display: block;
+}
+
+/* Stop takes Send's place while the chat runs: filled, in the text color (light on the dark theme) */
+.chat__stop {
+    background: var(--color-text);
+    border-color: var(--color-text);
+    color: var(--color-text-inverse);
+}
+
+.chat__spacer {
+    flex: 1;
+}
+
+.chat__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.chat__attachments:empty {
+    display: none;
+}
+
+.attachment-chip {
+    position: relative;
+}
+
+.attachment-chip img {
+    width: 64px;
+    height: 64px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+}
+
+.attachment-chip button {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-text);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.attachment-chip--uploading {
+    opacity: 0.5;
+}
+
+.attachment-chip--file .file-chip {
+    width: 156px;
+    height: 64px;
+    background: var(--color-sunken);
+}
+
+.chat__list-toggle {
+    display: none;
+}
+
+/* Phones / narrow screens: the list sits on top and opens on demand */
+@media (max-width: 900px) {
+    /* One column: the list row on top (opens downwards), the chat below it takes the rest */
+    .chat {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: var(--space-3);
+    }
+
+    /* Open list: at most 45% of the screen (a percentage resolved against its own grid row and left a blank gap) */
+    .chat__list {
+        max-height: 45dvh;
+    }
+
+    /* the page's side padding on phones (layout.css .page__inner) */
+    .chat {
+        --chat-edge: var(--space-3);
+    }
+
+    /* Closed: just the row (Chats, New, search … Delete); nothing to scroll */
+    .chat__list:not(.open) {
+        max-height: 48px;
+        overflow: visible;
+    }
+
+    .chat__delete--row {
+        display: block;
+    }
+
+    /* Phones: New chat is just the icon */
+    .chat__new-label {
+        display: none;
+    }
+
+    .chat__head .chat__delete {
+        display: none;
+    }
+
+    .chat__list-toggle {
+        display: inline-flex;
+    }
+
+
+    .chat__list:not(.open) .chat__items,
+    .chat__list:not(.open) .chat__search,
+    .chat__list:not(.open) .chat__search-sort,
+    .chat__list:not(.open) .chat__more {
+        display: none;
+    }
+
+
+    .chat__head {
+        flex-wrap: wrap;
+    }
+
+
+    .message {
+        max-width: 100%;
+    }
+}
+
+/* Training section sub-tabs (Model training / Data collection): parts of the other tab are not shown.
+ * The `hidden` attribute is not used: app.js controls some parts' visibility itself (the install warning). */
+[data-section='training'][data-training-open='data'] [data-training-part='model'],
+[data-section='training']:not([data-training-open='data']) [data-training-part='data'] {
+    display: none !important;
+}
+
+/* The chat screen uses the whole page: no "Made by" footer below the composer, little padding at the bottom */
+.page:has([data-section='chat']:not([hidden])) .page-foot {
+    display: none;
+}
+
+[data-section='chat'] .page__inner {
+    padding-bottom: var(--space-2);
+}
+
+/* ask_user: the agent's question with options and a free answer */
+.question-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--color-blue-fg, var(--color-accent));
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+}
+
+.question-card__text {
+    white-space: pre-wrap;
+}
+
+.question-card__options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+/* The answer box takes the button's height (the phone rule made inputs taller than small buttons) */
+.question-card__free {
+    display: flex;
+    align-items: stretch;
+    gap: var(--space-2);
+}
+
+.question-card__free .input {
+    flex: 1;
+    min-width: 0;
+    height: auto;
+    padding-block: 0;
+}
+
+.question-card__free .btn {
+    height: auto;
+    min-height: 32px;
+}
+
+.chat__rule {
+    display: flex;
+    flex-direction: column;
+    padding: 2px var(--space-2);
+}
+
+.chat__rule-link {
+    padding: 2px var(--space-2);
+}
+
+/* Rename (the chat menu) puts this field in place of the title */
+.chat__title-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* A message sent while the chat runs, until the assistant takes it at its next step */
+.message--queued .message__bubble {
+    opacity: 0.7;
+}
+
+.message__queued {
+    margin-top: var(--space-1);
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    text-align: right;
+}
+
+/*
+ * Phones: no scroll box inside the scrolling chat. iOS Safari left the part of a tool output scrolled into view inside
+ * its own box half painted and faded (user report 08.10.2026, light theme: "yazıların bi kısmı okunmuyor"); the card is
+ * closed by default, so an open one may simply be as long as its output.
+ */
+@media (pointer: coarse) {
+    .tool__body pre {
+        max-height: none;
+        overflow: visible;
+    }
+}
+
+/* Running agents: a button in the chat header while any chat or agent works; its panel lists them */
+.chat__running-box {
+    position: relative;
+}
+
+.chat__running {
+    gap: 6px;
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.chat__running .dot {
+    animation: chat-pulse 1.2s ease-in-out infinite;
+}
+
+.chat__running-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: min(360px, calc(100vw - 2 * var(--space-4)));
+    max-height: 60dvh;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-overlay);
+}
+
+.chat__running-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    border-radius: var(--radius-sm);
+}
+
+.chat__running-item:hover,
+.chat__running-item--current {
+    background: var(--color-hover);
+}
+
+.chat__running-open {
+    display: flex;
+    flex: 1;
+    align-items: flex-start;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 6px var(--space-2);
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.chat__running-open .dot {
+    flex: none;
+    margin-top: 6px;
+}
+
+.chat__running-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.chat__running-name {
+    overflow: hidden;
+    font-size: 0.92em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.chat__running-meta {
+    display: flex;
+    flex-wrap: wrap;
+    color: var(--color-text-muted);
+    font-size: 0.8em;
+    font-variant-numeric: tabular-nums;
+}
+
+.chat__running-meta > span + span::before {
+    content: ' · ';
+    white-space: pre;
+}
+
+/* Under a chat: its sub-agents and background items, indented by depth; Stop all beside the title */
+.chat__running-item[style*='--depth'] {
+    margin-left: calc(var(--depth, 0) * 14px);
+}
+
+.chat__running-open--static {
+    cursor: default;
+}
+
+.chat__running-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+/* Pinned chats above the others, archived ones apart, temporary chats (user request 08.10.2026) */
+.chat__group-title {
+    padding: var(--space-2) var(--space-3) 2px;
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.chat__group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 0 0 var(--space-1) var(--space-3);
+    font-weight: 600;
+}
+
+.chat__item-mark {
+    flex: none;
+    color: var(--color-text-muted);
+}
+
+.chat__item-tag {
+    flex: none;
+    padding: 0 6px;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-full);
+    color: var(--color-text-muted);
+    font-size: 0.72em;
+}
+
+.chat__menu-box {
+    position: relative;
+}
+
+.chat__menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: min(260px, calc(100vw - 2 * var(--space-4)));
+    padding: var(--space-2);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-overlay);
+}
+
+.chat__menu-item {
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.chat__menu-item:hover,
+.chat__menu-item:focus-visible {
+    background: var(--color-hover);
+}
+
+.chat__menu-separator {
+    height: 1px;
+    margin: 2px 0;
+    background: var(--color-line);
+}
+
+.chat__temporary {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px dashed var(--color-line-strong);
+    border-radius: var(--radius);
+    color: var(--color-text-secondary);
+    font-size: 0.9em;
+}
+
+.chat__temporary[hidden] {
+    display: none;
+}
+
+@media (max-width: 900px) {
+    .chat__list:not(.open) .chat__archived-button,
+    .chat__list:not(.open) .chat__import-button {
+        display: none;
+    }
+}

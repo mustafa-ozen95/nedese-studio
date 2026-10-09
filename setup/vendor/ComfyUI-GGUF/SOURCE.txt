@@ -1,0 +1,5 @@
+Source: https://github.com/city96/ComfyUI-GGUF  commit 6ea2651e7df66d7585f6ffee804b20e92fb38b8a  license Apache-2.0 (LICENSE)
+Kept in the repository so the version stays fixed and setup works even if the upstream repository disappears. No changes.
+Setup (setup\setup.ps1) copies this folder into ComfyUI_windows_portable\ComfyUI\custom_nodes\.
+
+Note: the upstream .gitignore was removed (it ignored files in this repository).

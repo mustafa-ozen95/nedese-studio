@@ -1,0 +1,365 @@
+/*
+ * Galeri — AI Panel'e özgü: çıktı cardsı, media kutusu, görsel seçici.
+ *
+ * Kart bir `.panel`dir (çizgiyle detailılmış bölüm, gölgesiz); üstünde media
+ * kutusu durur. Izgara `.panel-grid` gibi aralığı KAP verir; diffı
+ * `auto-fill`: single card ekranı boydan boya kaplamaz, sütun genişliği sabit kalır
+ * (bir görsel cardının 1600px'e gerilmesi önizlemeyi anlamsızlaştırıyordu).
+ */
+
+.gallery {
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+    /* Aynı satırdaki cards eşit boyda (içerik kıhour da olsa). */
+    align-items: stretch;
+}
+
+.gallery > .panel,
+.gallery > .panel + .panel {
+    margin-top: 0;
+}
+
+/* Boş status ve single satırlık note ızgarada bir hücreye sıkışmaz, satırı kaplar. */
+.gallery > .empty,
+.gallery > p,
+.picker > .empty,
+.picker > p {
+    grid-column: 1 / -1;
+}
+
+/* Yan sütundaki "last işler": daha dar cards. */
+.gallery--narrow {
+    gap: var(--space-3);
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+}
+
+.gallery-card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Kartın gövdesi sık: panel gövdesinin blocks arası boşluğu kartta max. */
+.gallery-card .panel__body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    padding: var(--space-3);
+}
+
+.gallery-card .panel__body > * + * {
+    margin-top: var(--space-2);
+}
+
+.gallery-card__title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text);
+    /* Tek satırlık başlık da iki satır place kaplar: card boyları değişmez. */
+    min-height: calc(2 * 1.4em);
+    line-height: 1.4;
+}
+
+/* Ayrıntı satırı width çok iki satır, her time iki satır place. */
+.gallery-card__sub {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: calc(2 * 1.45em);
+    line-height: 1.45;
+}
+
+.gallery-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    /* Düğmeler hep cardın dibinde. */
+    margin-top: auto !important;
+    padding-top: var(--space-2);
+}
+
+/* Dar kartta tür ve dateText sığmazsa dateText sub satıra iner (iki satıra bölünmez). */
+.gallery-card .row--between {
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+}
+
+/* Uzun error metni cardı uzatmaz; okı detailıntı penceresinde. */
+.gallery-card__error {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Onaylı actions own formunda durur; form satırı bozmasın. */
+.gallery-card__actions > form,
+.job-actions > form {
+    display: contents;
+}
+
+.job-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+/* ── Medya kutusu ──────────────────────────────────────────────────────── */
+
+.media {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--color-line);
+    background: var(--color-sunken);
+    color: var(--color-text-muted);
+    overflow: hidden;
+}
+
+/* <button> zemini tarayıcıya kalmaz (bkz. base.css: button zemini sıfırlanmaz). */
+button.media {
+    cursor: zoom-in;
+}
+
+/* Kutuya sığar, okı görünür (grid satırı görselin doğget boyuna uzayıp kırpıyordu). */
+.media > img,
+.media > video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.media__badge {
+    position: absolute;
+    right: var(--space-2);
+    bottom: var(--space-2);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    background: var(--color-column);
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.7;
+}
+
+.media--voice {
+    aspect-ratio: auto;
+    padding: var(--space-4) var(--space-3);
+}
+
+/* Çıktısı olmayan iş (sırada, çgetışıyor, error): yalnızca status satırı kadar. */
+.media--empty {
+    aspect-ratio: auto;
+    height: 4.5rem;
+}
+
+.media--voice audio {
+    width: 100%;
+}
+
+/*
+ * Formdaki source görsel kutusu: bırakma fieldı da olduğu için cut çizgi.
+ * Yükseklik sabit: sütun genişliğinde 16:9 box formu ekran boyu itiyordu.
+ */
+.media--source {
+    aspect-ratio: auto;
+    height: 16rem;
+    border: 1px dashed var(--color-line-strong);
+    border-radius: var(--radius);
+}
+
+.media--source[data-drag='over'] {
+    border-color: var(--color-accent-edge);
+    background: var(--color-accent-soft);
+}
+
+.media--small {
+    max-width: 12rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+}
+
+/* ── Önizleme penceresi ────────────────────────────────────────────────── */
+
+.preview-media {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.preview-media img,
+.preview-media video {
+    width: 100%;
+    max-height: 62vh;
+    object-fit: contain;
+    border-radius: var(--radius);
+    background: var(--color-sunken);
+}
+
+.preview-media audio {
+    width: 100%;
+}
+
+/* 3D model: the viewer turned by hand (model-viewer). */
+.model-viewer {
+    width: 100%;
+    height: min(62vh, 640px);
+    border-radius: var(--radius);
+    background: var(--color-sunken);
+    --poster-color: transparent;
+}
+
+/* Until the model has loaded: its source image dimmed under a progress bar, faded out when the model shows. */
+.model-viewer__stage {
+    position: relative;
+}
+
+.model-viewer__loading {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: var(--radius);
+    pointer-events: none;
+    transition: opacity 0.6s ease;
+}
+
+.model-viewer__loading img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0.45;
+    filter: blur(3px);
+}
+
+.model-viewer__loading-text {
+    position: relative;
+    width: min(16rem, 70%);
+    padding: var(--space-3);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--color-sunken) 80%, transparent);
+    text-align: center;
+}
+
+.model-viewer__loading.is-done {
+    opacity: 0;
+}
+
+/* ── Görsel seçici (galeriden seç) ─────────────────────────────────────── */
+
+.picker {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+}
+
+.picker__item {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    text-align: left;
+    cursor: pointer;
+}
+
+.picker__item:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+}
+
+/* Seçim = limon vurgu (vurgunun allowed iki yerinden biri). */
+.picker__item[aria-pressed='true'] {
+    border-color: var(--color-accent-edge);
+    background: var(--color-accent-soft);
+    color: var(--color-accent-text);
+}
+
+.picker__item img {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
+    border-radius: var(--radius-sm);
+    background: var(--color-sunken);
+}
+
+/* Kartta Sil hourğ köşede, öbür eylemlerden detailı. */
+.gallery-card__actions .card-remove {
+    margin-left: auto;
+}
+
+/* Voice seçici satırı: name + tür/süre, subında oynatıcı ve Seç. */
+.voice-picker__row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+}
+
+.voice-picker__row audio {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+}
+
+/* Görsel düzenle: yuvalar (ana görsel full genişlik; references side yana) */
+.edit-slots {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-3);
+}
+
+.edit-slot {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+/* Düzenle: tür seçimi (Görsel | Şarkı | …) page başlığının subında */
+.edit-type {
+    margin-bottom: var(--space-4);
+}
+
+/* Video düzenle: source önizleme ve galeriden seçme listesindeki videolar */
+.edit-video {
+    width: 100%;
+    max-height: 18rem;
+    border-radius: var(--radius);
+    background: var(--color-sunken);
+}
+
+.picker-video {
+    width: 12rem;
+    max-height: 7rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-sunken);
+}
+
+/* Telefonda döndürürken page kaymasın: dokunuşlar yalnız görüntüleyiciye. */
+.model-viewer {
+    touch-action: none;
+    overscroll-behavior: contain;
+}

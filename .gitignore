@@ -1,0 +1,75 @@
+# Only the panel code and small scripts enter the repository; models, outputs, environments and secrets do not.
+/*
+!/.gitignore
+!/.gitattributes
+!/panel/
+!/panel.bat
+!/setup.bat
+# CLI launchers (nedese.cmd, nedese): setup puts this folder on the user PATH
+!/bin/
+!/setup/
+/setup/_downloads/
+/setup/setup.log
+!/LICENSE.md
+# quick-access page: personal (home network addresses); not in the repository
+!/start_comfyui.bat
+!/Nedese Studio.vbs
+!/tray/
+!/BENIOKU.md
+!/README.md
+!/docs/
+!/tools/
+!/voice/
+/voice/*
+!/voice/*.py
+!/voice/*.bat
+!/voice/design/
+/voice/design/*
+!/voice/design/*.py
+!/voice/voxcpm/
+/voice/voxcpm/*
+!/voice/voxcpm/*.py
+!/voice/voxcpm/*.bat
+!/voice/ema/
+/voice/ema/*
+!/voice/ema/*.py
+!/voice/ema/*.bat
+!/voice/clone/
+/voice/clone/*
+!/voice/clone/*.py
+!/voice/clone/upstream/
+/voice/clone/upstream/*
+!/voice/clone/upstream/*.py
+!/voice/clone/upstream/*.yaml
+!/training/
+/training/*
+!/training/train.py
+!/training/image.py
+!/training/vae_convert.py
+!/training/music.py
+!/training/general.py
+!/lip/
+/lip/*
+!/lip/*.py
+
+# Backups, logs, settings/key files
+*.yedek*
+*.backup*
+*.log
+*.tar
+*.zip
+**/ciktilar/
+**/node_modules/
+**/.venv/
+**/__pycache__/
+**/*.key
+**/*anahtar*.txt
+**/*token*.txt
+**/*jeton*.txt
+# Update read key (read-only, Contents: Read) is deliberately in the repository: installs receive daily updates
+!/panel/update-key.txt
+**/.env
+**/yedek-*/
+**/backup-*/
+/panel/arayuz-cikti/
+/panel/ui-output/

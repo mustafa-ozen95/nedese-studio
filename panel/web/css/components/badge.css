@@ -1,0 +1,66 @@
+/*
+ * Durum önce noktayla anlatılır; badge yalnızca sınıflandırma gerektiğinde
+ * (role, protokol, mode) kullanılır.
+ */
+
+.dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    flex-shrink: 0;
+}
+
+.dot--lg {
+    width: 8px;
+    height: 8px;
+}
+
+.dot--green  { background: var(--color-green-fg); }
+.dot--red    { background: var(--color-red-fg); }
+.dot--yellow { background: var(--color-yellow-fg); }
+.dot--blue   { background: var(--color-blue-fg); }
+.dot--purple { background: var(--color-purple-fg); }
+.dot--cyan   { background: var(--color-cyan-fg); }
+.dot--orange { background: var(--color-orange-fg); }
+.dot--pink   { background: var(--color-pink-fg); }
+.dot--gray   { background: var(--color-gray-fg); }
+
+.status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    white-space: nowrap;
+    font-size: var(--text-base);
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 1px var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    line-height: 1.6;
+    white-space: nowrap;
+}
+
+/*
+ * Rozet icon taşıyabilir. Ölçü BURADA durur: icon bileşenleri (`x-ikon.*`)
+ * bilerek width/height vermez, boyutu kullanıldıkları place belirler.
+ */
+.badge svg {
+    width: 12px;
+    height: 12px;
+}
+
+.badge--green  { background: var(--color-green-bg);  color: var(--color-green-fg); }
+.badge--red    { background: var(--color-red-bg);    color: var(--color-red-fg); }
+.badge--yellow { background: var(--color-yellow-bg); color: var(--color-yellow-fg); }
+.badge--blue   { background: var(--color-blue-bg);   color: var(--color-blue-fg); }
+.badge--purple { background: var(--color-purple-bg); color: var(--color-purple-fg); }
+.badge--cyan   { background: var(--color-cyan-bg);   color: var(--color-cyan-fg); }
+.badge--orange { background: var(--color-orange-bg); color: var(--color-orange-fg); }
+.badge--pink   { background: var(--color-pink-bg);   color: var(--color-pink-fg); }
+.badge--gray   { background: var(--color-gray-bg);   color: var(--color-gray-fg); }

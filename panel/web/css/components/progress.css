@@ -1,0 +1,50 @@
+/*
+ * Progress bar — the panel's own (the job queue).
+ *
+ * A native <progress> element: the value is in the `value` attribute, no inline
+ * `style` is written. The colour is the STATUS colour (blue = running); the lime
+ * accent is only for selection and the primary action (README, rule 4).
+ *
+ * A bar without a value (waiting in the ComfyUI queue, a model loading) is
+ * indeterminate: a thin band slides, saying "something is happening, how much is unknown".
+ */
+
+.progress {
+    display: block;
+    width: 100%;
+    height: 4px;
+    appearance: none;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: var(--color-sunken);
+    color: var(--color-blue-fg);
+    overflow: hidden;
+}
+
+.progress::-webkit-progress-bar {
+    background: var(--color-sunken);
+}
+
+.progress::-webkit-progress-value {
+    background: var(--color-blue-fg);
+    transition: width var(--transition);
+}
+
+.progress::-moz-progress-bar {
+    background: var(--color-blue-fg);
+}
+
+.progress:indeterminate {
+    background: linear-gradient(90deg, var(--color-sunken) 0 30%, var(--color-blue-bg) 40%, var(--color-blue-fg) 50%, var(--color-blue-bg) 60%, var(--color-sunken) 70% 100%);
+    background-size: 220% 100%;
+    animation: progress-slide 1.6s linear infinite;
+}
+
+.progress:indeterminate::-webkit-progress-bar {
+    background: transparent;
+}
+
+@keyframes progress-slide {
+    from { background-position: 100% 0; }
+    to { background-position: -120% 0; }
+}

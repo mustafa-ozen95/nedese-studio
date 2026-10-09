@@ -1,0 +1,6 @@
+Source: https://github.com/bytedance/LatentSync  commit a229c3948406bc2cf6eaf4873e662e70c6a04746  license Apache-2.0 (LICENSE)
+Changes: only the promotional media was removed (assets\, docs\). The code is unchanged; lip\patch.py adapts it to this
+installation during setup (no decord, MediaPipe face detection, ffmpeg with an argument list). Setup (setup\setup.ps1)
+copies this folder into lip\LatentSync\.
+
+Note: the upstream .gitignore was removed (it ignored files in this repository).

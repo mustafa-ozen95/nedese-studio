@@ -1,0 +1,370 @@
+/*
+ * Yönetim ekranlarının tablosu. Sütun şeridi kullanmayan sayfalarda
+ * (kullanıcılar, kayıtlar) kullanılır; sütun satırlarıyla aynı ritmi korur.
+ */
+
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.table th {
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    text-align: left;
+    white-space: nowrap;
+}
+
+/*
+ * SAĞA YASLAMANIN TEK YERİ.
+ *
+ * Aynı iş için üç name dolaşıyordu — `.text-right`, `.cell-right` /
+ * `.table__cell--right` ve `.table__cell--right` — ve yalnızca ilk ikisinin
+ * başlık karşılığı vardı. Üçüncüsüyle writeılmış sütunda değer hourğa,
+ * BAŞLIĞI SOLA kayıyordu (status panelinde "Düğüm" sütunu, 12.09.2026).
+ *
+ * Adların all burada, aynı iki kuralda. Yeni bir name fabricated; birini seç.
+ */
+.text-right,
+.cell-right,
+.table__cell--right,
+.table__cell--right {
+    text-align: right;
+}
+
+/*
+ * Başlık da hourğa yaslanır.
+ *
+ * `.table th` sola hizalıyor ve seçici olarak sınıftan baskın; bu yüzden
+ * başlık için `th` ile birlikte writeılmak zorunda.
+ */
+.table th.text-right,
+.table th.cell-right,
+.table th.table__cell--right,
+.table th.table__cell--right,
+.table-wrap th.text-right,
+.table-wrap th.cell-right,
+.table-wrap th.table__cell--right,
+.table-wrap th.table__cell--right,
+.card th.cell-right,
+th.text-right,
+th.cell-right,
+th.table__cell--right,
+th.table__cell--right {
+    text-align: right;
+}
+
+.table td {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+    font-size: var(--text-md);
+    vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.table tbody tr:hover td {
+    background: var(--color-hover);
+}
+
+.table__cell--mono {
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+}
+
+.table__cell--right { text-align: right; }
+.table__cell--tight { width: 1%; white-space: nowrap; }
+
+.table__row-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.table tbody tr:hover .table__row-actions,
+.table__row-actions:focus-within {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .table__row-actions { opacity: 1; }
+}
+
+/*
+ * Dar ekranda tablo landscape kaydırılmaz: her satır own bloğuna dönüşür ve
+ * sütun başlıkları hücrelerin önüne tag olarak iner. Yatay kaydırma
+ * telefonda sütunların yarısını görünmez yapıyordu.
+ *
+ * Etiketler <td data-label="..."> ile verilir.
+ */
+@media (max-width: 720px) {
+    .table {
+        min-width: 0;
+    }
+
+    .table thead {
+        display: none;
+    }
+
+    .table,
+    .table tbody,
+    .table tr {
+        display: block;
+        width: 100%;
+    }
+
+    .table tr {
+        padding: var(--space-3) var(--space-4);
+        border-bottom: 1px solid var(--color-line);
+    }
+
+    .table tbody tr:hover td {
+        background: transparent;
+    }
+
+    /*
+     * The label in a fixed column on the left, the VALUE RIGHT BESIDE IT, aligned left (user report 09.10.2026: values
+     * pushed to the right edge read backwards). Two grid columns: the label in the first, every part of the value (a
+     * name, a note under it, a button) stacked in the second, so a long name wraps in its column instead of dropping
+     * under the label.
+     */
+    .table td {
+        --label-column: 6.5rem;
+        display: grid;
+        grid-template-columns: var(--label-column) minmax(0, 1fr);
+        align-items: baseline;
+        justify-items: start;
+        gap: 2px var(--space-4);
+        width: 100%;
+        padding: 2px 0;
+        border: 0;
+        text-align: left;
+    }
+
+    .table td::before {
+        content: attr(data-label);
+        grid-column: 1;
+        font-size: var(--text-sm);
+        color: var(--color-text-muted);
+        text-align: left;
+    }
+
+    .table td > * {
+        grid-column: 2;
+        min-width: 0;
+    }
+
+    /*
+     * A cell without a label (row actions): no label box at all, and the actions start in the value column like the
+     * values above them.
+     */
+    .table td:not([data-label]) {
+        padding-top: var(--space-3);
+    }
+
+    .table td:not([data-label])::before {
+        content: none;
+    }
+
+    .table__cell--right,
+    .table__cell--tight {
+        width: 100%;
+        white-space: normal;
+    }
+
+    .table__row-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+}
+
+/* Yetki matrisi */
+.permission-wildcards {
+    gap: var(--space-5);
+}
+
+.permission-records {
+    margin-top: var(--space-5);
+}
+
+/* Kayıt bütünlüğü şeridi: tablonun üstünde, tablonun boşluğuyla hizalı. */
+.log-integrity {
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+}
+
+/*
+ * Sütun ezilmesi — YALNIZCA yığılma eşiğinin ÜSTÜNDE.
+ *
+ * 720px subında satırlar zaten own blocksına dönüşüyor (yukarıdaki
+ * query); orada hücreler flex, bir tavan koymak onları bozar. Arada remaining
+ * genişliklerde ise `width:100%` sütunları sıkıştırıp long değerleri
+ * word word sub alta düşürüyordu. Artık sütunlar içeriğe göre genişler,
+ * `.table-wrap` kaydırır; tavan da single bir hücrenin tabloyu uzatmasını önler.
+ */
+@media (min-width: 721px) {
+    .table {
+        width: max-content;
+        min-width: 100%;
+    }
+
+    .table th,
+    .table td {
+        max-width: 420px;
+    }
+}
+
+/* ── Satır başlığı ────────────────────────────────────────────────────────
+ *
+ * Listedeki kaydın ADI. Okunacak içeriktir: normal writeım, full güçte text
+ * rengi, light kalın.
+ *
+ * İki panelde de yanlış tanımlanmıştı (12.09.2026): birinde `eyebrow`
+ * biçimi verilmiş (küçük, BÜYÜK HARF, letter aralıklı, soluk) — bölüm
+ * ETİKETİNE ait bir görünüm, içerik nameına değil; diğerinde satır içi
+ * `style` ile writeılmıştı. Tanım artık burada, single yerde.
+ */
+.line-title,
+.table__title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+/*
+ * Makine kimliği: slug, code, key, id numarası.
+ *
+ * Satır başlığının sideındaki İKİNCİL kimliktir — okunmak için değil,
+ * doğrulamak için lookılır: single aralıklı writeı tipi letter karışıklığını
+ * (l/1, O/0) önler, soluk color onu addan back plana atar.
+ *
+ * Panellerde satır içi `style="font-family:var(--fm);…"` ile üç detailı
+ * writeılışı vardı; tanım artık burada.
+ */
+.code,
+.table__code {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+/*
+ * Uzun address satır kırabilsin.
+ *
+ * Varsayılan olarak kırılmaz: slug ve code single parça okunur. Ama full URL
+ * taşıside sütunda (yönlendirmeler) kırılmayan text tabloyu ekran dışına
+ * taşırıyor ve bütün satırları eziyordu.
+ */
+.code--break,
+.table__code--wrap {
+    word-break: break-all;
+    white-space: normal;
+}
+
+/*
+ * HİZAYI KAP KURAR — satırlar single single hizalanmaya çgetışılmaz.
+ *
+ * Her satır own esnek kabındayken (`.row`, `.row--between`) hourğdaki
+ * badge/status, soldaki metnin uzunluğuna göre kayıyordu: "Sofia" ile
+ * "Nuremberg" sub alta gelince rozetleri şaşı duruyor, IP listesinde
+ * "clean" rozetleri dört detailı yerden başlıyordu (kullanıcı bildirimi,
+ * 12.09.2026). Izgara bütün satırlar için COMMON sütun kurar.
+ *
+ *   <div class="aligned-list aligned-list--name-badge">
+ *     <span>Sofia</span><span class="badge">engelliyor</span>
+ *     <span>Nuremberg</span><span class="badge">engelliyor</span>
+ *   </div>
+ *
+ *   <div class="aligned-list aligned-list--record">
+ *     <span>10.0.0.1 · Mail</span><span>clean</span><div>…actions…</div>
+ *   </div>
+ */
+.aligned-list {
+    display: grid;
+    gap: var(--space-2) var(--space-3);
+    align-items: center;
+}
+
+/* Name + badge: iki sütun da içeriği kadar. */
+.aligned-list--name-badge {
+    grid-template-columns: max-content max-content;
+    gap: var(--space-1) var(--space-3);
+}
+
+/* Kayıt + status + action: id esner, hourğdaki both sabit sütunda kalır. */
+.aligned-list--record {
+    grid-template-columns: minmax(0, 1fr) max-content max-content;
+}
+
+/*
+ * Satır eylemleri sarmaz.
+ *
+ * Sağa yaslama yukarıda, TEK yerde tanımlı; burada yalnızca action
+ * hücresinin düğmeleri sub satıra düşmesin diye satır kırma closeılıyor.
+ */
+.cell-right,
+.table__cell--right {
+    white-space: nowrap;
+}
+
+/*
+ * In an action cell a badge is as tall as a button.
+ *
+ * A badge takes its height from its text (~20px), a small button is 24px: side by side the badge stood out (user
+ * report 12.09.2026). Two items in the same row are the same height.
+ */
+.cell-right .badge,
+.table__row-actions .badge {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 var(--space-3);
+    line-height: 1;
+}
+
+/*
+ * Eylemlerin ALTINDAKİ açıklama satırı yapışmaz: eylemden detailı bir info
+ * olduğu aradaki boşluktan anlaşılmalı.
+ */
+.cell-right > .btn + div,
+.cell-right > div:not(:first-child),
+.cell-right .table__row-actions + * {
+    margin-top: var(--space-2);
+}
+
+/* Rows whose action cell holds a state or a single main action (Settings: installed / Download): shown without hovering. */
+.table__row-actions--fixed {
+    opacity: 1;
+}
+
+/*
+ * A row's state and the button that takes its place are one size (Settings › Models: installed, in downloads,
+ * Download), so the column lines up from row to row (user report 09.10.2026: "eşit ölçü yap sırıtmasın").
+ */
+.table__row-actions .row-state {
+    justify-content: center;
+    min-width: 7.5rem;
+    height: 24px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius);
+    box-sizing: border-box;
+}

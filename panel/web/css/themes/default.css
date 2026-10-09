@@ -1,0 +1,59 @@
+/*
+ * Palet — "Sütunlar" tasarım yönü.
+ *
+ * Grafit yüzeyler + single vurgu rengi (limon). Vurgu yalnızca seçim ve birincil
+ * action içdownload; status bilgisi detailı renklerle ve yalnızca point olarak verilir.
+ *
+ * Yeni bir tasarım giydirmek için bu dosyanın bir kopyası oluşturulup app.css'teki
+ * import değiştirilir. Bileşwidth CSS'lerinde raw color değeri bulunmaz.
+ */
+
+:root {
+    /* Grafit ölçeği — koyu theme temeli */
+    --palette-graphite-950: #141618;
+    --palette-graphite-900: #191b1d;
+    --palette-graphite-850: #1a1c1e;
+    --palette-graphite-800: #212426;
+    --palette-graphite-700: #2c3033;
+    --palette-graphite-600: #2f3437;
+    --palette-graphite-500: #454c51;
+    --palette-graphite-400: #5c6469;
+    --palette-graphite-300: #8f979c;
+    --palette-graphite-200: #b9c0c4;
+    --palette-graphite-100: #d7dbdd;
+    --palette-graphite-50: #e4e6e8;
+    --palette-graphite-0: #ffffff;
+
+    /* Açık theme için sıcak-nötr kağıt ölçeği */
+    --palette-paper-0: #ffffff;
+    --palette-paper-50: #f6f7f7;
+    --palette-paper-100: #ebedee;
+    --palette-paper-200: #dfe2e3;
+    --palette-paper-300: #c4c9cb;
+
+    /* Tek vurgu: limon */
+    --palette-lime-600: #6f9611;
+    --palette-lime-500: #8cbb18;
+    --palette-lime-400: #b8f13c;
+    --palette-lime-300: #cef56f;
+    --palette-lime-tint: rgb(184 241 60 / 14%);
+    --palette-lime-edge: rgb(184 241 60 / 36%);
+
+    /* Durum renkleri — yalnızca point ve fine text için */
+    --palette-green-400: #5bd67d;
+    --palette-green-700: #2f7d47;
+    --palette-red-400: #ff6b6b;
+    --palette-red-700: #b3322f;
+    --palette-amber-400: #ffc75a;
+    --palette-amber-700: #9a6b12;
+    --palette-sky-400: #6cc3ff;
+    --palette-sky-700: #1f6f9e;
+    --palette-violet-400: #b39bff;
+    --palette-violet-700: #6244c7;
+    --palette-teal-400: #4fd6c4;
+    --palette-teal-700: #1f7d72;
+    --palette-orange-400: #ff9d5c;
+    --palette-orange-700: #a85618;
+    --palette-pink-400: #ff8fc0;
+    --palette-pink-700: #b03a72;
+}

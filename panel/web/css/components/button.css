@@ -1,0 +1,146 @@
+/*
+ * Düğme.
+ *
+ * Tek base (`.btn`) ve ona added vurgular. KURAL: her vurgunun own
+ * `:hover` tanımı VARDIR ve o tanım hem zemini hem YAZI RENGİNİ söyler.
+ *
+ * Sebebi ölçülmüş bir kaza: bir projede `btn-p` yalnızca zemini tanımlıyor,
+ * vurguyu tanımlamıyordu. Genel `.btn:hover:not(:disabled)` ruleı (özgüllük
+ * 0,3,0) o projenin `.btn-p:hover` ruleından (0,2,0) baskın çıkıp yeşil
+ * düğmeyi beyaza çevirdi; writeı beyaz kaldığı için düğme BOŞ göründü
+ * (12.09.2026). Vurgu tanımı missing bırakılırsa aynı şey repeat olur.
+ */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    height: 28px;
+    padding: 0 var(--space-4);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--color-text);
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+
+    /* Esnek satırlarda düğme içeriğinin subına sıkışmamalı. */
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+/*
+ * Vurgu, SATIR vurgusundan bir tık güçlü olmalı.
+ *
+ * Satır eylemleri vurgulanmış bir satırın içinde durur ve satır zaten
+ * `--color-hover` ile boyanır. Düğme de aynı belirteci kullanırsa üstüne
+ * gelindiğinde HİÇBİR diff olmaz (kullanıcı bildirimi, 12.09.2026).
+ * `--color-selected` her iki temada da bir nameım güçlüdür.
+ */
+.btn:hover:not(:disabled) {
+    background: var(--color-selected);
+    color: var(--color-text);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.btn svg {
+    width: 13px;
+    height: 13px;
+}
+
+/* ── Vurgular ─────────────────────────────────────────────────────────── */
+
+/* Vurgu rengi yalnızca birincil eylemde kullanılır. */
+.btn--primary {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-accent-on);
+    font-weight: var(--weight-semibold);
+}
+
+.btn--primary:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+    color: var(--color-accent-on);
+}
+
+/*
+ * İkincil: birincilin sideında stopped, ondan back planda ama görünür action
+ * ("Vazgeç" gibi). Nötr düğmeden diffı full bir zemini olması.
+ */
+.btn--secondary {
+    background: var(--color-sunken);
+    border-color: var(--color-line-strong);
+    color: var(--color-text);
+}
+
+.btn--secondary:hover:not(:disabled) {
+    background: var(--color-selected);
+    color: var(--color-text);
+}
+
+.btn--ghost {
+    border-color: transparent;
+    color: var(--color-text-secondary);
+}
+
+.btn--ghost:hover:not(:disabled) {
+    background: var(--color-selected);
+    color: var(--color-text);
+}
+
+.btn--danger {
+    border-color: var(--color-red-fg);
+    color: var(--color-red-fg);
+}
+
+.btn--danger:hover:not(:disabled) {
+    background: var(--color-red-bg);
+    color: var(--color-red-fg);
+}
+
+/*
+ * Seçili status: aralık seçici gibi düğme groupsında hangisinin etkin olduğu
+ * görünmeli. Vurgu rengi bu tasarımda "seçim" anlamına geldiği için burada da
+ * o kullanılır.
+ */
+.btn[aria-pressed='true'] {
+    background: var(--color-accent-soft);
+    border-color: var(--color-accent-edge);
+    color: var(--color-accent-text);
+    font-weight: var(--weight-semibold);
+}
+
+.btn[aria-pressed='true']:hover:not(:disabled) {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-text);
+}
+
+/* ── Ölçüler ──────────────────────────────────────────────────────────── */
+
+.btn--sm {
+    height: 24px;
+    padding: 0 var(--space-3);
+    font-size: var(--text-sm);
+}
+
+.btn--icon {
+    width: 28px;
+    padding: 0;
+}
+
+.btn--icon.btn--sm {
+    width: 24px;
+}
+
+.btn--block {
+    width: 100%;
+}

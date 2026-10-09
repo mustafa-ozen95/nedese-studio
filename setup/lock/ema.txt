@@ -1,0 +1,2 @@
+ema-lightning==1.0.1
+normalizer-tr==0.4.0

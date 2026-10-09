@@ -1,0 +1,345 @@
+# Musubi Tuner
+
+[English](./README.md) | [日本語](./README.ja.md)
+
+## Table of Contents
+
+<details>
+<summary>Click to expand</summary>
+
+- [Musubi Tuner](#musubi-tuner)
+  - [Table of Contents](#table-of-contents)
+  - [Introduction](#introduction)
+    - [Sponsors](#sponsors)
+    - [Support the Project](#support-the-project)
+    - [Recent Updates](#recent-updates)
+    - [Releases](#releases)
+    - [For Developers Using AI Coding Agents](#for-developers-using-ai-coding-agents)
+  - [Overview](#overview)
+    - [Hardware Requirements](#hardware-requirements)
+    - [Features](#features)
+    - [Documentation](#documentation)
+  - [Installation](#installation)
+    - [pip based installation](#pip-based-installation)
+    - [Windows on ARM64](#windows-on-arm64)
+    - [uv based installation](#uv-based-installation-experimental)
+    - [Linux/MacOS](#linuxmacos)
+    - [Windows](#windows)
+  - [Model Download](#model-download)
+  - [Usage](#usage)
+    - [Dataset Configuration](#dataset-configuration)
+    - [Pre-caching and Training](#pre-caching-and-training)
+    - [Configuration of Accelerate](#configuration-of-accelerate)
+    - [Training and Inference](#training-and-inference)
+  - [Miscellaneous](#miscellaneous)
+    - [SageAttention Installation](#sageattention-installation)
+    - [PyTorch version](#pytorch-version)
+  - [Disclaimer](#disclaimer)
+  - [Contributing](#contributing)
+  - [License](#license)
+
+</details>
+
+## Introduction
+
+This repository provides scripts for training LoRA (Low-Rank Adaptation) models with HunyuanVideo, Wan2.1/2.2, FramePack, FLUX.1 Kontext, FLUX.2 dev/klein, Qwen-Image, Z-Image, and MiniMax-H3 architectures.
+
+This repository is unofficial and not affiliated with the official repositories of these architectures.
+
+*This repository is under development.*
+
+### Sponsors
+
+We are grateful to the following companies for their generous sponsorship:
+
+<a href="https://aihub.co.jp/top-en">
+  <img src="./images/logo_aihub.png" alt="AiHUB Inc." title="AiHUB Inc." height="100px">
+</a>
+
+### Support the Project
+
+If you find this project helpful, please consider supporting its development via [GitHub Sponsors](https://github.com/sponsors/kohya-ss/). Your support is greatly appreciated!
+
+### Recent Updates
+
+GitHub Discussions Enabled: We've enabled GitHub Discussions for community Q&A, knowledge sharing, and technical information exchange. Please use Issues for bug reports and feature requests, and Discussions for questions and sharing experiences. [Join the conversation →](https://github.com/kohya-ss/musubi-tuner/discussions)
+
+- September 27, 2026
+    - Updated the dependencies in `pyproject.toml`: `transformers` 4.57.6 -> 5.17.0, `diffusers` 0.32.1 -> 0.40.0, `accelerate` 1.6.0 -> 1.15.0, `huggingface-hub` 0.34.3 -> 1.32.0. [PR #1139](https://github.com/kohya-ss/musubi-tuner/pull/1139)
+        - This is mainly a security maintenance update (the 4.x line of `transformers` and `diffusers` < 0.38 no longer receive fixes). The previous versions of the libraries still work with this release, so you do not have to update them immediately, but it is recommended to run `pip install -e .` again in your environment at your earliest convenience.
+        - `diffusers` 0.40 requires PyTorch 2.6 or later, so PyTorch 2.6.0 or later is now required.
+        - `transformers` 5.6 changed the internal structure of `CLIPTextModel`, and in 5.x `CLIPTokenizer` no longer applies the `ftfy` text normalization of the original CLIP tokenizer (straightening curly quotes, converting full-width characters, etc.). Musubi Tuner handles both, so loading CLIP-L checkpoints and the text encoder outputs of HunyuanVideo, FramePack, FLUX.1 Kontext and Kandinsky 5 are unchanged from previous versions.
+        - `transformers` 5.6 switched the attention implementation of T5 (T5-XXL of FLUX.1 Kontext, byT5 of HunyuanVideo 1.5) to SDPA, which is faster and uses less memory. The bf16/fp16 outputs of T5 differ very slightly from previous versions (the accuracy against fp32 is the same). This may change generated images or trained weights in minor details; cached text encoder outputs from previous versions are still usable. The outputs of the other text encoders are identical.
+        - The text encoder outputs of all architectures were compared between the previous and the new versions. They are identical except for T5 (above), after the following adjustments: the Llama 3 tokenizer of HunyuanVideo / FramePack is loaded from `tokenizer.json` (`transformers` 5.x resolved it to a class that tokenizes Llama 3 text differently), the Mistral 3 tokenizer of FLUX.2 keeps the left padding of the previous versions, and Krea 2 passes the rotary positions of its prompt suffix explicitly.
+        - Two pre-existing bugs found by this comparison are fixed as well, so the text encoder outputs of these architectures change from previous versions regardless of the library versions (re-caching is recommended): the T5-XXL of FLUX.1 Kontext was left in training mode, so its dropout (0.1) was active while caching, making the cached outputs noisy and non-reproducible; and the rotary embedding of the Ideogram 4 text encoder (Qwen3-VL) was left uninitialized after the checkpoint was loaded, so the positional information was garbage (and could produce NaN).
+    - Latent caching is more robust against broken media files. [PR #1126](https://github.com/kohya-ss/musubi-tuner/pull/1126), [PR #1127](https://github.com/kohya-ss/musubi-tuner/pull/1127), [PR #1128](https://github.com/kohya-ss/musubi-tuner/pull/1128), [PR #1130](https://github.com/kohya-ss/musubi-tuner/pull/1130)
+        - `--skip_broken` on the latent caching scripts logs the reason and skips a media file that fails to decode or validate, instead of stopping the run. Without it, the first such file stops the run as before. See the [documentation](./docs/hunyuan_video.md#latent-pre-caching--latentの事前キャッシング).
+        - MiniMax-H3: the audio embedded in a video is now aligned to the first video frame (capture software often starts the two streams at different times), and small timestamp jitter and gaps are repaired in place instead of failing with `Audio stream is discontinuous`. See the [MiniMax-H3 documentation](./docs/minimax_h3.md#geometry-and-media-contract--ジオメトリとメディアの規約) for details. **Caches written before this change hold misaligned audio for files whose audio and video start at different times; re-run latent caching for such datasets (the cache script now logs the affected files).** Thank you Tophness for the detailed reports in [Issue #1066](https://github.com/kohya-ss/musubi-tuner/issues/1066).
+    - Bug fixes from contributors' pull requests have been merged (see the release notes for details). Thank you rockerBOO, li-lizhe, Jnalley123 and FurkanGozukara. [PR #1138](https://github.com/kohya-ss/musubi-tuner/pull/1138)
+- September 24, 2026
+    - Added support for Windows on ARM64 (e.g. NVIDIA RTX Spark PCs). [PR #1132](https://github.com/kohya-ss/musubi-tuner/pull/1132), [PR #1133](https://github.com/kohya-ss/musubi-tuner/pull/1133), [PR #1134](https://github.com/kohya-ss/musubi-tuner/pull/1134)
+        - `opencv-python` is now optional (a Pillow/NumPy fallback is used when it is missing) and is skipped automatically on Windows on ARM64, where it has no wheel. For details, please refer to [Windows on ARM64](#windows-on-arm64).
+        - `av` and `safetensors` in `pyproject.toml` have been updated to 17.1.0 and 0.8.0, the first versions with Windows ARM64 wheels. `av` 17.1.0 bundles FFmpeg 8.0; on macOS, its arm64 wheel requires macOS 14 or later.
+        - The `av` update also fixes `*_cache_latents.py` hanging on HEVC videos: the FFmpeg 7.1.0 bundled in `av` 14.0.1 had a deadlock in its HEVC decoder. Re-run `pip install -e .` to upgrade `av`. Thank you Tophness for the report [Issue #1124](https://github.com/kohya-ss/musubi-tuner/issues/1124).
+- September 16, 2026
+    - Added experimental support for MiniMax-H3 (LoRA training and joint video/audio generation). Many thanks to sdbds for the initial [PR #1018](https://github.com/kohya-ss/musubi-tuner/pull/1018) and follow-ups.
+        - For details, please refer to the [documentation](./docs/minimax_h3.md) and the [one-frame (image) training documentation](./docs/minimax_h3_1f.md). The list of merged features and remaining work is tracked in the [MiniMax-H3 support roadmap](https://github.com/kohya-ss/musubi-tuner/issues/1029).
+    - Added ConvRot int8 quantization of the frozen DiT base weights for Krea 2 LoRA training (`--convrot_int8`), as an alternative to `--fp8_base --fp8_scaled`. See [PR #1008](https://github.com/kohya-ss/musubi-tuner/pull/1008).
+        - Weight VRAM is halved as with fp8. The main benefit is speed on GPUs without fp8 support (RTX 30 series and older). Requires `triton` for the fused kernels. See the [Krea 2 documentation](./docs/krea2.md#convrot-int8--convrot-int8) for details.
+    - Dataset configuration changes for metadata JSONL files. See the [dataset configuration documentation](./docs/dataset_config.md) for details.
+        - Relative paths in JSONL files are now also resolved against the directory containing the JSONL file when they are not found relative to the working directory. [PR #1023](https://github.com/kohya-ss/musubi-tuner/pull/1023)
+        - Video records may carry an optional `audio_path` field for audio-capable architectures (currently MiniMax-H3); a same-stem audio sidecar file or the embedded audio track is used when omitted. [PR #1020](https://github.com/kohya-ss/musubi-tuner/pull/1020), [PR #1021](https://github.com/kohya-ss/musubi-tuner/pull/1021)
+        - Keys outside the shared schema are passed through to architecture-specific cache scripts as per-item extras. [PR #1094](https://github.com/kohya-ss/musubi-tuner/pull/1094)
+    - Fixed `--attn_mode sdpa` raising an error in the shared attention backends; it is now an alias of `torch`. Thank you rossnot [PR #1092](https://github.com/kohya-ss/musubi-tuner/pull/1092).
+    - Fixed video datasets ignoring `enable_bucket` and `bucket_no_upscale` when caching latents; the video caching path always bucketed regardless of the setting. Thank you christopher5106 [PR #1100](https://github.com/kohya-ss/musubi-tuner/pull/1100).
+        - **Behavior change:** video datasets without `enable_bucket = true` are now cached at the single configured `resolution` (resized and center-cropped), as image datasets always were. If you relied on bucketing without setting it, add `enable_bucket = true` to the dataset. Otherwise, re-run latent caching (and text encoder output caching for MiniMax-H3 `fl2va` / `ref2va`, whose caches embed the resized control images) so the caches match the configured resolution.
+    - Training scripts now stop at startup when `--output_dir` or `--output_name` is missing, instead of failing at the first save. Thank you rossnot [PR #1070](https://github.com/kohya-ss/musubi-tuner/pull/1070).
+    - Krea 2: `--gradient_checkpointing_cpu_offload` is now honored (activation CPU offloading during gradient checkpointing). Thank you rockerBOO [PR #1101](https://github.com/kohya-ss/musubi-tuner/pull/1101).
+    - Krea 2: Added `--turbo_lora` to compose a Turbo LoRA on top of the RAW model for sample generation during training, as an alternative to `--turbo_dit`. It can be combined with block swap, fp8 and ConvRot int8. See the [Krea 2 documentation](./docs/krea2.md#sample-image-generation-during-training--学習中のサンプル画像生成) for details. Thank you rockerBOO [PR #1103](https://github.com/kohya-ss/musubi-tuner/pull/1103).
+
+- July 14, 2026
+    - Added the `--log_grad_metrics` option to log gradient norm diagnostics (`grad/norm`, `grad/mean_norm`, `grad/max`, measured before gradient clipping) to the tracker. Thank you rockerBOO [PR #988](https://github.com/kohya-ss/musubi-tuner/pull/988).
+        - Useful for diagnosing gradient explosion / vanishing and for choosing an appropriate `--max_grad_norm` value. Disabled by default. See the [advanced configuration documentation](./docs/advanced_config.md#log-gradient-metrics--勾配メトリクスのログ出力) for details.
+
+### Releases
+
+We are grateful to everyone who has been contributing to the Musubi Tuner ecosystem through documentation and third-party tools. To support these valuable contributions, we recommend working with our [releases](https://github.com/kohya-ss/musubi-tuner/releases) as stable reference points, as this project is under active development and breaking changes may occur.
+
+You can find the latest release and version history in our [releases page](https://github.com/kohya-ss/musubi-tuner/releases).
+
+### For Developers Using AI Coding Agents
+
+This repository provides recommended instructions to help AI agents like Claude and Gemini understand our project context and coding standards.
+
+To use them, you need to opt-in by creating your own configuration file in the project root.
+
+**Quick Setup:**
+
+1.  Create a `CLAUDE.md`, `GEMINI.md`, and/or `AGENTS.md` file in the project root.
+2.  Add the following line to your `CLAUDE.md` to import the repository's recommended prompt (currently they are the almost same):
+
+    ```markdown
+    @./.ai/claude.prompt.md
+    ```
+
+    or for Gemini:
+
+    ```markdown
+    @./.ai/gemini.prompt.md
+    ```
+
+    You may be also import the prompt depending on the agent you are using with the custom prompt file such as `AGENTS.md`.
+
+3.  You can now add your own personal instructions below the import line (e.g., `Always include a short summary of the change before diving into details.`).
+
+This approach ensures that you have full control over the instructions given to your agent while benefiting from the shared project context. Your `CLAUDE.md`, `GEMINI.md` and `AGENTS.md` (as well as Claude's `.mcp.json`) are already listed in `.gitignore`, so they won't be committed to the repository.
+
+## Overview
+
+### Hardware Requirements
+
+- VRAM: 12GB or more recommended for image training, 24GB or more for video training
+    - *Actual requirements depend on resolution and training settings.* For 12GB, use a resolution of 960x544 or lower and use memory-saving options such as `--blocks_to_swap`, `--fp8_llm`, etc.
+- Main Memory: 64GB or more recommended, 32GB + swap may work
+
+### Features
+
+- Memory-efficient implementation
+- Windows compatibility confirmed (Linux compatibility confirmed by community)
+- Multi-GPU training (using [Accelerate](https://huggingface.co/docs/accelerate/index)), documentation will be added later
+
+### Documentation
+
+For detailed information on specific architectures, configurations, and advanced features, please refer to the documentation below.
+
+**Architecture-specific:**
+- [HunyuanVideo](./docs/hunyuan_video.md)
+- [Wan2.1/2.2](./docs/wan.md)
+- [Wan2.1/2.2 (Single Frame)](./docs/wan_1f.md)
+- [FramePack](./docs/framepack.md)
+- [FramePack (Single Frame)](./docs/framepack_1f.md)
+- [FLUX.1 Kontext](./docs/flux_kontext.md)
+- [Qwen-Image](./docs/qwen_image.md)
+- [Z-Image](./docs/zimage.md)
+- [HiDream-O1-Image](./docs/hidream_o1.md)
+- [HunyuanVideo 1.5](./docs/hunyuan_video_1_5.md)
+- [Kandinsky 5](./docs/kandinsky5.md)
+- [FLUX.2](./docs/flux_2.md)
+- [MiniMax-H3](./docs/minimax_h3.md)
+- [MiniMax-H3 (Single Frame)](./docs/minimax_h3_1f.md)
+
+**Common Configuration & Usage:**
+- [Dataset Configuration](./docs/dataset_config.md)
+- [Advanced Configuration](./docs/advanced_config.md)
+- [Sampling during Training](./docs/sampling_during_training.md)
+- [Block Swap (CPU Offloading for Memory Saving)](./docs/block_swap.md)
+- [Tools and Utilities](./docs/tools.md)
+- [Using torch.compile](./docs/torch_compile.md)
+
+## Installation
+
+### pip based installation
+
+Python 3.10 or later is required (verified with 3.10 and 3.12; the dependencies also install on 3.13 and 3.14).
+
+Create a virtual environment and install PyTorch and torchvision matching your CUDA version. 
+
+PyTorch 2.6.0 or later is required (see [note](#PyTorch-version)).
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+Install the required dependencies using the following command.
+
+```bash
+pip install -e .
+```
+
+Optionally, you can use FlashAttention and SageAttention (**for inference only**; see [SageAttention Installation](#sageattention-installation) for installation instructions).
+
+Optional dependencies for additional features:
+- `ascii-magic`: Used for dataset verification
+- `matplotlib`: Used for timestep visualization
+- `tensorboard`: Used for logging training progress (on Windows on ARM64, install `tensorboardX` instead; see below)
+- `prompt-toolkit`: Used for interactive prompt editing in Wan2.1 and FramePack inference scripts. If installed, it will be automatically used in interactive mode. Especially useful in Linux environments for easier prompt editing.
+
+```bash
+pip install ascii-magic matplotlib tensorboard prompt-toolkit
+```
+
+### Windows on ARM64
+
+Windows on ARM64 (e.g. NVIDIA RTX Spark PCs) is supported. Use Python 3.12 or later (the Windows ARM64 wheels of `av` require Python 3.11 or later, and those of PyTorch are newer still). Install a PyTorch build for Windows on ARM64 that supports your GPU and Python version, then run `pip install -e .` as above. The following packages have no Windows ARM64 wheels and are handled automatically:
+
+- `opencv-python` is skipped by an environment marker in `pyproject.toml`. The training and dataset pipeline only uses a small subset of OpenCV (`cv2.resize`, `cv2.cvtColor` and the debug-only `cv2.imshow`), so a Pillow/NumPy fallback is registered as `cv2` when OpenCV is missing. The fallback reproduces OpenCV's `INTER_AREA` and `INTER_LINEAR` resizing, which the dataset pipeline uses, so cached latents match an install with OpenCV up to rounding. `INTER_CUBIC` (used when an inference script upscales a start/end image) goes through Pillow and differs slightly. On other platforms you can also uninstall `opencv-python` after `pip install -e .` if you prefer to avoid it; the fallback takes over automatically.
+- `tensorboard` 2.x depends on `grpcio`, which has no Windows ARM64 wheel (pip would silently fall back to the ancient tensorboard 1.10). Install `tensorboardX` instead; `--log_with tensorboard` works unchanged through it. View the logs with TensorBoard on another machine.
+
+```bash
+pip install ascii-magic matplotlib tensorboardX prompt-toolkit
+```
+
+Optional packages such as `triton`, `sageattention` and `flash-attn` have not been verified on Windows on ARM64; the scripts run without them.
+
+### uv based installation (experimental)
+
+You can also install using uv, but installation with uv is experimental. Feedback is welcome.
+
+1. Install uv (if not already present on your OS).
+
+#### Linux/MacOS
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Follow the instructions to add the uv path manually until you restart your session...
+
+#### Windows
+
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Follow the instructions to add the uv path manually until you reboot your system... or just reboot your system at this point.
+
+## Model Download
+
+Model download procedures vary by architecture. Please refer to the architecture-specific documents in the [Documentation](#documentation) section for instructions.
+
+## Usage
+
+
+### Dataset Configuration
+
+Please refer to [here](./docs/dataset_config.md).
+
+### Pre-caching
+
+Pre-caching procedures vary by architecture. Please refer to the architecture-specific documents in the [Documentation](#documentation) section for instructions.
+
+### Configuration of Accelerate
+
+Run `accelerate config` to configure Accelerate. Choose appropriate values for each question based on your environment (either input values directly or use arrow keys and enter to select; uppercase is default, so if the default value is fine, just press enter without inputting anything). For training with a single GPU, answer the questions as follows:
+
+```txt
+- In which compute environment are you running?: This machine
+- Which type of machine are you using?: No distributed training
+- Do you want to run your training on CPU only (even if a GPU / Apple Silicon / Ascend NPU device is available)?[yes/NO]: NO
+- Do you wish to optimize your script with torch dynamo?[yes/NO]: NO
+- Do you want to use DeepSpeed? [yes/NO]: NO
+- What GPU(s) (by id) should be used for training on this machine as a comma-seperated list? [all]: all
+- Would you like to enable numa efficiency? (Currently only supported on NVIDIA hardware). [yes/NO]: NO
+- Do you wish to use mixed precision?: bf16
+```
+
+*Note*: In some cases, you may encounter the error `ValueError: fp16 mixed precision requires a GPU`. If this happens, answer "0" to the sixth question (`What GPU(s) (by id) should be used for training on this machine as a comma-separated list? [all]:`). This means that only the first GPU (id `0`) will be used.
+
+### Training and Inference
+
+Training and inference procedures vary significantly by architecture. Please refer to the architecture-specific documents in the [Documentation](#documentation) section and the various configuration documents for detailed instructions.
+
+## Miscellaneous
+
+### SageAttention Installation
+
+sdbsd has provided a Windows-compatible SageAttention implementation and pre-built wheels here:  https://github.com/sdbds/SageAttention-for-windows. After installing triton, if your Python, PyTorch, and CUDA versions match, you can download and install the pre-built wheel from the [Releases](https://github.com/sdbds/SageAttention-for-windows/releases) page. Thanks to sdbsd for this contribution.
+
+For reference, the build and installation instructions are as follows. You may need to update Microsoft Visual C++ Redistributable to the latest version.
+
+1. Download and install triton 3.1.0 wheel matching your Python version from [here](https://github.com/woct0rdho/triton-windows/releases/tag/v3.1.0-windows.post5).
+
+2. Install Microsoft Visual Studio 2022 or Build Tools for Visual Studio 2022, configured for C++ builds.
+
+3. Clone the SageAttention repository in your preferred directory:
+    ```shell
+    git clone https://github.com/thu-ml/SageAttention.git
+    ```
+
+4. Open `x64 Native Tools Command Prompt for VS 2022` from the Start menu under Visual Studio 2022.
+
+5. Activate your venv, navigate to the SageAttention folder, and run the following command. If you get a DISTUTILS not configured error, set `set DISTUTILS_USE_SDK=1` and try again:
+    ```shell
+    python setup.py install
+    ```
+
+This completes the SageAttention installation.
+
+### PyTorch version
+
+PyTorch 2.6.0 or later is required (`diffusers` 0.40 does not support earlier versions). Earlier versions also produced black videos with `--attn_mode torch`.
+
+## Disclaimer
+
+This repository is unofficial and not affiliated with the official repositories of the supported architectures. 
+
+This repository is experimental and under active development. While we welcome community usage and feedback, please note:
+
+- This is not intended for production use
+- Features and APIs may change without notice
+- Some functionalities are still experimental and may not work as expected
+- Video training features are still under development
+
+If you encounter any issues or bugs, please create an Issue in this repository with:
+- A detailed description of the problem
+- Steps to reproduce
+- Your environment details (OS, GPU, VRAM, Python version, etc.)
+- Any relevant error messages or logs
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+
+## License
+
+Code under the `hunyuan_model` directory is modified from [HunyuanVideo](https://github.com/Tencent/HunyuanVideo) and follows their license.
+
+Code under the `hunyuan_video_1_5` directory is modified from [HunyuanVideo 1.5](https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5) and follows their license.
+
+Code under the `wan` directory is modified from [Wan2.1](https://github.com/Wan-Video/Wan2.1). The license is under the Apache License 2.0.
+
+Code under the `frame_pack` directory is modified from [FramePack](https://github.com/lllyasviel/FramePack). The license is under the Apache License 2.0.
+
+Code in `modules/convrot_int8_kernels.py` is modified from [comfy-kitchen](https://github.com/Comfy-Org/comfy-kitchen) (in turn derived from dxqb/OneTrainer and ComfyUI-Flux2-INT8). The license is under the Apache License 2.0.
+
+Other code is under the Apache License 2.0. Some code is copied and modified from Diffusers.

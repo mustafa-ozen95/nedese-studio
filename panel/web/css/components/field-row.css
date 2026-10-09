@@ -1,0 +1,32 @@
+/*
+ * İki fieldı side yana koyan form satırı.
+ *
+ * (.fieldgroup bu iş için DEĞİLDİR: o, katlanabilir <details> kümesidir ve
+ * fieldsın etrafına çerçeve çizer.)
+ */
+
+.field-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+}
+
+/* Izgara boşluğu zaten var; fieldın own üst boşluğu second bir aralık açardı. */
+.field-row > .field + .field,
+.field-row > .field {
+    margin-top: 0;
+}
+
+/*
+ * Satırlar birbirine yapışmaz.
+ *
+ * .field own üst boşluğunu yalnızca başka bir .field'ın ardından getıyordu;
+ * araya bir satır inputğinde hint metni bir next etiketin dibine
+ * oturuyordu.
+ */
+.field-row + .field-row,
+.field-row + .field,
+.field + .field-row {
+    margin-top: var(--space-5);
+}

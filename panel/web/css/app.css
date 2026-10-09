@@ -1,0 +1,58 @@
+/*
+ * NDS panel tasarım sistemi — giriş noktası.
+ *
+ * Bu file YALNIZCA içe aktarım barındırır; rules own filesında
+ * durur. Sıra önemlidir: önce theme ve belirteçler, after base, yerleşim,
+ * bileşenler, width atEnd yardımcı sınıflar (onlar her şeyi ezebilmeli).
+ *
+ * Projede nameı `panel.css` olabilir; önemli olan sıra.
+ */
+
+@import './fonts.css';
+@import './themes/default.css';
+@import './tokens.css';
+@import './base.css';
+@import './layout.css';
+
+@import './components/row.css';
+@import './components/panel.css';
+@import './components/button.css';
+@import './components/badge.css';
+@import './components/bulk.css';
+@import './components/table.css';
+@import './components/form.css';
+@import './components/field-row.css';
+@import './components/modal.css';
+@import './components/alert.css';
+@import './components/empty.css';
+@import './components/tabs.css';
+@import './components/toast.css';
+@import './components/secret.css';
+@import './components/user-menu.css';
+@import './components/pagination.css';
+@import './components/remote-session.css';
+
+/* AI Panel'e özgü bileşenler (fresh bileşwidth = fresh file). */
+@import './components/progress.css';
+@import './components/gallery.css';
+@import './components/settings.css';
+@import './components/chat.css';
+@import './components/image-viewer.css';
+
+@import './utilities.css';
+
+/* Tek part: speaker character satiri (name, gender, age, voice, spec). Cinsiyet secilmeden voice secilemez: kirmizi cerceve. */
+.character-line {
+    display: grid;
+    gap: var(--space-2);
+    padding-block: var(--space-2);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.character-line:last-child {
+    border-bottom: 0;
+}
+
+.character-line select[aria-invalid="true"] {
+    border-color: var(--color-danger, #d9534f);
+}

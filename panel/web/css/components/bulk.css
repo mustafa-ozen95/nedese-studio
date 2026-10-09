@@ -1,0 +1,38 @@
+/*
+ * Toplu işlem şeridi: "tümü" kutusu ve düğme.
+ *
+ * Liste başlığının içinde durur; dar ekranda own satırına iner (başlık
+ * zaten sarmalanıyor).
+ */
+
+.bulk {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.bulk__all {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.bulk__all:hover {
+    color: var(--color-text);
+}
+
+/* "kaçı readyır" — şeritte küçük ve silent durur, düğmeyle yarışmaz. */
+.bulk__ready {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+}
+
+/* Seçilecek kayıt yokken şerit sessizleşir: tıklanacak bir şey olmadığını göstersin. */
+.bulk__all--empty {
+    opacity: 0.5;
+    cursor: default;
+}

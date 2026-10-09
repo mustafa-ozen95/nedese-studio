@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Side-Step
+Comment=LoRA fine-tuning toolkit for ACE-Step music models
+Exec=SIDESTEP_INSTALL_DIR/sidestep.sh gui
+Icon=side-step
+Terminal=false
+Categories=AudioVideo;Audio;Development;
+StartupWMClass=side-step
+MimeType=

@@ -1,0 +1,10 @@
+# Windows scripts CRLF (cmd / PowerShell 5.1)
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+panel/web/js/model-viewer.min.js -text
+# Version stamp: git archive and the GitHub zip download write the commit and date (panel/lib/update.mjs)
+panel/version.txt export-subst
+*.cmd text eol=crlf
+# Unix launchers and shell scripts: LF (a CRLF "#!/bin/sh" does not run on Linux)
+bin/nedese text eol=lf
+*.sh text eol=lf

@@ -1,0 +1,6 @@
+Source: https://github.com/koda-dernet/Side-Step  commit fc800935a4b7f13a05103eafb7bacd623d7ed4f7  license MIT (LICENSE)
+Changes: only the promotional screenshots were removed (assets\Screenshots). The code is unchanged.
+Setup (setup\setup.ps1) copies this folder into training\sidestep\; the environment comes from setup\lock\sidestep-uv.lock
+(uv sync --frozen).
+
+Note: the upstream .gitignore was removed (it ignored files in this repository).

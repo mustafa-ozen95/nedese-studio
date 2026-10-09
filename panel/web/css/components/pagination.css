@@ -1,0 +1,82 @@
+/*
+ * Sayfalama şeridi.
+ *
+ * Sayfa countısı arttıkça bağlantılar da artar; sabit genişlikte bir satır
+ * telefonda BELGEYİ genişletiyor ve bütün page landscape kayıyordu. Şerit
+ * own içinde kayar — üst menü, kırıntı yolu ve sekmelerde olduğu gibi —
+ * ve kaydırma çubuğu çizilmez.
+ */
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--color-line);
+    list-style: none;
+    margin: 0;
+    overflow-x: auto;
+}
+
+.pagination__summary,
+.pagination__link {
+    flex-shrink: 0;
+}
+
+.pagination__summary {
+    margin-right: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+.pagination__link {
+    display: grid;
+    place-items: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+    color: var(--color-text-secondary);
+}
+
+.pagination__link:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+}
+
+.pagination__link[aria-current='page'] {
+    background: var(--color-accent);
+    color: var(--color-accent-on);
+}
+
+.pagination__link[aria-disabled='true'] {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+/* Panelde page bağlantıları düğmedir (page yenilenmez). */
+button.pagination__link {
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+}
+
+/* Kart ızgarasının subında: çizgi ve iç boşluk ızgarayla hizalı. */
+[data-gallery-pagination] .pagination,
+[data-picker-pagination] .pagination,
+[data-voice-pagination] .pagination {
+    margin-top: var(--space-4);
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Tek sayfalık listelerde şerit place kaplamaz. */
+[data-gallery-pagination]:empty,
+[data-picker-pagination]:empty,
+[data-voice-pagination]:empty,
+[data-download-pagination]:empty {
+    display: none;
+}

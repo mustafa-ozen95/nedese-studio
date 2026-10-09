@@ -1,0 +1,6 @@
+Source: https://github.com/Fannovel16/ComfyUI-Frame-Interpolation  commit 26545cc2dd95bc3d27f056016300673bdeee78f5  license MIT (LICENSE)
+Changes: only the promotional media was removed (test_vfi_schedule.gif, demo_frames\, All_in_one_v1_3.png). The code is unchanged.
+The RIFE weights (ckpts\rife\rife49.pth) come with the models (setup\download-models.mjs); the node also fetches them on first use.
+Setup (setup\setup.ps1) copies this folder into ComfyUI_windows_portable\ComfyUI\custom_nodes\.
+
+Note: the upstream .gitignore was removed (it ignored files in this repository).

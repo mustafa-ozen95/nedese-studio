@@ -1,0 +1,28 @@
+# Agiz duzeltme (LatentSync) ortami kilidi (lip\.venv), 07.10.2026 bu makinede running surumler.
+# torch, numpy, scipy, librosa, soundfile, omegaconf, einops, transformers, huggingface_hub, safetensors, tqdm
+# voice\.venv'den paylasilir (_ses_ortami.pth, same Python 3.14). --no-deps ile kurulur; torchvision voice\.venv'deki
+# torch 2.14.0+cu130'a esler (download.pytorch.org/whl/cu130).
+torchvision==0.29.0+cu130
+diffusers==0.41.0
+accelerate==1.15.0
+kornia==0.8.3
+kornia-rs==0.2.0
+DeepCache==0.1.1
+mediapipe==1.1.0
+absl-py==2.5.0
+flatbuffers==25.12.19
+attrs==26.1.0
+opencv-python-headless==5.0.0.93
+imageio==2.38.0
+imageio-ffmpeg==0.6.0
+ffmpeg-python==0.2.0
+future==1.0.0
+matplotlib==3.11.2
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.66.1
+kiwisolver==1.5.1
+pyparsing==3.3.3
+python-dateutil==2.9.0.post0
+six==1.17.0
+python-speech-features==0.6

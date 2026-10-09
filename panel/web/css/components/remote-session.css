@@ -1,0 +1,26 @@
+/* Uzak session sarmalayıcısı: çerçeve ekranın okını kaplar. */
+
+.remote-session {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    background: var(--color-page);
+}
+
+.remote-session__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    height: var(--topbar-height);
+    padding: 0 var(--space-4);
+    background: var(--color-column);
+    border-bottom: 1px solid var(--color-line);
+    flex-shrink: 0;
+}
+
+.remote-session__frame {
+    flex: 1;
+    width: 100%;
+    border: 0;
+    background: var(--color-sunken);
+}

@@ -1,0 +1,81 @@
+/*
+ * Bildirimler ÜSTTE, çubuğun immediately subında.
+ *
+ * Altta duruyordu: düğmelerin all ekranın üst şeridinde olduğu için
+ * kullanıcı tıkladıktan after gözünü orada tutuyor ve sub köşede beliren
+ * writeıyı kaçırıyordu. Bildirim, işi başlatan düğmenin sideında görünmeli.
+ */
+.toast-host {
+    position: fixed;
+    right: var(--space-5);
+    top: calc(var(--topbar-height) + var(--space-3));
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    pointer-events: none;
+}
+
+/*
+ * Bildirim ekranı kaplamaz: long text sarmalanır, box okunabilir bir
+ * genişlikte kalır. Sınırsızken single satır bütün ekranı geçiyordu.
+ */
+.toast {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    max-width: min(440px, calc(100vw - 2 * var(--space-5)));
+    line-height: 1.5;
+    cursor: pointer;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-line-strong);
+    border-left-width: 2px;
+    border-radius: var(--radius);
+    background: var(--color-column);
+    box-shadow: var(--shadow-overlay);
+    font-size: var(--text-md);
+    pointer-events: auto;
+    animation: toast-in var(--transition);
+}
+
+.toast--success { border-left-color: var(--color-green-fg); }
+.toast--danger  { border-left-color: var(--color-red-fg); }
+.toast--info    { border-left-color: var(--color-accent); }
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+}
+
+@media (max-width: 480px) {
+    .toast-host {
+        left: var(--space-4);
+        right: var(--space-4);
+        top: calc(var(--topbar-height) + var(--space-2));
+    }
+
+    .toast {
+        max-width: none;
+    }
+}
+
+/*
+ * Uyarı türü: "işlem yapılmadı / dikkat" messagesı başarıdan detailılmalı.
+ * (Bir panelde bunlar yeşil tikli başarı kutusunda gösteriliyordu ve
+ * "zaten işlenmiş" messageı başarı sanılıyordu.)
+ */
+.toast--warning { border-left-color: var(--color-yellow-fg); }
+
+/* İkon bildirimin TÜRÜNÜ söyler; single renge sabitlenmez. */
+.toast svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+}
+
+.toast--success svg { color: var(--color-green-fg); }
+.toast--danger svg  { color: var(--color-red-fg); }
+.toast--warning svg { color: var(--color-yellow-fg); }
+.toast--info svg    { color: var(--color-accent); }

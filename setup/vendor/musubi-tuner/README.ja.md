@@ -1,0 +1,333 @@
+# Musubi Tuner
+
+[English](./README.md) | [日本語](./README.ja.md)
+
+## 目次
+
+<details>
+<summary>クリックすると展開します</summary>
+
+- [はじめに](#はじめに)
+    - [スポンサー](#スポンサー)
+    - [スポンサー募集のお知らせ](#スポンサー募集のお知らせ)
+    - [最近の更新](#最近の更新)
+    - [リリースについて](#リリースについて)
+    - [AIコーディングエージェントを使用する開発者の方へ](#AIコーディングエージェントを使用する開発者の方へ)
+- [概要](#概要)
+    - [ハードウェア要件](#ハードウェア要件)
+    - [特徴](#特徴)
+    - [ドキュメント](#ドキュメント)
+- [インストール](#インストール)
+    - [pipによるインストール](#pipによるインストール)
+    - [Windows on ARM64](#windows-on-arm64)
+    - [uvによるインストール](#uvによるインストール)
+    - [Linux/MacOS](#linuxmacos)
+    - [Windows](#windows)
+- [モデルのダウンロード](#モデルのダウンロード)
+- [使い方](#使い方)
+    - [データセット設定](#データセット設定)
+    - [事前キャッシュと学習](#事前キャッシュと学習)
+    - [Accelerateの設定](#Accelerateの設定)
+    - [学習と推論](#学習と推論)
+- [その他](#その他)
+    - [SageAttentionのインストール方法](#SageAttentionのインストール方法)
+    - [PyTorchのバージョンについて](#PyTorchのバージョンについて)
+- [免責事項](#免責事項)
+- [コントリビューションについて](#コントリビューションについて)
+- [ライセンス](#ライセンス)
+</details>
+
+## はじめに
+
+このリポジトリは、HunyuanVideo、Wan2.1/2.2、FramePack、FLUX.1 Kontext、FLUX.2 dev/klein、Qwen-Image、Z-Image、MiniMax-H3のLoRA学習用のコマンドラインツールです。このリポジトリは非公式であり、それらの公式リポジトリとは関係ありません。
+
+*リポジトリは開発中です。*
+
+### スポンサー
+
+このプロジェクトを支援してくださる企業・団体の皆様に深く感謝いたします。
+
+<a href="https://aihub.co.jp/">
+  <img src="./images/logo_aihub.png" alt="AiHUB株式会社" title="AiHUB株式会社" height="100px">
+</a>
+
+### スポンサー募集のお知らせ
+
+このプロジェクトがお役に立ったなら、ご支援いただけると嬉しく思います。 [GitHub Sponsors](https://github.com/sponsors/kohya-ss/)で受け付けています。
+
+### 最近の更新
+
+GitHub Discussionsを有効にしました。コミュニティのQ&A、知識共有、技術情報の交換などにご利用ください。バグ報告や機能リクエストにはIssuesを、質問や経験の共有にはDiscussionsをご利用ください。[Discussionはこちら](https://github.com/kohya-ss/musubi-tuner/discussions)
+
+- 2026/09/27
+    - `pyproject.toml` の依存関係を更新しました: `transformers` 4.57.6 -> 5.17.0、`diffusers` 0.32.1 -> 0.40.0、`accelerate` 1.6.0 -> 1.15.0、`huggingface-hub` 0.34.3 -> 1.32.0。[PR #1139](https://github.com/kohya-ss/musubi-tuner/pull/1139)
+        - 主にセキュリティ対応のための更新です（`transformers` の 4.x 系と `diffusers` 0.38 未満には修正が提供されなくなっています）。従来のバージョンでもこのリリースは動作しますので直ちに更新する必要はありませんが、お手すきの際に環境で `pip install -e .` を再実行することをお勧めします。
+        - `diffusers` 0.40 は PyTorch 2.6 以降を必要とするため、PyTorch 2.6.0 以降が必要になりました。
+        - `transformers` 5.6 で `CLIPTextModel` の内部構造が変更され、また 5.x では `CLIPTokenizer` がオリジナルの CLIP tokenizer の `ftfy` によるテキスト正規化（曲がった引用符の変換、全角文字の変換など）を行わなくなりました。Musubi Tuner 側で両方に対応しているため、CLIP-L チェックポイントの読み込みと、HunyuanVideo、FramePack、FLUX.1 Kontext、Kandinsky 5 の Text Encoder の出力は従来と変わりません。
+        - `transformers` 5.6 で T5（FLUX.1 Kontext の T5-XXL、HunyuanVideo 1.5 の byT5）の attention の実装が SDPA に変更されました。高速化とメモリ使用量の削減が期待できます。T5 の bf16/fp16 の出力は従来のバージョンとごくわずかに異なります（fp32 に対する精度は同等です）。生成画像や学習結果が細部で変化する可能性がありますが、従来のバージョンでキャッシュした Text Encoder の出力もそのまま使用できます。他の Text Encoder の出力は同一です。
+        - 全アーキテクチャの Text Encoder 出力を新旧バージョンで比較し、以下の調整により T5（上記）以外は同一であることを確認しています: HunyuanVideo / FramePack の Llama 3 tokenizer を `tokenizer.json` から読み込むようにしました（`transformers` 5.x では Llama 3 のテキストを異なる方法でトークン化するクラスに解決されていました）。FLUX.2 の Mistral 3 tokenizer は従来と同じ左パディングを維持します。Krea 2 はプロンプト末尾（suffix）の RoPE 位置を明示的に渡すようにしました。
+        - この比較で見つかった既存のバグを 2 件修正しました。これらのアーキテクチャの Text Encoder 出力はライブラリのバージョンに関係なく従来と変わるため、再キャッシュをお勧めします: FLUX.1 Kontext の T5-XXL が学習モードのままで dropout（0.1）が有効な状態でキャッシュしていたため、キャッシュ出力にノイズが乗り再現性がありませんでした。また Ideogram 4 の Text Encoder（Qwen3-VL）の RoPE がチェックポイント読み込み後に未初期化のままで、位置情報が不正（NaN になることも）でした。
+    - 壊れたメディアファイルに対するlatentキャッシュの堅牢性を向上しました。[PR #1126](https://github.com/kohya-ss/musubi-tuner/pull/1126)、[PR #1127](https://github.com/kohya-ss/musubi-tuner/pull/1127)、[PR #1128](https://github.com/kohya-ss/musubi-tuner/pull/1128)、[PR #1130](https://github.com/kohya-ss/musubi-tuner/pull/1130)
+        - latentキャッシュスクリプトに`--skip_broken`を追加しました。デコードや検証に失敗したメディアファイルがあった場合、処理を停止する代わりに理由をログに出力してスキップします。指定しない場合は従来どおり最初の失敗で停止します。[ドキュメント](./docs/hunyuan_video.md#latent-pre-caching--latentの事前キャッシング)を参照してください。
+        - MiniMax-H3: 動画に埋め込まれた音声を映像の先頭フレームに揃えるようにしました（キャプチャソフトでは映像と音声の開始時刻がずれていることが珍しくありません）。また、タイムスタンプの小さな揺れやギャップは`Audio stream is discontinuous`で失敗せず、その場で修復されます。詳細は[MiniMax-H3のドキュメント](./docs/minimax_h3.md#geometry-and-media-contract--ジオメトリとメディアの規約)を参照してください。**この変更より前に作成したキャッシュは、映像と音声の開始時刻がずれているファイルについて音声がずれたままです。該当するデータセットはlatentキャッシュを再作成してください（該当ファイルはキャッシュスクリプトがログに出力します）。**詳細な報告をいただいたTophness氏に感謝します。[Issue #1066](https://github.com/kohya-ss/musubi-tuner/issues/1066)
+    - コントリビューターの方々のPull Requestによるバグ修正を取り込みました（詳細はrelease notesを参照してください）。rockerBOO氏、li-lizhe氏、Jnalley123氏、FurkanGozukara氏に感謝します。[PR #1138](https://github.com/kohya-ss/musubi-tuner/pull/1138)
+- 2026/09/24
+    - Windows on ARM64（NVIDIA RTX Spark PCなど）に対応しました。[PR #1132](https://github.com/kohya-ss/musubi-tuner/pull/1132)、[PR #1133](https://github.com/kohya-ss/musubi-tuner/pull/1133)、[PR #1134](https://github.com/kohya-ss/musubi-tuner/pull/1134)
+        - `opencv-python`が任意になりました（インストールされていない場合はPillow/NumPyによる代替実装が使われます）。wheelが提供されていないWindows on ARM64では自動的にスキップされます。詳細は[Windows on ARM64](#windows-on-arm64)を参照してください。
+        - `pyproject.toml`の`av`と`safetensors`を、Windows ARM64のwheelが提供されている最初のバージョンである17.1.0と0.8.0に更新しました。`av` 17.1.0はFFmpeg 8.0を同梱しています。macOSのarm64 wheelはmacOS 14以降が必要です。
+        - `av`の更新により、HEVC動画で`*_cache_latents.py`がハングする問題も修正されます（`av` 14.0.1が同梱するFFmpeg 7.1.0のHEVCデコーダーにデッドロックがありました）。`pip install -e .`を再実行して`av`を更新してください。報告いただいたTophness氏に感謝します。[Issue #1124](https://github.com/kohya-ss/musubi-tuner/issues/1124)
+- 2026/09/16
+    - MiniMax-H3に実験的に対応しました（LoRA学習、映像と音声の同時生成）。最初の[PR #1018](https://github.com/kohya-ss/musubi-tuner/pull/1018)とその後のフォローアップを含め、sdbds氏に感謝します。
+        - 詳細は[ドキュメント](./docs/minimax_h3.md)および[one-frame（画像）学習のドキュメント](./docs/minimax_h3_1f.md)を参照してください。マージ済みの機能と今後の作業は[MiniMax-H3 support roadmap](https://github.com/kohya-ss/musubi-tuner/issues/1029)で管理しています。
+    - Krea 2のLoRA学習で、凍結されたDiTのbase重みをConvRot int8で量子化するオプション（`--convrot_int8`）を追加しました。`--fp8_base --fp8_scaled`の代替となります。[PR #1008](https://github.com/kohya-ss/musubi-tuner/pull/1008)
+        - fp8と同様に重みのVRAMが半減します。主な利点はfp8非対応GPU（RTX 30シリーズ以前）での速度向上です。融合カーネルには`triton`が必要です。詳細は[Krea 2のドキュメント](./docs/krea2.md#convrot-int8--convrot-int8)を参照してください。
+    - metadata JSONLファイルによるデータセット設定を拡張しました。詳細は[データセット設定のドキュメント](./docs/dataset_config.md)を参照してください。
+        - JSONL内の相対パスは、作業ディレクトリ基準で見つからない場合、JSONLファイルのあるディレクトリ基準でも解決されるようになりました。[PR #1023](https://github.com/kohya-ss/musubi-tuner/pull/1023)
+        - audio対応アーキテクチャ（現時点ではMiniMax-H3）向けに、動画レコードに任意の`audio_path`フィールドを指定できます。省略時は同名の音声サイドカーファイル、または動画内の音声トラックが使用されます。[PR #1020](https://github.com/kohya-ss/musubi-tuner/pull/1020)、[PR #1021](https://github.com/kohya-ss/musubi-tuner/pull/1021)
+        - 共通スキーマ以外のキーは、項目ごとの追加フィールドとしてアーキテクチャ固有のキャッシュスクリプトに渡されます。[PR #1094](https://github.com/kohya-ss/musubi-tuner/pull/1094)
+    - 共通のattention backendで`--attn_mode sdpa`がエラーになる問題を修正しました。`torch`のエイリアスとして動作します。rossnot氏に感謝します。[PR #1092](https://github.com/kohya-ss/musubi-tuner/pull/1092)
+    - 動画データセットのlatentキャッシュ時に`enable_bucket`と`bucket_no_upscale`が無視され、設定に関わらず常にbucketingされていた問題を修正しました。christopher5106氏に感謝します。[PR #1100](https://github.com/kohya-ss/musubi-tuner/pull/1100)
+        - **挙動の変更:** `enable_bucket = true`を指定していない動画データセットは、画像データセットと同様に、設定した`resolution`の単一解像度（リサイズ後に中央をクロップ）でキャッシュされるようになります。設定なしでbucketingに依存していた場合は、データセットに`enable_bucket = true`を追加してください。そうでない場合は、キャッシュが設定した解像度と一致するように、latentキャッシュを再作成してください（MiniMax-H3の`fl2va` / `ref2va`はリサイズ後の制御画像をテキストエンコーダー出力のキャッシュに含むため、そちらも再作成が必要です）。
+    - `--output_dir`または`--output_name`が指定されていない場合、最初の保存時にエラーになるのではなく、学習開始時に停止するようになりました。rossnot氏に感謝します。[PR #1070](https://github.com/kohya-ss/musubi-tuner/pull/1070)
+    - Krea 2: `--gradient_checkpointing_cpu_offload`（gradient checkpointing時のactivationのCPUオフロード）が有効になりました。rockerBOO氏に感謝します。[PR #1101](https://github.com/kohya-ss/musubi-tuner/pull/1101)
+    - Krea 2: 学習中のサンプル画像生成で、`--turbo_dit`の代わりにRAWモデルの上にTurbo LoRAを合成する`--turbo_lora`オプションを追加しました。block swap、fp8、ConvRot int8と併用できます。詳細は[Krea 2のドキュメント](./docs/krea2.md#sample-image-generation-during-training--学習中のサンプル画像生成)を参照してください。rockerBOO氏に感謝します。[PR #1103](https://github.com/kohya-ss/musubi-tuner/pull/1103)
+
+- 2026/07/14
+    - 勾配ノルムの診断メトリクス（`grad/norm`, `grad/mean_norm`, `grad/max`、勾配クリッピング前の値）をトラッカーに出力する `--log_grad_metrics` オプションを追加しました。[PR #988](https://github.com/kohya-ss/musubi-tuner/pull/988) rockerBOO氏に感謝します。
+        - 勾配の爆発・消失の診断や、適切な `--max_grad_norm` の値を決める際に役立ちます。デフォルトでは無効です。詳細は[高度な設定のドキュメント](./docs/advanced_config.md#log-gradient-metrics--勾配メトリクスのログ出力)を参照してください。
+
+### リリースについて
+
+Musubi Tunerの解説記事執筆や、関連ツールの開発に取り組んでくださる方々に感謝いたします。このプロジェクトは開発中のため、互換性のない変更や機能追加が起きる可能性があります。想定外の互換性問題を避けるため、参照用として[リリース](https://github.com/kohya-ss/musubi-tuner/releases)をお使いください。
+
+最新のリリースとバージョン履歴は[リリースページ](https://github.com/kohya-ss/musubi-tuner/releases)で確認できます。
+
+### AIコーディングエージェントを使用する開発者の方へ
+
+このリポジトリでは、ClaudeやGeminiのようなAIエージェントが、プロジェクトの概要や構造を理解しやすくするためのエージェント向け文書（プロンプト）を用意しています。
+
+これらを使用するためには、プロジェクトのルートディレクトリに各エージェント向けの設定ファイルを作成し、明示的に読み込む必要があります。
+
+**セットアップ手順:**
+
+1.  プロジェクトのルートに `CLAUDE.md` や `GEMINI.md`、`AGENTS.md` ファイルを作成します。
+2.  `CLAUDE.md` 等に以下の行を追加して、リポジトリが推奨するプロンプトをインポートします（現在、両者はほぼ同じ内容です）：
+
+    ```markdown
+    @./.ai/claude.prompt.md
+    ```
+
+    Geminiの場合はこちらです：
+
+    ```markdown
+    @./.ai/gemini.prompt.md
+    ```
+
+    他のエージェント向けの設定ファイルでもそれぞれの方法でインポートしてください。
+
+3.  インポートした行の後に、必要な指示を適宜追加してください（例：`Always respond in Japanese.`）。
+
+このアプローチにより、共有されたプロジェクトのコンテキストを活用しつつ、エージェントに与える指示を各ユーザーが自由に制御できます。`CLAUDE.md`、`GEMINI.md` および `AGENTS.md` （またClaude用の `.mcp.json`）はすでに `.gitignore` に記載されているため、リポジトリにコミットされることはありません。
+
+## 概要
+
+### ハードウェア要件
+
+- VRAM: 静止画での学習は12GB以上推奨、動画での学習は24GB以上推奨。
+    - *アーキテクチャ、解像度等の学習設定により異なります。*12GBでは解像度 960x544 以下とし、`--blocks_to_swap`、`--fp8_llm`等の省メモリオプションを使用してください。
+- メインメモリ: 64GB以上を推奨、32GB+スワップで動作するかもしれませんが、未検証です。
+
+### 特徴
+
+- 省メモリに特化
+- Windows対応（Linuxでの動作報告もあります）
+- マルチGPU学習（[Accelerate](https://huggingface.co/docs/accelerate/index)を使用）、ドキュメントは後日追加予定
+
+### ドキュメント
+
+各アーキテクチャの詳細、設定、高度な機能については、以下のドキュメントを参照してください。
+
+**アーキテクチャ別:**
+- [HunyuanVideo](./docs/hunyuan_video.md)
+- [Wan2.1/2.2](./docs/wan.md)
+- [Wan2.1/2.2 (1フレーム推論)](./docs/wan_1f.md)
+- [FramePack](./docs/framepack.md)
+- [FramePack (1フレーム推論)](./docs/framepack_1f.md)
+- [FLUX.1 Kontext](./docs/flux_kontext.md)
+- [Qwen-Image](./docs/qwen_image.md)
+- [Z-Image](./docs/zimage.md)
+- [HiDream-O1-Image](./docs/hidream_o1.md)
+- [HunyuanVideo 1.5](./docs/hunyuan_video_1_5.md)
+- [Kandinsky 5](./docs/kandinsky5.md)
+- [FLUX.2](./docs/flux_2.md)
+- [MiniMax-H3](./docs/minimax_h3.md)
+- [MiniMax-H3 (1フレーム学習)](./docs/minimax_h3_1f.md)
+
+**共通設定・その他:**
+- [データセット設定](./docs/dataset_config.md)
+- [高度な設定](./docs/advanced_config.md)
+- [学習中のサンプル生成](./docs/sampling_during_training.md)
+- [ブロックスワップ（省メモリのためのCPUオフロード）](./docs/block_swap.md)
+- [ツールとユーティリティ](./docs/tools.md)
+- [torch.compileの使用方法](./docs/torch_compile.md)
+
+## インストール
+
+### pipによるインストール
+
+Python 3.10以上を使用してください（3.10と3.12で動作確認済み。3.13と3.14でも依存関係はインストールできます）。
+
+適当な仮想環境を作成し、ご利用のCUDAバージョンに合わせたPyTorchとtorchvisionをインストールしてください。
+
+PyTorchはバージョン2.6.0以上を使用してください（[補足](#PyTorchのバージョンについて)）。
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+以下のコマンドを使用して、必要な依存関係をインストールします。
+
+```bash
+pip install -e .
+```
+
+オプションとして、FlashAttention、SageAttention（**推論にのみ使用できます**、インストール方法は[こちら](#SageAttentionのインストール方法)を参照）を使用できます。
+
+また、`ascii-magic`（データセットの確認に使用）、`matplotlib`（timestepsの可視化に使用）、`tensorboard`（学習ログの記録に使用。Windows on ARM64では代わりに`tensorboardX`をインストールしてください。後述）、`prompt-toolkit`を必要に応じてインストールしてください。
+
+`prompt-toolkit`をインストールするとWan2.1およびFramePackのinteractive modeでの編集に、自動的に使用されます。特にLinux環境でプロンプトの編集が容易になります。
+
+```bash
+pip install ascii-magic matplotlib tensorboard prompt-toolkit
+```
+
+### Windows on ARM64
+
+Windows on ARM64（NVIDIA RTX Spark PCなど）に対応しています。Python 3.12以降を使用してください（`av`のWindows ARM64 wheelはPython 3.11以降、PyTorchのwheelはさらに新しいバージョンが必要です）。ご利用のGPUとPythonバージョンに対応したWindows on ARM64向けのPyTorchをインストールしたうえで、上記と同様に`pip install -e .`を実行してください。以下のパッケージはWindows ARM64のwheelが提供されていないため、自動的に処理されます。
+
+- `opencv-python`は`pyproject.toml`の環境マーカーによりスキップされます。学習とデータセットのパイプラインが使うOpenCVの機能はごく一部（`cv2.resize`、`cv2.cvtColor`、デバッグ用の`cv2.imshow`）のため、OpenCVがない場合はPillow/NumPyによる代替実装が`cv2`として登録されます。代替実装はデータセットのパイプラインが使う`INTER_AREA`と`INTER_LINEAR`のリサイズをOpenCVと同じ計算で再現しているので、キャッシュされるlatentは丸め誤差の範囲でOpenCVありの環境と一致します。`INTER_CUBIC`（推論スクリプトが開始・終了画像を拡大する場合に使用）はPillowで処理されるため、わずかに異なります。他のプラットフォームでも、OpenCVを避けたい場合は`pip install -e .`の後に`opencv-python`をアンインストールできます。代替実装が自動的に使われます。
+- `tensorboard` 2.xはWindows ARM64のwheelがない`grpcio`に依存しています（pipは黙って非常に古いtensorboard 1.10にフォールバックします）。代わりに`tensorboardX`をインストールしてください。`--log_with tensorboard`はそのまま動作します。ログは別のマシンのTensorBoardで参照してください。
+
+```bash
+pip install ascii-magic matplotlib tensorboardX prompt-toolkit
+```
+
+`triton`、`sageattention`、`flash-attn`などの任意パッケージはWindows on ARM64では動作確認していません。これらがなくてもスクリプトは動作します。
+
+### uvによるインストール
+
+uvを使用してインストールすることもできますが、uvによるインストールは試験的なものです。フィードバックを歓迎します。
+
+#### Linux/MacOS
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+表示される指示に従い、pathを設定してください。
+
+#### Windows
+
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+表示される指示に従い、PATHを設定するか、この時点でシステムを再起動してください。
+
+## モデルのダウンロード
+
+モデルのダウンロード手順はアーキテクチャによって異なります。詳細は[ドキュメント](#ドキュメント)セクションにある、各アーキテクチャのドキュメントを参照してください。
+
+## 使い方
+
+### データセット設定
+
+[こちら](./docs/dataset_config.md)を参照してください。
+
+### 事前キャッシュ
+
+事前キャッシュの手順の詳細は、[ドキュメント](#ドキュメント)セクションにある各アーキテクチャのドキュメントを参照してください。
+
+### Accelerateの設定
+
+`accelerate config`を実行して、Accelerateの設定を行います。それぞれの質問に、環境に応じた適切な値を選択してください（値を直接入力するか、矢印キーとエンターで選択、大文字がデフォルトなので、デフォルト値でよい場合は何も入力せずエンター）。GPU 1台での学習の場合、以下のように答えてください。
+
+```txt
+- In which compute environment are you running?: This machine
+- Which type of machine are you using?: No distributed training
+- Do you want to run your training on CPU only (even if a GPU / Apple Silicon / Ascend NPU device is available)?[yes/NO]: NO
+- Do you wish to optimize your script with torch dynamo?[yes/NO]: NO
+- Do you want to use DeepSpeed? [yes/NO]: NO
+- What GPU(s) (by id) should be used for training on this machine as a comma-seperated list? [all]: all
+- Would you like to enable numa efficiency? (Currently only supported on NVIDIA hardware). [yes/NO]: NO
+- Do you wish to use mixed precision?: bf16
+```
+
+※場合によって ``ValueError: fp16 mixed precision requires a GPU`` というエラーが出ることがあるようです。この場合、6番目の質問（
+``What GPU(s) (by id) should be used for training on this machine as a comma-separated list? [all]:``）に「0」と答えてください。（id `0`、つまり1台目のGPUが使われます。）
+
+### 学習と推論
+
+学習と推論の手順はアーキテクチャによって大きく異なります。詳細な手順については、[ドキュメント](#ドキュメント)セクションにある対応するアーキテクチャのドキュメント、および各種の設定のドキュメントを参照してください。
+
+## その他
+
+### SageAttentionのインストール方法
+
+sdbds氏によるWindows対応のSageAttentionのwheelが https://github.com/sdbds/SageAttention-for-windows で公開されています。triton をインストールし、Python、PyTorch、CUDAのバージョンが一致する場合は、[Releases](https://github.com/sdbds/SageAttention-for-windows/releases)からビルド済みwheelをダウンロードしてインストールすることが可能です。sdbds氏に感謝します。
+
+参考までに、以下は、SageAttentionをビルドしインストールするための簡単な手順です。Microsoft Visual C++ 再頒布可能パッケージを最新にする必要があるかもしれません。
+
+1. Pythonのバージョンに応じたtriton 3.1.0のwhellを[こちら](https://github.com/woct0rdho/triton-windows/releases/tag/v3.1.0-windows.post5)からダウンロードしてインストールします。
+
+2. Microsoft Visual Studio 2022かBuild Tools for Visual Studio 2022を、C++のビルドができるよう設定し、インストールします。（上のRedditの投稿を参照してください）。
+
+3. 任意のフォルダにSageAttentionのリポジトリをクローンします。
+    ```shell
+    git clone https://github.com/thu-ml/SageAttention.git
+    ```
+
+4. スタートメニューから Visual Studio 2022 内の `x64 Native Tools Command Prompt for VS 2022` を選択してコマンドプロンプトを開きます。
+
+5. venvを有効にし、SageAttentionのフォルダに移動して以下のコマンドを実行します。DISTUTILSが設定されていない、のようなエラーが出た場合は `set DISTUTILS_USE_SDK=1`としてから再度実行してください。
+    ```shell
+    python setup.py install
+    ```
+
+以上でSageAttentionのインストールが完了です。
+
+### PyTorchのバージョンについて
+
+PyTorch 2.6.0以降が必要です（`diffusers` 0.40がそれより前のバージョンに対応していません）。また、それより前のバージョンでは`--attn_mode torch`で生成される動画が真っ黒になる問題がありました。
+
+## 免責事項
+
+このリポジトリは非公式であり、サポートされているアーキテクチャの公式リポジトリとは関係ありません。また、このリポジトリは開発中で、実験的なものです。テストおよびフィードバックを歓迎しますが、以下の点にご注意ください：
+
+- 実際の稼働環境での動作を意図したものではありません
+- 機能やAPIは予告なく変更されることがあります
+- いくつもの機能が未検証です
+- 動画学習機能はまだ開発中です
+
+問題やバグについては、以下の情報とともにIssueを作成してください：
+
+- 問題の詳細な説明
+- 再現手順
+- 環境の詳細（OS、GPU、VRAM、Pythonバージョンなど）
+- 関連するエラーメッセージやログ
+
+## コントリビューションについて
+
+コントリビューションを歓迎します。 [CONTRIBUTING.md](./CONTRIBUTING.md)および[CONTRIBUTING.ja.md](./CONTRIBUTING.ja.md)をご覧ください。
+
+## ライセンス
+
+`hunyuan_model`ディレクトリ以下のコードは、[HunyuanVideo](https://github.com/Tencent/HunyuanVideo)のコードを一部改変して使用しているため、そちらのライセンスに従います。
+
+`wan`ディレクトリ以下のコードは、[Wan2.1](https://github.com/Wan-Video/Wan2.1)のコードを一部改変して使用しています。ライセンスはApache License 2.0です。
+
+`frame_pack`ディレクトリ以下のコードは、[frame_pack](https://github.com/lllyasviel/FramePack)のコードを一部改変して使用しています。ライセンスはApache License 2.0です。
+
+`modules/convrot_int8_kernels.py`のコードは、[comfy-kitchen](https://github.com/Comfy-Org/comfy-kitchen)（dxqb/OneTrainerおよびComfyUI-Flux2-INT8由来）のコードを一部改変して使用しています。ライセンスはApache License 2.0です。
+
+他のコードはApache License 2.0に従います。一部Diffusersのコードをコピー、改変して使用しています。

@@ -1,0 +1,1084 @@
+/*
+ * Sütun yerleşimi.
+ *
+ * Ekran bir üst çubuk ve landscape bir sütun şeridinden oluşur. Her sütun bir
+ * daralma nameımıdır (Konum → Switch → Nesne → Kayıt); last sütun esner, width hourğda
+ * isteğe bağlı detay paneli durur. Sayfa kavramı yoktur.
+ */
+
+.shell {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+}
+
+/* ── Üst çubuk ── */
+
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    height: var(--topbar-height);
+    padding: 0 var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+    background: var(--color-column);
+    flex-shrink: 0;
+}
+
+.topbar__mark {
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+    letter-spacing: -0.01em;
+}
+
+.topbar__spacer {
+    flex: 1;
+}
+
+.topbar__counts {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+.topbar__user {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding-left: var(--space-3);
+    border-left: 1px solid var(--color-line);
+}
+
+.topbar__name {
+    font-size: var(--text-base);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+}
+
+.topbar__avatar {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-full);
+    background: var(--color-selected);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+}
+
+/* ── Kırıntı yolu ── */
+
+.crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    font-size: var(--text-base);
+    color: var(--color-text-muted);
+}
+
+.crumbs__sep {
+    color: var(--color-line-strong);
+}
+
+.crumbs__item--current {
+    color: var(--color-text);
+}
+
+/* ── Sütun şeridi ── */
+
+.columns {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow-x: auto;
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 0;
+    width: var(--column-medium);
+    background: var(--color-column);
+    border-right: 1px solid var(--color-line);
+}
+
+.column--narrow { width: var(--column-narrow); }
+.column--wide { width: var(--column-wide); }
+
+/* Esneyen sütun: seçili nesnenin kayıtları. Zemini bir ton koyu. */
+.column--fill {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    background: var(--color-column-sub);
+}
+
+.column__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+    flex-shrink: 0;
+}
+
+.column__count {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+.column__hint {
+    margin-left: auto;
+    display: flex;
+    gap: var(--space-2);
+}
+
+/* Sütun başlığındaki filtre kutusu, sayaçtan after gelir. */
+.column__filter {
+    margin-left: var(--space-4);
+}
+
+.column__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    /* Dikey boşluk satırların own dolgusundan gelir: gövdeye boşluk
+       verilirse yapışkan başlığın üstünden satır sızıyor. */
+    padding: 0;
+
+    /*
+     * ALTTA NEFES PAYI.
+     *
+     * Son satır pencerenin width dibine yapışıyordu: tarayıcı bağlantı
+     * adresini full oraya startedAtıyor ve satırın üstünü closeıyor. Boşluk
+     * yalnızca kaydırmanın sonunda görünür, satır aralarına karışmaz.
+     */
+    padding-bottom: var(--space-7);
+}
+
+.column__body--padded {
+    padding: var(--space-5);
+}
+
+/* ── Detay paneli ── */
+
+.detail {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    width: var(--detail-width);
+    min-height: 0;
+    background: var(--color-column);
+    border-left: 1px solid var(--color-line);
+}
+
+.detail__head {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+    flex-shrink: 0;
+}
+
+.detail__title {
+    font-family: var(--font-mono);
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+}
+
+.detail__subtitle {
+    margin-top: 2px;
+    color: var(--color-text-secondary);
+    font-size: var(--text-base);
+}
+
+.detail__title--plain {
+    font-family: var(--font-sans);
+}
+
+/* Detay panelinde bölüm içi second block. */
+.detail__block {
+    margin-top: var(--space-3);
+}
+
+.detail__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* Kaydırma çubuğu belirince içerik genişliği değişmesin. */
+    scrollbar-gutter: stable;
+
+    /* Son bölüm sub kenara yapışmasın; bkz. .column__body. */
+    padding-bottom: var(--space-5);
+}
+
+.detail__section {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.detail__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border-top: 1px solid var(--color-line);
+    flex-shrink: 0;
+}
+
+/* Panel dibindeki actions side yana durur ve fieldı paylaşır. */
+.detail__foot > .btn,
+.detail__foot > form > .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+}
+
+.detail__foot > form {
+    flex: 1 1 auto;
+    display: flex;
+}
+
+/* ── Tek sütunlu (form / yönetim) pages ── */
+
+.page {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+
+    /*
+     * Kaydırma çubuğunun yeri HEP detailılır. Yoksa long page çubuğu gösterip
+     * içeriği ~9px daraltıyor, kıhour page daraltmıyordu; iki ekran arasında
+     * geçerken yerleşim zıplıyordu (kullanıcı bildirimi, 12.09.2026).
+     */
+    scrollbar-gutter: stable;
+}
+
+/*
+ * Sayfa sütunu ORTALANIR.
+ *
+ * `max-width` single başına yetmez: dış boşluk verilmeyince sütun geniş
+ * ekranda left kenara yapışır ve hourğda kocaman bir boşluk kalır. Genel
+ * lookış sayfası 1600px ekranda 880px'lik sütunuyla full sola yapışmış
+ * duruyordu (kullanıcı bildirimi, 12.09.2026).
+ *
+ * `--wide` sürümünde sınır zaten none; `auto` orada bir şey değiştirmez,
+ * bu yüzden rule ortakta durabilir.
+ */
+.page__inner {
+    max-width: var(--page-column);
+    margin-inline: auto;
+    padding: var(--space-6) var(--space-5);
+}
+
+.page__inner--wide {
+    max-width: none;
+}
+
+/*
+ * Üst çubuk ekranı boydan boya kaplar ama İÇERİĞİ page sütunuyla hizalanır.
+ *
+ * Sütun dar olduğunda marka width left kenarda single başına kalıyor, ortalanmış
+ * içerikle ilgisiz duruyordu. Geniş sayfalarda (list ekranları) sütun zaten
+ * full genişlik olduğu için rule devreye girmez — bu yüzden `--wide` hariç.
+ */
+.shell:has(.page__inner:not(.page__inner--wide)) .topbar,
+.shell:has(.page__inner:not(.page__inner--wide)) .subnav {
+    padding-inline: max(var(--space-4), calc((100% - var(--page-column)) / 2 + var(--space-5)));
+}
+
+/*
+ * Sayfa blocksı birbirine yapışmaz.
+ *
+ * Paneller, formlar ve şeritler ardışık kardeşlerdir ve hiçbirinin dış
+ * boşluğu yoktu: iki card side yana geldiğinde aralarında yalnızca iki
+ * çizgi kalıyor, single bir kutuymuş gibi görünüyorlardı.
+ *
+ * Dikey boşluklar çöktüğü için başlığın ve sekme şeridinin own sub
+ * boşluğuyla çakışmaz; width büyüğü geçerli olur.
+ */
+.page__inner > * + * {
+    margin-top: var(--space-5);
+}
+
+.page-head {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-4);
+    padding-bottom: var(--space-5);
+    margin-bottom: var(--space-5);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.page-head__text {
+    flex: 1;
+    min-width: 0;
+}
+
+.page-head__subtitle {
+    margin-top: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--text-base);
+}
+
+.page-head__actions {
+    display: flex;
+    gap: var(--space-3);
+}
+
+/*
+ * Dar ekranda başlık ve actions ALT ALTA.
+ *
+ * Aynı satırda kaldıklarında filtre fieldsı (iki seçim kutusu ~300px) satırın
+ * okını yiyor, başlık üç harfe kadar eziliyordu — 360px'te ölçüldü
+ * (kullanıcı bildirimi, 2026-09-12).
+ */
+@media (max-width: 720px) {
+    .page-head {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .page-head__text {
+        flex: 1 1 100%;
+    }
+
+    .page-head__actions {
+        flex: 1 1 100%;
+        flex-wrap: wrap;
+
+        /* Eylem her time hourğda: satır eylemleri ve form eylemleriyle aynı hiza. */
+        justify-content: flex-end;
+    }
+}
+
+/* ── Giriş ekranı ── */
+
+.gate {
+    display: grid;
+    place-items: center;
+    height: 100dvh;
+    padding: var(--space-5);
+    background: var(--color-page);
+}
+
+.gate__panel {
+    width: 100%;
+    max-width: 330px;
+}
+
+.gate__mark {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    letter-spacing: -0.02em;
+    margin-bottom: var(--space-2);
+}
+
+.gate__lead {
+    color: var(--color-text-muted);
+    font-size: var(--text-base);
+    margin-bottom: var(--space-6);
+}
+
+.gate__alert {
+    margin-bottom: var(--space-5);
+}
+
+/*
+ * "veya" separatorı: iki giriş yolunu birbirinden ayırır.
+ *
+ * Çizgi metnin ARDINDAN geçmez; iki sideına detailı iki parça olarak konur, yoksa
+ * back planı boyayan bir sözcük kutusu gerekirdi ve theme değiştiğinde o box
+ * zeminden detailı düşerdi.
+ */
+.gate__sep {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: var(--space-3);
+    margin: var(--space-5) 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+.gate__sep::before,
+.gate__sep::after {
+    content: '';
+    height: 1px;
+    background: var(--color-line);
+}
+
+/*
+ * Katlanmış parola formu.
+ *
+ * Merkez açıkken second path görünmez ama YOK DEĞİL: başlığa tıklayınca
+ * açılır. Ok işaretini kendimiz çiziyoruz — tarayıcının varsayılan üçgeni
+ * her platformda farklı boyda ve hizası şeridin back remainingıyla tutmuyor.
+ */
+.gate__collapsible-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    list-style: none;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    user-select: none;
+}
+
+.gate__collapsible-title::-webkit-details-marker {
+    display: none;
+}
+
+.gate__collapsible-title::before {
+    content: '';
+    width: 0;
+    height: 0;
+    border-left: 4px solid currentColor;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transition: transform var(--transition-fast);
+}
+
+.gate__collapsible[open] > .gate__collapsible-title::before {
+    transform: rotate(90deg);
+}
+
+.gate__collapsible-title:hover {
+    color: var(--color-text);
+}
+
+/* Açıldığında form başlığa yapışmasın. */
+.gate__collapsible[open] > form {
+    margin-top: var(--space-4);
+}
+
+.gate__foot {
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-line);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+/* ── Duyarlılık ──
+   Dar ekranda sütunlar side yana durmaz: yalnızca width deep sütun gösterilir,
+   üsttekilere kırıntı yolundan dönülür. */
+
+/*
+ * Dar ekranda sütunlar gizlenmez, şerit landscape kayar. Gizlemek gezinmeyi
+ * koparıyordu: switchten nesneye geçilemiyor, tablette trafik paneline hiç
+ * ulaşılamıyordu.
+ */
+@media (max-width: 1100px) {
+    .columns {
+        scroll-snap-type: x proximity;
+        overscroll-behavior-x: contain;
+    }
+
+    .column {
+        width: 200px;
+        scroll-snap-align: start;
+    }
+
+    .column--fill {
+        flex: none;
+        width: 620px;
+        min-width: 620px;
+    }
+
+    .detail {
+        width: 300px;
+        min-width: 300px;
+    }
+}
+
+@media (max-width: 820px) {
+    .topbar {
+        height: auto;
+        min-height: var(--topbar-height);
+        flex-wrap: wrap;
+        padding: var(--space-2) var(--space-3);
+        gap: var(--space-2) var(--space-3);
+    }
+
+    /* Bölüm menüsü own satırına iner ve gerekirse landscape kayar. */
+    .topbar__nav {
+        order: 3;
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+
+    /*
+     * Scrolling down hides the section tabs row; scrolling up brings it back (app.js). The row goes at once and the
+     * page slides with a transform (FLIP in app.js): height animations relaid the page every frame and stuttered.
+     */
+    .topbar--scrolled .topbar__nav {
+        display: none;
+    }
+
+    .topbar--scrolled {
+        row-gap: 0;
+    }
+
+    .topbar__counts,
+    /* Dar ekranda name yerine yalnızca baş letters kalır. */
+    .topbar__name {
+        display: none;
+    }
+
+    /* Kırıntı yolu back dönüş yoludur; gizlenmez, gerekirse landscape kayar. */
+    .crumbs {
+        min-width: 0;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+
+    /*
+     * Telefonda her bölme TAM ekran kaplar ve bir parmak hareketi bir bölme
+     * ilerletir.
+     *
+     * Bölmeler ekrandan darken single geçiş 3-4 motion sürüyordu: kaydırma
+     * bölmenin ortasında kalıyor, which bölmede olunduğu da belirsizleşiyordu.
+     *
+     * Hizalama KESİN (mandatory): yavaş ya da kıhour bir motion de bölmeyi
+     * tamamlar, yarım kalmaz. Bölmelerin all full ekran olduğu için hizalama
+     * pointsı bölme kenarlarıyla çakışır — daha önce bölmeler farklı
+     * genişlikteyken "mandatory" programlı kaydırmayı back itip tıklamayı
+     * bozuyordu, artık öyle bir fitToşmazlık none.
+     *
+     * scroll-snap-stop: always — hızlı bir motion bölmeleri atlamaz, her
+     * seferinde bir page ilerlenir.
+     */
+    .columns {
+        scroll-snap-type: x mandatory;
+    }
+
+    .column,
+    .column--fill,
+    .detail {
+        width: 100vw;
+        min-width: 100vw;
+        max-width: none;
+        scroll-snap-align: start;
+        scroll-snap-stop: always;
+    }
+
+    .column__head {
+        flex-wrap: wrap;
+        gap: var(--space-2) var(--space-3);
+    }
+
+    .column__head .filter {
+        order: 3;
+        width: 100%;
+        margin-left: 0 !important;
+    }
+
+    .page__inner {
+        padding: var(--space-4) var(--space-3);
+    }
+
+    .page-head {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    /*
+     * Eylemler sub alta ve TAM GENİŞLİK.
+     *
+     * Doğrudan çocuk hem düğme hem FORM olabilir — tehlikeli her action own
+     * formundadır. Yalnızca `.btn` hedeflenince form sarmalayıcıları içerikleri
+     * kadar kalıyor, düğmeler hizasız ve yarım görünüyordu (kullanıcı
+     * bildirimi, 2026-09-12).
+     */
+    .form-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .form-actions > * {
+        width: 100%;
+    }
+
+    .form-actions .btn {
+        width: 100%;
+    }
+}
+
+/* Üst çubuktaki bölüm bağlantıları */
+.topbar__nav {
+    display: flex;
+    gap: var(--space-1);
+}
+
+/*
+ * Yatay sliding şeritlerde çubuk GİZLENİR.
+ *
+ * Bölüm menüsü, kırıntı yolu, sekme şeridi ve sütun şeridi dar ekranda kayar;
+ * tarayıcının çizdiği çubuk hem place kaplıyor hem de arayüzün içinde bir box
+ * varmış gibi duruyordu. Kaydırma çgetışmaya proceed eder, yalnızca çubuk
+ * çizilmez.
+ *
+ * Yatay sliding HER şerit bu inList olmalı: biri missing kalırsa aynı arayüzde
+ * kimi şeritte çubuk çıkar kimisinde çıkmaz.
+ */
+.topbar__nav,
+.crumbs,
+.tabs,
+.pagination,
+.columns {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.topbar__nav::-webkit-scrollbar,
+.crumbs::-webkit-scrollbar,
+.tabs::-webkit-scrollbar,
+.pagination::-webkit-scrollbar,
+.columns::-webkit-scrollbar {
+    display: none;
+}
+
+.topbar__link {
+    /*
+     * Bağlantı DARALMAZ ve metni kırılmaz: dar ekranda "Prefix anonsu" iki
+     * satıra düşüyor, "Kullanıcılar" ortadan kesiliyordu. Şerit landscape kayar,
+     * writeı bölünmez.
+     */
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-muted);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.topbar__link:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+}
+
+.topbar__link[aria-current='page'] {
+    background: var(--color-selected);
+    color: var(--color-text);
+}
+
+/* İki sütunlu page: solda ana içerik, hourğda yardımcı panel. */
+.split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-5);
+}
+
+.split__side {
+    position: sticky;
+    top: var(--space-5);
+}
+
+@media (max-width: 1024px) {
+    .split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .split__side {
+        position: static;
+    }
+}
+
+/* ── Sürükleyerek page geçişi ────────────────────────────────────────────
+ *
+ * Dokunmatikte landscape sürüklerken gelecek page parmakla birlikte içeri girer
+ * (bkz. `components/gezinme.js`). Bunun için page kabı bir position bağlamı
+ * olmalı ve ekran dışında pending layer landscape kaydırma çubuğu YARATMAMALI.
+ */
+.page {
+    position: relative;
+    overflow-x: hidden;
+
+    /*
+     * `touch-action` BİLEREK YOK.
+     *
+     * Önce `.page { touch-action: pan-y }` + içindeki landscape sliding kaplara
+     * `pan-x` writeılmıştı. Ama `touch-action` bir container ile içindekinin
+     * KESİŞİMİ olarak uygulanıyor: `pan-y ∩ pan-x = hiçbir şey`. Yani
+     * `.table-wrap` içine parmağını koyan kullanıcı ne aşağı yukarı ne de
+     * hourğa sola kaydırabiliyordu — list pagesı dokunmatikte tamamen
+     * kilitleniyordu (kullanıcı bildirimi, 12.09.2026: status IP İtibarı).
+     *
+     * Ekseni zaten JS ayırıyor (bkz. `js/gezinme.js`): motion landscape olarak
+     * BELLİ olana kadar hiçbir şeye karışmıyor, own içinde landscape sliding bir
+     * kapta ise hiç başlamıyor. `preventDefault` de edilgen olmayan bir
+     * dinleyiciden çağrılıyor, yani sürükleme decisionı geçerli.
+     */
+}
+
+/* Gelen sayfanın beklediği layer: görünür alanla aynı hizada durur. */
+.nds-transition-solid {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    min-height: 100%;
+    background: var(--color-page);
+    will-change: transform;
+}
+
+/* Parmak bırakıldığında hareketin tamamlanışı/back yaylanışı. */
+.nds-bouncing {
+    transition: transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
+                opacity 200ms linear;
+}
+
+/* ── Bölüm sekmeleri: üst çubuğun subındaki second layer ─────────────────
+ *
+ * Yirmiden max bölüm single şeride sığmaz; şerit üst çubuğu taşırıp theme ve
+ * hesap düğmelerini ekran dışına iter (üç panelde de ölçüldü). Çözüm iki
+ * layer: ÜSTTE groups, BURADA açık grubun pagesı.
+ *
+ * Şerit own içinde landscape kayar, kaydırma çubuğu gizlenir; seçili sayfaya
+ * kaydırmayı `components/gezinme.js` yapar (page değişiminde de).
+ */
+.subnav {
+    flex-shrink: 0;
+    padding: 0 var(--space-4);
+    background: var(--color-column-sub);
+    border-bottom: 1px solid var(--color-line);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.subnav::-webkit-scrollbar {
+    display: none;
+}
+
+/*
+ * Şeridin içindeki sekmeler single satırda kalır. `.tabs`ın own sub boşluğu
+ * ve sub çizgisi burada fazlalık eder — şerit zaten bir çizgiyle bitiyor.
+ */
+.subnav .tabs {
+    flex-wrap: nowrap;
+    gap: var(--space-4);
+    margin-bottom: 0;
+    border-bottom: 0;
+}
+
+.subnav .tabs__link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
+    white-space: nowrap;
+}
+
+/* ── Sayfanın içerik sütunu ───────────────────────────────────────────────
+ *
+ * Görünümler own sarmalayıcısını basar; cards arası boşluk BURADAN gelir,
+ * görünümdeki satır içi `margin` değerlerinden değil. (Satır içi ölçüler bir
+ * kez batch temizlenince bütün cards üst üste yapışmıştı.)
+ */
+.content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    min-width: 0;
+}
+
+/*
+ * Tek sütunlu form sayfasının STANDART genişliği.
+ *
+ * Bu sınıf olmadan her form own `style="max-width:…"` değerini uyduruyordu
+ * (bir panelde 520/560/640/720 px side yana duruyordu). Ölçü single yerde.
+ */
+.content.narrow {
+    max-width: 720px;
+
+    /* Genişlik sınırı koyan her container ORTALANIR; yoksa sola yapışır. */
+    margin-inline: auto;
+}
+
+@media (max-width: 720px) {
+    .content {
+        gap: var(--space-4);
+    }
+}
+
+/* ── Gece/gündüz düğmesi ──────────────────────────────────────────────────
+ *
+ * Düğmede iki icon durur; görünen, GEÇİLECEK temanın simgesidir:
+ * açık temada ay, koyu temada güneş. Diğeri gizlenir.
+ *
+ * Kural CSS'te çünkü theme `<html data-theme>` üzerinden sunucuda startedAtılıyor;
+ * JavaScript yalnızca değeri değiştiriyor. Bir search bu rule bir file
+ * kopyalanırken kayboldu ve iki icon side yana göründü (12.09.2026).
+ */
+.icon-sun {
+    display: none;
+}
+
+:root[data-theme='dark'] .icon-moon {
+    display: none;
+}
+
+:root[data-theme='dark'] .icon-sun {
+    display: block;
+}
+
+/* Sayfa subı: yapımcı bilgisi. Kaydırılan sayfanın sonunda, içerikle aynı genişlikte. */
+.page-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-6) var(--space-4) var(--space-5);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+.page-foot a {
+    color: var(--color-text-muted);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.page-foot a:hover {
+    color: var(--color-text);
+}
+
+/* Üst çubukta language seçimi "TR | EN": küçük writeı, seçili language distinct. */
+.lang-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: var(--text-sm);
+}
+
+.lang-select__button {
+    padding: 2px 4px;
+    background: none;
+    border: 0;
+    border-radius: var(--radius);
+    color: var(--color-text-muted);
+    font: inherit;
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+}
+
+.lang-select__button:hover {
+    color: var(--color-text);
+}
+
+.lang-select__button[aria-pressed='true'] {
+    color: var(--color-text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.lang-select__button:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+}
+
+.lang-select__sep {
+    color: var(--color-line);
+}
+
+/* Üst çubuktaki status özeti tıklanabilir: Sistem durumu penceresini açar. */
+.topbar__counts--button {
+    padding: 4px var(--space-2);
+    background: none;
+    border: 0;
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.topbar__counts--button:hover {
+    background: var(--color-sunken);
+    color: var(--color-text);
+}
+
+.topbar__counts--button:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+}
+
+/* Üst çubuk: fresh sürüm rozeti (Ayarlar > Güncelleme'ye götürür). */
+.top-update {
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.top-update:hover {
+    filter: brightness(1.15);
+}
+
+.top-update:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+}
+
+/* Dar ekranda özet hidden; yerine Sistem simgesi görünür. */
+.btn.system-mobile {
+    display: none;
+}
+
+@media (max-width: 820px) {
+    .btn.system-mobile {
+        display: inline-flex;
+    }
+}
+
+/* Sistem durumu cardsı */
+.system {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--space-3);
+}
+
+.system__card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+    background: var(--color-sunken);
+    min-width: 0;
+}
+
+/* Ekran karti: all satiri kaplayan single card, inside measure izgarasi. */
+.system__card--wide {
+    grid-column: 1 / -1;
+    gap: var(--space-3);
+}
+
+.system__top {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.system__name {
+    font-weight: 600;
+    color: var(--color-text);
+    flex: none;
+}
+
+.system__measures {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+
+@media (max-width: 720px) {
+    .system__measures {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.system__measures .system__card {
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface, transparent);
+}
+
+.system__line {
+    width: 100%;
+    height: 32px;
+    margin-top: var(--space-2);
+}
+
+.system__line polyline {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.system__bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 32px;
+    margin-top: var(--space-2);
+}
+
+.system__bars span {
+    flex: 1;
+    height: var(--y);
+    min-height: 1px;
+    border-radius: 1px;
+    background: var(--color-accent);
+    transition: height .4s;
+}
+
+.system__card--warning {
+    border-color: var(--color-red-fg);
+}
+
+.system__title {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+.system__value {
+    font-size: var(--text-lg, 18px);
+    color: var(--color-text);
+}
+
+.system__sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Tekil üretim sub sekmeleri: sayfanın üstünde, içerikle aynı genişlikte. */
+.sub-tabs {
+    display: flex;
+    gap: var(--space-5);
+    padding: var(--space-3) var(--space-5) 0;
+    border-bottom: 1px solid var(--color-line);
+    overflow-x: auto;
+}
+
+.sub-tabs .tabs__link {
+    padding-bottom: var(--space-2);
+}
+
+@media (max-width: 720px) {
+    .sub-tabs {
+        padding: var(--space-2) var(--space-4) 0;
+    }
+}
+
+
+/* Dar ekranda ComfyUI durumu: simgenin köşesinde point (yeşil açık, sarı açılıyor, kırmızı kapalı). */
+.btn.system-mobile {
+    position: relative;
+}
+
+.system-mobile__dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+}
+
+/* Settings › Network: the address choice */
+.network-fields .field {
+    flex: 1 1 240px;
+}
+
+/* what applies after the next restart */
+.network-next {
+    color: var(--color-yellow-fg);
+}
