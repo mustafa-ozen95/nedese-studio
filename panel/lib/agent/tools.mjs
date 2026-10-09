@@ -1539,12 +1539,14 @@ export const TOOLS = [
         const folder = join(b.setting.dataRoot, DATA_FILES.skills, basename(String(g.remove)));
         if (!existsSync(join(folder, 'SKILL.md'))) return `No installed skill in ${folder}.`;
         await moveToRecycleBin(folder);
+        b.skillsChanged?.();
         return `Skill removed: ${folder} (in the Recycle Bin).`;
       }
       if (!g.source) return 'Give source: a GitHub address or a folder.';
       const source = githubSource(g.source) ? String(g.source) : parsePath(b, g.source);
       const r = await installSkill({ source, skill: g.skill ?? '', dataRoot: b.setting.dataRoot, replace: Boolean(g.replace), ...githubFetch(b) });
       if (r.choices) return `This source has ${r.choices.length} skills; call install_skill again with skill:\n${r.choices.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`;
+      b.skillsChanged?.();
       return `Installed skill "${r.installed.name}" in ${r.installed.folder}. Load it with load_skill when a task needs it.`;
     },
   },
@@ -1563,6 +1565,7 @@ export const TOOLS = [
         b.mcp?.prune(Object.keys(pluginMcpServers(folder) ?? {}));
         await moveToRecycleBin(folder);
         b.mcp?.prune();
+        b.skillsChanged?.();
         return `Plugin removed: ${folder} (in the Recycle Bin).`;
       }
       if (!g.source) return 'Give source: a GitHub address or a folder of a plugin or marketplace.';
@@ -1571,6 +1574,7 @@ export const TOOLS = [
       if (r.choices) return `This marketplace has ${r.choices.length} plugins; call install_plugin again with plugin:\n${r.choices.map((p) => `- ${p.name}: ${p.description}`).join('\n')}`;
       b.mcp?.prune(r.installed.mcp);
       const what = [r.installed.skills.length ? `skills: ${r.installed.skills.join(', ')} (load_skill ${r.installed.name}:<skill>)` : '', r.installed.mcp.length ? `MCP servers: ${r.installed.mcp.join(', ')} (their tools join from the next message)` : ''].filter(Boolean).join('; ');
+      b.skillsChanged?.();
       return `Installed plugin "${r.installed.name}" in ${r.installed.folder}${what ? `; ${what}` : ' (it has no skills or MCP servers)'}.`;
     },
   },

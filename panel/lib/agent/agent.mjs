@@ -2020,6 +2020,7 @@ export class AgentManager {
       processes: this.processes,
       mcp: this.mcp,
       skills: () => this.skills(),
+      skillsChanged: () => { this.skillCache = null; },
       jobTypes: this.jobTypes,
       routes: this.routes,
       api: (method, path, body) => this.callApi(method, path, body),

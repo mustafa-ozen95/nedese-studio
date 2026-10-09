@@ -2169,6 +2169,26 @@ test('Settings › Assistant API: scheduled tasks, lasting notes, skills and MCP
   }
 });
 
+test('a skill installed in the chat is found at once, not after the skill list cache expires (10.10.2026: "0 installed" right after install_plugin)', async () => {
+  const o = await agentEnv();
+  try {
+    const s = await o.chat({});
+    const b = o.agent.toolContext(o.agent.get(s.id), new AbortController().signal);
+    const run = (name, g) => TOOLS.find((t) => t.name === name).run(g, b);
+    assert.match(await run('load_skill', { query: 'pdf' }), /No installed skill matches "pdf"/);
+    const source = join(o.p.root, 'pdf-skill');
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, 'SKILL.md'), '---\nname: pdf\ndescription: Read and merge PDF files\n---\nUse pypdf.');
+    assert.match(await run('install_skill', { source }), /Installed skill "pdf"/);
+    assert.match(await run('load_skill', { query: 'pdf' }), /^- pdf: Read and merge PDF files/);
+    assert.match(await run('load_skill', { name: 'pdf' }), /Skill: pdf[\s\S]*Use pypdf\./);
+    assert.match(await run('install_skill', { remove: 'pdf-skill' }), /Skill removed/);
+    assert.match(await run('load_skill', { query: 'pdf' }), /No installed skill matches "pdf"/);
+  } finally {
+    await o.close();
+  }
+});
+
 test('large work in parts: read_file says the range and what comes next first, write_file appends, a cut answer does not end the turn', async () => {
   const o = await agentEnv();
   try {
