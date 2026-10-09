@@ -17,6 +17,7 @@ const MODEL_ROOT = join(ROOT, 'models');
 const { CATALOG, usedFiles } = await import(pathToFileURL(join(ROOT, 'panel', 'lib', 'models.mjs')).href);
 const comfy = await import(pathToFileURL(join(ROOT, 'tools', 'comfy.mjs')).href);
 
+const STALL_MS = 30000;
 const arg = process.argv.slice(2);
 const skipPlace = arg.indexOf('--skip');
 const skip = new Set(skipPlace >= 0 ? (arg[skipPlace + 1] ?? '').split(',').filter(Boolean) : []);
@@ -60,8 +61,12 @@ async function download(m) {
     if (exists > m.size) rmSync(part);
     const startedAt = existsSync(part) ? statSync(part).size : 0;
     if (startedAt < m.size) {
+      // A stream that stops delivering (a CDN connection decaying to a few KB/s, seen 09.10.2026) is cut after
+      // STALL_MS without data and resumed with Range on a fresh connection.
+      const control = new AbortController();
+      let watchdog = setTimeout(() => control.abort(new Error('no data for 30 s')), STALL_MS);
       try {
-        const y = await fetch(m.url, { headers: startedAt ? { Range: `bytes=${startedAt}-` } : {}, redirect: 'follow' });
+        const y = await fetch(m.url, { headers: startedAt ? { Range: `bytes=${startedAt}-` } : {}, redirect: 'follow', signal: control.signal });
         if (!(y.status === 200 || y.status === 206)) throw new Error(`HTTP ${y.status}`);
         // If the server ignores the Range (200) the file is written from the start.
         const add = startedAt > 0 && y.status === 206;
@@ -71,6 +76,8 @@ async function download(m) {
         let lastDownloaded = downloaded;
         let lastTime = Date.now();
         for await (const p of y.body) {
+          clearTimeout(watchdog);
+          watchdog = setTimeout(() => control.abort(new Error('no data for 30 s')), STALL_MS);
           if (!printer.write(p)) await new Promise((ok) => printer.once('drain', ok));
           downloaded += p.length;
           const now = Date.now();
@@ -85,9 +92,12 @@ async function download(m) {
         await new Promise((ok, red) => printer.end((h) => (h ? red(h) : ok())));
         process.stdout.write('\n');
       } catch (e) {
-        console.log(`\n  ${m.name}: interrupted (${e.message}); attempt ${trial}, resuming in 10 s.`);
+        const reason = control.signal.aborted ? control.signal.reason?.message ?? 'stalled' : e.message;
+        console.log(`\n  ${m.name}: interrupted (${reason}); attempt ${trial}, resuming in 10 s.`);
         await new Promise((ok) => setTimeout(ok, 10000));
         continue;
+      } finally {
+        clearTimeout(watchdog);
       }
     }
     const size = statSync(part).size;

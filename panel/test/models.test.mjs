@@ -99,9 +99,10 @@ test('quantization wrapper: only the GGUF name changes in the graph, the comfy.m
   assert.match(readFileSync(REAL_COMFY, 'utf8'), /qwen-image-2512-Q4_K_M\.gguf/, 'comfy.mjs unchanged');
 });
 
-/** Sahte model sunucusu: Range destekler; kesme: ilk istekte N bayttan sonra baglantiyi koparir. */
+/** Fake model server: supports Range; cut: the first request breaks the connection after N bytes; stall: it sends N bytes and then nothing. */
 function fakeServer(data, { noRange = false } = {}) {
-  const status = { requests: [], cut: null };
+  const status = { requests: [], cut: null, stall: null };
+  const stalled = [];
   const s = createServer((req, response) => {
     const sha = createHash('sha256').update(data).digest('hex');
     // Hugging Face + Xet gibi: /hf/... SHA-256'yi X-Linked-Etag ile verip CDN'e yonlendirir; CDN'in
@@ -138,9 +139,16 @@ function fakeServer(data, { noRange = false } = {}) {
       response.write(data.subarray(0, n), () => setTimeout(() => response.destroy(), 50));
       return;
     }
+    if (status.stall !== null) {
+      const n = status.stall;
+      status.stall = null;
+      response.write(data.subarray(0, n));
+      stalled.push(response);
+      return;
+    }
     response.end(data);
   });
-  return new Promise((ok) => s.listen(0, '127.0.0.1', () => ok({ address: `http://127.0.0.1:${s.address().port}`, status, close: () => new Promise((r) => s.close(r)) })));
+  return new Promise((ok) => s.listen(0, '127.0.0.1', () => ok({ address: `http://127.0.0.1:${s.address().port}`, status, close: () => { for (const r of stalled) r.destroy(); return new Promise((r) => s.close(r)); } })));
 }
 
 const wait = (condition, ms = 10000) =>
@@ -164,28 +172,24 @@ test('downloader: byte counter, resume after disconnect (Range), SHA-256 and siz
   const server = await fakeServer(data);
   try {
     const record = join(root, 'data', 'indirmeler.json');
-    const ind = new Downloader({ modelRoot: join(root, 'models'), recordPath: record });
+    const logs = [];
+    const ind = new Downloader({ modelRoot: join(root, 'models'), recordPath: record, stallMs: 500, retryDelayMs: 100, log: (s) => logs.push(s) });
     assert.throws(() => ind.add({ url: 'ftp://x/y.gguf', folder: 'vae' }), /http/);
     assert.throws(() => ind.add({ url: `${server.address}/m.gguf`, folder: 'none' }), /Choose a model folder/);
     assert.throws(() => ind.add({ url: `${server.address}/m.exe`, folder: 'vae' }), /extensions/);
     assert.throws(() => ind.add({ catalog: 'yok-boyle' }), /Not in the catalog/);
-    // Ilk deneme: sunucu 100000 bayttan sonra koparir -> hata; yarim dosya kalir.
+    // First attempt: the server breaks the connection after 100000 bytes -> the download resumes by itself (Range)
+    // from the partial file's real size (the receiver's buffer may lose data when the socket breaks), SHA-256 checked below.
     server.status.cut = 100000;
     const i = ind.add({ url: `${server.address}/model.gguf`, folder: 'vae', expected: data.length, name: 'Deneme' });
     assert.ok(['queued', 'downloading'].includes(i.status));
-    await wait(() => ind.find(i.id).status === 'error');
-    const partial = join(root, 'models', 'vae', 'model.gguf.downloading');
-    assert.ok(existsSync(partial));
-    // Sunucu soketi koparinca alicinin arabellegindeki veri yitebilir: yuk altinda 65070 bayt kaldi (07.10.2026);
-    // indirici dosyayi kapatip hata verir, surdurme gercek boyuttan devam eder (asagida SHA-256 ile dogrulanir).
-    assert.ok(statSync(partial).size > 0 && statSync(partial).size < data.length, `partial file ${statSync(partial).size}`);
-    assert.match(ind.find(i.id).error, /socket|aborted|Size mismatch|terminated|closed/i);
-    // Surdur: Range ile kalan iner, sha256 (etag) dogrulanir, dosya yerine gecer.
-    ind.resume(i.id);
     await wait(() => ['done', 'error'].includes(ind.find(i.id).status));
     const last = ind.find(i.id);
     assert.equal(last.status, 'done', last.error);
+    assert.equal(last.retries, 1, 'one automatic resume');
+    assert.ok(logs.some((s) => /Resuming in 0 s \(attempt 1\/5\)/.test(s)), logs.join('\n'));
     assert.ok(server.status.requests.some((r) => /^bytes=\d+-$/.test(r)), 'resumed with a Range header');
+    const partial = join(root, 'models', 'vae', 'model.gguf.downloading');
     const target = join(root, 'models', 'vae', 'model.gguf');
     assert.ok(existsSync(target) && !existsSync(partial));
     assert.equal(statSync(target).size, data.length);
@@ -194,6 +198,13 @@ test('downloader: byte counter, resume after disconnect (Range), SHA-256 and siz
     assert.equal(ind.summary(last).percent, 100);
     assert.ok(existsSync(record), 'state was written to disk');
     assert.throws(() => ind.add({ url: `${server.address}/model.gguf`, folder: 'vae' }), /already installed/);
+    // A stream that stops delivering (CDN stall, 09.10.2026): cut after stallMs without data, resumed by itself.
+    server.status.stall = 120000;
+    const st = ind.add({ url: `${server.address}/stalled.gguf`, folder: 'vae', expected: data.length, name: 'Stall' });
+    await wait(() => ['done', 'error'].includes(ind.find(st.id).status));
+    assert.equal(ind.find(st.id).status, 'done', ind.find(st.id).error);
+    assert.ok(logs.some((s) => /stalled\.gguf: No data for 1 s: the connection stalled\./.test(s)), logs.join('\n'));
+    assert.equal(statSync(join(root, 'models', 'vae', 'stalled.gguf')).size, data.length);
     // Xet: CDN'in ETag'i SHA-256 sanilmaz; gercek ozet yonlendirmeden once okunur.
     const x = ind.add({ url: `${server.address}/hf/xet.gguf`, folder: 'vae' });
     await wait(() => ['done', 'error'].includes(ind.find(x.id).status));
@@ -273,7 +284,7 @@ test('downloader API: start, progress, status list, record deletion (authorized 
       assert.equal(v.code, 200, JSON.stringify(v.json));
       assert.equal(added.length, defaults.length - 1, 'already listed ones are skipped');
       assert.ok(!added.includes(inList.id));
-      assert.match(v.json.message, new RegExp(`^${defaults.length - 1} models queued \\(\\d+\\.\\d GB\\)\\. Voice and text models are installed by kur\\.bat\\.$`));
+      assert.match(v.json.message, new RegExp(`^${defaults.length - 1} models queued \\(\\d+\\.\\d GB\\)\\. Voice and text models are installed by setup\\.bat\\.$`));
       assert.equal(v.json.downloads.length, defaults.length - 1);
       p.downloader.summaries = () => defaults.map((k) => ({ status: 'queued', folder: k.folder, file: k.file }));
       const v2 = await call('/api/v1/models/downloads/defaults', 'POST');

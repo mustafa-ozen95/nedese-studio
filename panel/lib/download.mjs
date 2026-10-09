@@ -14,6 +14,9 @@ import { UserError } from './errors.mjs';
 import { CATALOG, FOLDERS, diskStatus, checkModelExtension, modelPath } from './models.mjs';
 
 const FILE_NAME = /^[\w.-]+$/;
+/** Errors a fresh connection usually cures (the download resumes by itself); anything else waits for the user. */
+const CONNECTION_ERROR = /stalled|socket|terminated|aborted|closed|reset|ECONN|ETIMEDOUT|EAI_AGAIN|fetch failed|Size mismatch/i;
+const RETRIES = 5;
 const isYes = (v) => v === true || v === 'true' || v === '1' || v === 1;
 const WIN = process.platform === 'win32';
 /** Kayit durumu kodunun mesajlardaki adi (durum kodlari: queued | indiriliyor | duraklatildi | done | error | cancelled). */
@@ -55,12 +58,16 @@ export class Downloader {
    * { modelKok, kayitYolu, korunanKokler, degisti(), gunluk(metin) }
    * korunanKokler: buralardaki dosyalar (model klasoru haric) yalniz kopyalanir, tasinmaz (panel kurulumu: yazi modeli, egitim, ses).
    */
-  constructor({ modelRoot, recordPath, protectedRoots = [], changed = () => {}, log = () => {} }) {
+  constructor({ modelRoot, recordPath, protectedRoots = [], changed = () => {}, log = () => {}, stallMs = 30000, retryDelayMs = 10000 }) {
     this.modelRoot = modelRoot;
     this.protectedRoots = protectedRoots;
     this.recordPath = recordPath;
     this.changed = changed;
     this.log = log;
+    // A stream that stops delivering (a CDN connection decaying to a few KB/s, seen 09.10.2026) is cut after stallMs
+    // without data; a cut or stalled download resumes by itself (Range) up to RETRIES times, retryDelayMs apart.
+    this.stallMs = stallMs;
+    this.retryDelayMs = retryDelayMs;
     this.list = [];
     this.active = null;
     this.control = null;
@@ -343,13 +350,23 @@ export class Downloader {
     if (!next) return;
     this.active = next;
     this.control = new AbortController();
+    let retryLater = false;
     (next.type === 'local' ? this.forwardLocal(next, this.control.signal) : this.download(next, this.control.signal))
       .catch((e) => {
-        if (next.status !== 'cancelled') {
-          next.status = 'error';
-          next.error = String(e?.message ?? e).slice(0, 400);
-          this.log(`Download error ${next.file}: ${next.error}`);
+        if (next.status === 'cancelled') return;
+        const message = String(e?.message ?? e).slice(0, 400);
+        // A connection problem (stall, reset, cut) is not the user's business: the download goes on by itself
+        if (next.type !== 'local' && CONNECTION_ERROR.test(message) && (next.retries ?? 0) < RETRIES) {
+          next.retries = (next.retries ?? 0) + 1;
+          next.status = 'queued';
+          next.error = null;
+          retryLater = true;
+          this.log(`Download ${next.file}: ${message} Resuming in ${Math.round(this.retryDelayMs / 1000)} s (attempt ${next.retries}/${RETRIES}).`);
+          return;
         }
+        next.status = 'error';
+        next.error = message;
+        this.log(`Download error ${next.file}: ${next.error}`);
       })
       .finally(() => {
         next.speed = 0;
@@ -358,7 +375,8 @@ export class Downloader {
         this.control = null;
         this.save();
         this.changed();
-        this.run();
+        if (retryLater) setTimeout(() => this.run(), this.retryDelayMs).unref?.();
+        else this.run();
       });
   }
 
@@ -415,9 +433,17 @@ export class Downloader {
     let lastDownloaded = startedAt;
     let lastRecord = Date.now();
     const reader = response.body.getReader();
+    // A read that brings nothing for stallMs cancels the stream: the error above resumes on a fresh connection
+    const read = () => new Promise((ok, red) => {
+      const t = setTimeout(() => {
+        reader.cancel().catch(() => {});
+        red(new Error(`No data for ${Math.round(this.stallMs / 1000)} s: the connection stalled.`));
+      }, this.stallMs);
+      reader.read().then((r) => { clearTimeout(t); ok(r); }, (e) => { clearTimeout(t); red(e); });
+    });
     try {
       for (;;) {
-        const { done, value } = await reader.read();
+        const { done, value } = await read();
         if (done) break;
         summaryHash.update(value);
         if (!printer.write(value)) await new Promise((ok) => printer.once('drain', ok));
