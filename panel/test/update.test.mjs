@@ -21,6 +21,7 @@ const NEW_FILES = {
   'panel/same.mjs': 'unchanged',
   'panel/lib/added.mjs': 'new file',
   'panel.bat': 'new bat',
+  'panel/version.txt': '$Format:%H %cI$\n', // the raw file keeps git's placeholder: the updater writes the version itself
 };
 
 /** The API (commits, compare, the git tree of the version) and the raw file host on one server; { 'path': content } */
@@ -122,9 +123,10 @@ test('update is applied: only repository files are written, deleted ones are rem
   try {
     const g = new Updater({ setting: setting(root, gh.api), settingFile, queue: freeQueue(), startAgain: () => started(true) });
     const r = await g.apply();
-    assert.deepEqual([r.written, r.same, r.deleted], [3, 1, 1], r.message);
-    assert.match(r.message, /^Updated: bbbbbbb \(New feature\)\. 3 files written, 1 deleted; the panel is restarting\.$/);
+    assert.deepEqual([r.written, r.same, r.deleted], [4, 1, 1], r.message);
+    assert.match(r.message, /^Updated: bbbbbbb \(New feature\)\. 4 files written, 1 deleted; the panel is restarting\.$/);
     assert.equal(readFileSync(join(root, 'panel', 'server.mjs'), 'utf8'), 'new server');
+    assert.match(readFileSync(join(root, 'panel', 'version.txt'), 'utf8'), new RegExp(`^${NEW} 2026-10-06T01:00:00Z\\n$`), 'version.txt holds the new version, not the placeholder');
     assert.equal(readFileSync(join(root, 'panel', 'lib', 'added.mjs'), 'utf8'), 'new file');
     assert.ok(!existsSync(join(root, 'panel', 'removed.mjs')), 'file deleted from the repository was removed');
     assert.equal(readFileSync(join(root, 'update', 'backup-aaaaaaa', 'panel', 'server.mjs'), 'utf8'), 'old server');
@@ -133,7 +135,7 @@ test('update is applied: only repository files are written, deleted ones are rem
     const settings = JSON.parse(readFileSync(join(root, 'panel-data', 'settings.json'), 'utf8'));
     assert.deepEqual([settings.customPort, settings.update.lastResult.remote.sha], [9999, NEW], 'user settings are preserved');
     const s = JSON.parse(readFileSync(join(root, 'version.json'), 'utf8'));
-    assert.deepEqual([s.sha, s.files], [NEW, ['panel.bat', 'panel/lib/added.mjs', 'panel/same.mjs', 'panel/server.mjs']]);
+    assert.deepEqual([s.sha, s.files], [NEW, ['panel.bat', 'panel/lib/added.mjs', 'panel/same.mjs', 'panel/server.mjs', 'panel/version.txt']]);
     assert.equal(localVersion(root).sha, NEW);
     assert.equal(await Promise.race([again, new Promise((ok) => setTimeout(() => ok(false), 4000))]), true, 'panel was restarted');
     // A second time: already up to date

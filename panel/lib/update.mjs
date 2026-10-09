@@ -222,6 +222,12 @@ export class Updater {
       let same = 0;
       for (const [rel, blob] of files) {
         const target = join(root, ...rel.split('/'));
+        // panel/version.txt holds "$Format:%H %cI$" in the repository (git fills it in a ZIP export, the raw file
+        // keeps the placeholder): written with the new version instead of downloaded.
+        if (rel === 'panel/version.txt') {
+          changed.set(rel, Buffer.from(`${d.remote.sha} ${d.remote.dateText ?? ''}`.trim() + '\n'));
+          continue;
+        }
         if (existsSync(target) && blobSha(readFileSync(target)) === blob) {
           same++;
           continue;

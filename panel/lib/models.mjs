@@ -106,15 +106,15 @@ export function modelPath(modelRoot, folder, file) {
 }
 
 /**
- * Model siler. Kullanimda (bir is akisi bu dosyayi istiyor) ise zorla=true gerekir;
+ * Model siler. Kullanimda (bir is akisi bu dosyayi istiyor) ise force=true gerekir;
  * calisan isin kullandigi dosya hicbir sekilde silinmez.
  */
-export async function deleteModel({ modelRoot, mod, folder, file, zorla = false, runningFiles = [], deletionMethod = 'recycle-bin' }) {
+export async function deleteModel({ modelRoot, mod, folder, file, force = false, runningFiles = [], deletionMethod = 'recycle-bin' }) {
   const path = modelPath(modelRoot, folder, file);
   if (!existsSync(path)) throw new UserError('Model file not found.', 'notFound');
   if (runningFiles.includes(file)) throw new UserError('This model is used by the running job; delete it when the job finishes.');
   const user = usedFiles(mod)[`${folder}/${file}`] ?? [];
-  if (user.length && !zorla) {
+  if (user.length && !force) {
     throw new UserError(`This file is used by the ${user.map((x) => GENERATOR_NAMES[x] ?? x).join(', ')} workflow. Choose another quantization in Settings first, or choose "delete anyway".`, 'inUse');
   }
   if (deletionMethod === 'permanent') rmSync(path, { force: true });
@@ -163,16 +163,16 @@ export const CATALOG = [
 
   // Dudak esleme (Tek parca film, konusmali sahne): karma kurulum ilk 2 adimi Wan 2.2 A14B HighNoise ile, son 2 adimi
   // Wan 2.1 I2V + InfiniteTalk ile atar (lib/dudak.mjs). Wan 2.2 HighNoise, UMT5 ve Wan 2.1 VAE yukaridaki gruptan.
-  { id: 'dudak-wan21-q4', group: 'Lip sync (InfiniteTalk)', name: 'Wan 2.1 I2V 14B 720p Q4_K_M', folder: 'diffusion_models', file: 'wan2.1-i2v-14b-720p-Q4_K_M.gguf', url: `${HF}/city96/Wan2.1-I2V-14B-720P-gguf/resolve/main/wan2.1-i2v-14b-720p-Q4_K_M.gguf`, size: 11341184384, sha256: 'ffecd91e4b636d8e3e43f3fa388218158ba447109547bde777c6d67ef4fe42a4', note: 'Lips move with the voice in dialogue scenes; the 3 files below and Wan 2.2 A14B HighNoise are also needed.' },
-  { id: 'dudak-lightx2v', group: 'Lip sync (InfiniteTalk)', name: 'lightx2v I2V 14B step-distill LoRA (Wan 2.1)', folder: 'loras', file: 'lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors', url: `${HF}/Kijai/WanVideo_comfy/resolve/main/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors`, size: 738005744, sha256: '85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3' },
-  { id: 'dudak-infinitetalk', group: 'Lip sync (InfiniteTalk)', name: 'InfiniteTalk two-speaker patch', folder: 'model_patches', file: 'wan2.1_infiniteTalk_multi_fp16.safetensors', url: `${HF}/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/model_patches/wan2.1_infiniteTalk_multi_fp16.safetensors`, size: 5124439112, sha256: '4c2486cdfb6ff9a9f27408e98e11e20619136933b20411e0c365b1e84075d195' },
+  { id: 'lip-wan21-q4', group: 'Lip sync (InfiniteTalk)', name: 'Wan 2.1 I2V 14B 720p Q4_K_M', folder: 'diffusion_models', file: 'wan2.1-i2v-14b-720p-Q4_K_M.gguf', url: `${HF}/city96/Wan2.1-I2V-14B-720P-gguf/resolve/main/wan2.1-i2v-14b-720p-Q4_K_M.gguf`, size: 11341184384, sha256: 'ffecd91e4b636d8e3e43f3fa388218158ba447109547bde777c6d67ef4fe42a4', note: 'Lips move with the voice in dialogue scenes; the 3 files below and Wan 2.2 A14B HighNoise are also needed.' },
+  { id: 'lip-lightx2v', group: 'Lip sync (InfiniteTalk)', name: 'lightx2v I2V 14B step-distill LoRA (Wan 2.1)', folder: 'loras', file: 'lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors', url: `${HF}/Kijai/WanVideo_comfy/resolve/main/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors`, size: 738005744, sha256: '85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3' },
+  { id: 'lip-infinitetalk', group: 'Lip sync (InfiniteTalk)', name: 'InfiniteTalk two-speaker patch', folder: 'model_patches', file: 'wan2.1_infiniteTalk_multi_fp16.safetensors', url: `${HF}/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/model_patches/wan2.1_infiniteTalk_multi_fp16.safetensors`, size: 5124439112, sha256: '4c2486cdfb6ff9a9f27408e98e11e20619136933b20411e0c365b1e84075d195' },
   // Agiz duzeltme (dudak\agiz.py): LatentSync 1.5 (kod Apache-2.0, agirlik OpenRAIL++), Whisper tiny (MIT), SD VAE ft-mse
   // (MIT), MediaPipe yuz isaretleri (Apache-2.0). Olculdu 07.10.2026: SyncNet LSE-C 1,28 -> 5,20, agiz-ses kaymasi 0.
   { id: 'agiz-latentsync', group: 'Mouth correction (LatentSync)', name: 'LatentSync 1.5 UNet', folder: 'latentsync', file: 'latentsync_unet.pt', url: `${HF}/ByteDance/LatentSync-1.5/resolve/main/latentsync_unet.pt`, size: 5072348184, sha256: '6440b49a7ccceff56cdc001f5f17605216337f5bbd66fa360139768926e23f51', user: ['mouthJob'], note: 'The mouths of speaking people are fitted to their own voice; eyes and gaze stay unchanged. All 3 files below are required.' },
   { id: 'mouth-whisper', group: 'Mouth correction (LatentSync)', name: 'Whisper tiny (audio features)', folder: 'latentsync', file: 'whisper-tiny.pt', urlFile: 'tiny.pt', url: `${HF}/ByteDance/LatentSync-1.5/resolve/main/whisper/tiny.pt`, size: 75572083, sha256: '65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9', user: ['mouthJob'] },
   { id: 'mouth-vae', group: 'Mouth correction (LatentSync)', name: 'SD VAE ft-mse', folder: 'latentsync', file: 'sd-vae-ft-mse.safetensors', urlFile: 'diffusion_pytorch_model.safetensors', url: `${HF}/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.safetensors`, size: 334643276, sha256: 'a1d993488569e928462932c8c38a0760b874d166399b14414135bd9c42df5815', user: ['mouthJob'] },
   { id: 'mouth-face', group: 'Mouth correction (LatentSync)', name: 'MediaPipe face landmarks', folder: 'latentsync', file: 'face_landmarker.task', url: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', size: 3758596, sha256: '64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff', user: ['mouthJob'] },
-  { id: 'dudak-wav2vec2', group: 'Lip sync (InfiniteTalk)', name: 'wav2vec2 Chinese base audio encoder (fp16)', folder: 'audio_encoders', file: 'wav2vec2-chinese-base_fp16.safetensors', url: `${HF}/Kijai/wav2vec2_safetensors/resolve/main/wav2vec2-chinese-base_fp16.safetensors`, size: 190115368, sha256: '000813e441020f18cff844c969d2d5d4adc2a5ce46b2db1f23950b05d88805b4' },
+  { id: 'lip-wav2vec2', group: 'Lip sync (InfiniteTalk)', name: 'wav2vec2 Chinese base audio encoder (fp16)', folder: 'audio_encoders', file: 'wav2vec2-chinese-base_fp16.safetensors', url: `${HF}/Kijai/wav2vec2_safetensors/resolve/main/wav2vec2-chinese-base_fp16.safetensors`, size: 190115368, sha256: '000813e441020f18cff844c969d2d5d4adc2a5ce46b2db1f23950b05d88805b4' },
 
   // TRELLIS.2 (gorselden 3D model; Microsoft, MIT). ComfyUI 0.37 yerlesik dugumleri.
   { id: 'trellis2', group: 'TRELLIS.2 (3D model)', name: 'TRELLIS.2 int8', folder: 'diffusion_models', file: 'trellis_2_int8_convrot.safetensors', url: `${HF}/Comfy-Org/TRELLIS.2/resolve/main/diffusion_models/trellis_2_int8_convrot.safetensors`, size: 5253048192, sha256: 'd01952ad137213f6a868f86b6b877026276f84af5eec23069217475a0bad3a31', note: 'Textured 3D model from an image (GLB). The 4 files below are also required.' },
@@ -182,7 +182,7 @@ export const CATALOG = [
   { id: 'pixal3d', group: 'TRELLIS.2 (3D model)', name: 'Pixal3D int8', folder: 'diffusion_models', file: 'pixal3d_int8_convrot.safetensors', url: `${HF}/Comfy-Org/Pixal3D/resolve/main/diffusion_models/pixal3d_int8_convrot.safetensors`, size: 5584555824, sha256: '4621eac3b715484f79303c7152af641fe0b2b14f4d0e3d394fd6922d00f955ec', note: 'Image to 3D, same pipeline as TRELLIS.2; better face and fine detail (high quality).' },
   { id: 'moge2', group: 'TRELLIS.2 (3D model)', name: 'MoGe-2 camera angle (Pixal3D)', folder: 'geometry_estimation', file: 'moge_2_vitl_normal_fp16.safetensors', url: `${HF}/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors`, size: 661859924, sha256: 'cb1a692d03235671e959e81360d7b4d9f44aefadb1f852d6ca6aa17799d5e31f' },
   { id: 'birefnet', group: 'TRELLIS.2 (3D model)', name: 'BiRefNet background removal', folder: 'background_removal', file: 'birefnet.safetensors', url: `${HF}/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors`, size: 444473596, sha256: '9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154' },
-  { id: 'buyut-span2x', group: 'Video 1080p upscaling', name: '2xNomosUni SPAN (2x, CC-BY-4.0, Philip Hofmann)', folder: 'upscale_models', file: '2xNomosUni_span_multijpg.safetensors', url: `${HF}/Phips/2xNomosUni_span_multijpg/resolve/main/2xNomosUni_span_multijpg.safetensors`, size: 4461056, sha256: 'bee2a9c082f2b8f6e7f5db504b36593c24a1a959511f587114c399ca58b9c92c' },
+  { id: 'upscale-span2x', group: 'Video 1080p upscaling', name: '2xNomosUni SPAN (2x, CC-BY-4.0, Philip Hofmann)', folder: 'upscale_models', file: '2xNomosUni_span_multijpg.safetensors', url: `${HF}/Phips/2xNomosUni_span_multijpg/resolve/main/2xNomosUni_span_multijpg.safetensors`, size: 4461056, sha256: 'bee2a9c082f2b8f6e7f5db504b36593c24a1a959511f587114c399ca58b9c92c' },
 ];
 
 /** Katalog + kurulu mu bilgisi. */

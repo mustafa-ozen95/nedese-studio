@@ -41,7 +41,7 @@ Windows için yerel yapay zekâ medya stüdyosu: görsel, video, ses, müzik, 3B
 
 ## Başlatma
 
-- **Tepsi (önerilen):** `Nedese Studio.vbs` dosyasına çift tıklayın. Panel pencere açmadan çalışır; sağ altta simge belirir. Sağ tık: paneli aç, ComfyUI başlat/kapat, paneli yeniden başlat, günlükleri aç, çıkış. Çift tık paneli açar.
+- **Tepsi (önerilen):** "Nedese Studio" kısayoluna (ya da `Nedese Studio.vbs`) çift tıklayın. Panel pencere açmadan çalışır, tarayıcıda kendiliğinden açılır ve sağ altta simge belirir; bir bildirim telefon ve evdeki diğer cihazlar için adresi gösterir (örneğin `http://192.168.1.20:1071`). Sağ tık: paneli aç, ComfyUI başlat/kapat, paneli yeniden başlat, güncelleme denetle, günlükleri aç, çıkış. Çift tık paneli açar.
 - **Konsol penceresiyle:** `panel.bat` (başka port: `panel.bat --port 1166`).
 - Doğrudan: `node panel\server.mjs [--port 1071] [--no-browser]`.
 - ComfyUI'yi panel iş gelince kendisi başlatır, kuyruk boş kalınca (Ayarlar, varsayılan 10 dk) kapatır. Elle açmak için: `start_comfyui.bat` (<http://127.0.0.1:8188>).

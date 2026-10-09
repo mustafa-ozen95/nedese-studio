@@ -580,7 +580,7 @@
                     const stop = button.dataset.action === 'stop';
                     button.disabled = true;
                     try {
-                        const j = await api(`/api/v1/comfy/${stop ? 'stop' : 'start'}`, { method: 'POST', body: stop ? { zorla: false } : undefined });
+                        const j = await api(`/api/v1/comfy/${stop ? 'stop' : 'start'}`, { method: 'POST', body: stop ? { force: false } : undefined });
                         notify(j.message, 'info');
                     } catch (e) {
                         notify(e.message, 'danger');
@@ -659,7 +659,7 @@
         form.submit = async () => {
             button.disabled = true;
             try {
-                for (const x of toDelete) await api(`/api/v1/models/${encodeURIComponent(x.folder)}/${encodeURIComponent(x.d.file)}?zorla=1`, { method: 'DELETE' });
+                for (const x of toDelete) await api(`/api/v1/models/${encodeURIComponent(x.folder)}/${encodeURIComponent(x.d.file)}?force=1`, { method: 'DELETE' });
                 notify(`${name} deleted.`, 'success');
             } catch (e) {
                 notify(e.message, 'danger');

@@ -1251,7 +1251,7 @@
         input.select();
     }
 
-    function renderPreview(job, ilk) {
+    function renderPreview(job, first) {
         const body = $('[data-preview-body]', previewWindow);
         const [, name] = STATUS_NAME[job.status] ?? ['gray', job.status];
         // a name being written stays while a running job's window refreshes
@@ -1262,7 +1262,7 @@
         const logBox = $('[data-preview-log]', body);
         const previousStatus = status.previewedStatus;
         status.previewedStatus = job.status;
-        if (!ilk && logBox && job.status === 'running' && previousStatus === 'running') {
+        if (!first && logBox && job.status === 'running' && previousStatus === 'running') {
             const i = job.progress ?? {};
             const bar = $('[data-preview-progress] progress', body);
             if (bar && i.percent > 0) bar.value = i.percent;
@@ -1360,10 +1360,10 @@
         parts.push(lines(info));
 
         if (Array.isArray(g.scenes)) {
-            const ilk = g.scenes.slice(0, 30);
+            const first = g.scenes.slice(0, 30);
             parts.push(el('div', { class: 'stack stack--tight' },
-                ...ilk.map((s, i) => el('p', { class: 'text-sm' }, el('strong', { text: `Scene ${i + 1}: ` }), el('span', { translate: 'no', text: [s.narration, ...(s.dialogue ?? []).map((x) => `${x.who}: ${x.text}`)].filter(Boolean).join(' · ') }))),
-                g.scenes.length > ilk.length ? el('p', { class: 'text-sm text-muted', text: `… ${g.scenes.length - ilk.length} more scenes` }) : null));
+                ...first.map((s, i) => el('p', { class: 'text-sm' }, el('strong', { text: `Scene ${i + 1}: ` }), el('span', { translate: 'no', text: [s.narration, ...(s.dialogue ?? []).map((x) => `${x.who}: ${x.text}`)].filter(Boolean).join(' · ') }))),
+                g.scenes.length > first.length ? el('p', { class: 'text-sm text-muted', text: `… ${g.scenes.length - first.length} more scenes` }) : null));
         }
 
         const box = el('pre', { class: 'config-preview', 'data-preview-log': true, text: (job.log ?? []).join('\n') || 'Log is empty.' });

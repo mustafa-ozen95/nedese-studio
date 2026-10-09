@@ -540,8 +540,8 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       return { message: started ? 'Starting ComfyUI (in the background, may take 1-2 min).' : 'ComfyUI is already starting.', started };
     },
     async stopComfy(g = {}) {
-      const zorla = g?.zorla === true || g?.zorla === 'true' || g?.zorla === '1' || g?.zorla === 1; // "false" dizesi dogru sayilmasin
-      if (queue.active && !zorla) throw new UserError('A job is running; cancel it first or send zorla=true.');
+      const force = g?.force === true || g?.force === 'true' || g?.force === '1' || g?.force === 1; // "false" dizesi dogru sayilmasin
+      if (queue.active && !force) throw new UserError('A job is running; cancel it first or send force=true.');
       const pids = await (setting.closeComfy ?? closeComfy)();
       // Az once baslatildiysa "zaten başlatılıyor" kilidi kalkar: sonraki is ComfyUI'yi yeniden acar
       // (yoksa is hazirBekleme boyunca bos bekleyip "açılmadı" ile duser).
@@ -845,9 +845,9 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
         downloads,
       };
     },
-    async deleteModel(folder, file, zorla) {
+    async deleteModel(folder, file, force) {
       const running = queue.active?.job?.modelFiles ?? [];
-      const r = await deleteModel({ modelRoot: setting.modelRoot, mod, folder, file, zorla: zorla === true || zorla === '1' || zorla === 'true', runningFiles: running, deletionMethod: setting.deletionMethod });
+      const r = await deleteModel({ modelRoot: setting.modelRoot, mod, folder, file, force: force === true || force === '1' || force === 'true', runningFiles: running, deletionMethod: setting.deletionMethod });
       queue.changed();
       return { message: setting.deletionMethod === 'permanent' ? `${file} deleted.` : `${file} moved to the Recycle Bin.`, ...r };
     },

@@ -24,7 +24,8 @@ test('dictionary: English keys with Turkish values, placeholders identical, no e
 test('dictionary: no renamed identifier left inside a Turkish value', () => {
   const renamed = /(?<![\p{L}_.$/#-])(voice|scene|frame|narration|expected|middle|cancel|motion)(?![\p{L}_(-])/u;
   const turkish = /[çğıöşüÇĞİÖŞÜ]/;
-  const left = Object.entries(dictionary).filter(([en, tr]) => tr !== en && turkish.test(tr) && renamed.test(tr.replace(/`[^`]*`|"[^"]*"|\{[^}]*\}|\/\S*|\S*\/|\S+=\S+/g, ' ')));
+  // code spans, quoted text, placeholders, paths (slash or backslash) and key=value pairs are not translated text
+  const left = Object.entries(dictionary).filter(([en, tr]) => tr !== en && turkish.test(tr) && renamed.test(tr.replace(/`[^`]*`|"[^"]*"|\{[^}]*\}|\/\S*|\S*\/|\S*\\\S*|\S+=\S+/g, ' ')));
   assert.deepEqual(left.map(([en]) => en), []);
   const words = { cancelled: 'iptal', path: 'adres', medium: 'orta', 'motion prompt {0}/{1}': 'hareket istemi {0}/{1}' };
   for (const [en, tr] of Object.entries(words)) assert.equal(dictionary[en], tr, en);

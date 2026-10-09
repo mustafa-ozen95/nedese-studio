@@ -468,13 +468,21 @@ if (Test-Path (Join-Path $bin 'nedese.cmd')) {
 $panelPort = (Get-Content (Join-Path $Root 'panel\defaults.json') -Raw -Encoding UTF8 | ConvertFrom-Json).port
 try { $p = [int](Get-Content (Join-Path $Root 'panel-data\settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json).port; if ($p -gt 0) { $panelPort = $p } } catch {}
 $ruleName = "Nedese Studio $panelPort"
-if (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) {
+$nodeExe = Join-Path $Root 'node\node.exe'
+# Windows asks "allow node.exe on networks?" the first time the bundled node.exe listens; when the question is dismissed
+# it adds a BLOCK rule for that program, which wins over the port rule (seen on the fresh install, 10.10.2026). So the
+# port rule is joined by a program rule for this node.exe (no question then), and a block rule for it is removed.
+$blocked = @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue | Where-Object { $_.Program -eq $nodeExe } | Get-NetFirewallRule | Where-Object { $_.Action -eq 'Block' -and $_.Direction -eq 'Inbound' })
+$programRule = Get-NetFirewallRule -DisplayName "$ruleName node" -ErrorAction SilentlyContinue
+if (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue) -or -not $programRule -or $blocked.Count) {
     Title 'Firewall'
-    $rule = "New-NetFirewallRule -DisplayName '$ruleName' -Direction Inbound -Protocol TCP -LocalPort $panelPort -Action Allow -Profile Private | Out-Null"
+    $rule = "Get-NetFirewallApplicationFilter | Where-Object { `$_.Program -eq '$nodeExe' } | Get-NetFirewallRule | Where-Object { `$_.Action -eq 'Block' } | Remove-NetFirewallRule; " +
+        "if (-not (Get-NetFirewallRule -DisplayName '$ruleName' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName '$ruleName' -Direction Inbound -Protocol TCP -LocalPort $panelPort -Action Allow -Profile Private | Out-Null }; " +
+        "if (-not (Get-NetFirewallRule -DisplayName '$ruleName node' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName '$ruleName node' -Direction Inbound -Program '$nodeExe' -Action Allow -Profile Private | Out-Null }"
     try {
         Start-Process powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $rule)
     } catch {}
-    if (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue) {
+    if ((Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue) -and (Get-NetFirewallRule -DisplayName "$ruleName node" -ErrorAction SilentlyContinue)) {
         Done "Firewall: port $panelPort is open on private networks (home Wi-Fi), closed on public ones."
         $public = @(Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { $_.NetworkCategory -eq 'Public' })
         if ($public.Count) { Info "This network is set to Public: to reach the panel from the phone, set it to Private in Windows Settings > Network." }
@@ -521,7 +529,9 @@ Write-Host ''
 if ($failed) {
     Write-Host "Setup finished, but $failed checks failed; details in setup\setup.log." -ForegroundColor Yellow
 } else {
-    Write-Host "Setup complete. Open the `"Nedese Studio`" shortcut on the desktop: an icon appears at the bottom right (right-click for the menu, double-click for the panel); the panel is at http://127.0.0.1:$panelPort." -ForegroundColor Green
+    Write-Host "Setup complete. Open the `"Nedese Studio`" shortcut on the desktop: the panel opens in the browser at http://127.0.0.1:$panelPort and an icon appears at the bottom right (right-click for the menu, double-click for the panel)." -ForegroundColor Green
+    $network = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Sort-Object InterfaceMetric | ForEach-Object { "http://$($_.IPAddress):$panelPort/" })
+    if ($network.Count) { Write-Host "From the phone and other devices at home: $($network -join '  ')" -ForegroundColor Green }
 }
 Release-Awake
 Stop-Transcript | Out-Null

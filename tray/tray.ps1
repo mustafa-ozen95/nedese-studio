@@ -113,6 +113,13 @@ function StopComfy {
   Log 'ComfyUI stopped'
 }
 
+# The panel's addresses on this computer's networks (home Wi-Fi, Tailscale): what the phone and other devices use.
+function NetworkAddresses {
+  try {
+    return @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Sort-Object InterfaceMetric | ForEach-Object { "http://$($_.IPAddress):$($script:panelPort)/" })
+  } catch { return @() }
+}
+
 function ApiKey {
   try { return (Get-Content (SettingsFile) -Raw -Encoding UTF8 | ConvertFrom-Json).apiKey } catch { return $null }
 }
@@ -241,13 +248,27 @@ $timer.add_Tick({
     $d = PanelApi '/status'
     $hint = if ($d.active) { "Nedese Studio · $($d.active.typeName) $([math]::Round($d.active.progress.percent))%" } else { "Nedese Studio · idle$(if ($d.pending.Count) { " · $($d.pending.Count) queued" })" }
     $hint += if ($d.comfy.running) { ' · ComfyUI on' } else { ' · ComfyUI off' }
+    # The first time the panel answers after this start: open it in the browser and show the address for the phone
+    # (a new user otherwise sees only a tray icon and does not know the port, 10.10.2026).
+    if (-not $script:opened) {
+      $script:opened = $true
+      $timer.Interval = 10000
+      Start-Process $script:panelAddress
+      $network = @(NetworkAddresses)
+      $text = "Open in the browser: $($script:panelAddress)" + $(if ($network.Count) { "`nPhone and other devices at home: $($network -join '  ')" } else { '' })
+      $icon.ShowBalloonTip(10000, 'Nedese Studio', $text, 'Info')
+      Log "panel opened in the browser; network addresses: $($network -join ' ')"
+    }
   } catch { $hint = 'Nedese Studio · starting…' }
   $icon.Text = $hint.Substring(0, [math]::Min(63, $hint.Length))
 })
 
 foreach ($k in @($services.Keys)) { StartService $k }
+# Quick polls until the panel answers (then every 10 s)
+$script:opened = $false
+$timer.Interval = 1500
 $timer.Start()
-$icon.ShowBalloonTip(3000, 'Nedese Studio', 'The panel runs in the background. Right click: menu, double click: open the panel.', 'Info')
+$icon.ShowBalloonTip(3000, 'Nedese Studio', 'Starting the panel; it opens in the browser in a moment. Right click: menu, double click: open the panel.', 'Info')
 Log 'tray started'
 [System.Windows.Forms.Application]::Run()
 $singleInstance.ReleaseMutex()

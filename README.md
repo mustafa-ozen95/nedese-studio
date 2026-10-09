@@ -41,7 +41,7 @@ A local AI media studio for Windows: image, video, voice, music, 3D model and si
 
 ## Starting
 
-- **Tray (recommended):** double-click `Nedese Studio.vbs`. The panel runs without a window; an icon appears in the system tray. Right-click: open the panel, start/stop ComfyUI, restart the panel, open the logs, exit. Double-click opens the panel.
+- **Tray (recommended):** double-click the "Nedese Studio" shortcut (or `Nedese Studio.vbs`). The panel runs without a window, opens in the browser by itself and an icon appears in the system tray; a notification shows the address for the phone and other devices at home (for example `http://192.168.1.20:1071`). Right-click: open the panel, start/stop ComfyUI, restart the panel, check for updates, open the logs, exit. Double-click opens the panel.
 - **Console window:** `panel.bat` (another port: `panel.bat --port 1166`).
 - Directly: `node panel\server.mjs [--port 1071] [--no-browser]`.
 - ComfyUI is started by the panel when a job needs it and closed when the queue has been idle (Settings, default 10 min). To run it by hand: `start_comfyui.bat` (<http://127.0.0.1:8188>).

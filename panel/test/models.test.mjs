@@ -68,13 +68,13 @@ test('installed models: workflow that uses them, quantization options, deletion 
     assert.deepEqual(parseQuantization('wan2.2_i2v_A14b_low_noise_lightx2v_4step_720p_260412-Q8_0.gguf'), { family: 'wan14', quantization: 'Q8_0' });
     assert.equal(parseQuantization('flux-2-klein-4b-fp8.safetensors'), null);
 
-    // Silme: kullanimda zorlamadan silinmez; zorla silinir; calisan isin dosyasi hic silinmez; yol disi reddedilir.
+    // Silme: kullanimda zorlamadan silinmez; force silinir; calisan isin dosyasi hic silinmez; yol disi reddedilir.
     await assert.rejects(() => deleteModel({ modelRoot: root, mod, folder: 'diffusion_models', file: 'qwen-image-2512-Q4_K_M.gguf', deletionMethod: 'permanent' }), (e) => e instanceof UserError && e.detail === 'inUse');
     assert.ok(existsSync(join(root, 'diffusion_models', 'qwen-image-2512-Q4_K_M.gguf')));
     await assert.rejects(() => deleteModel({ modelRoot: root, mod, folder: 'diffusion_models', file: 'qwen-image-2512-Q8_0.gguf', runningFiles: ['qwen-image-2512-Q8_0.gguf'], deletionMethod: 'permanent' }), /running job/);
     await deleteModel({ modelRoot: root, mod, folder: 'diffusion_models', file: 'qwen-image-2512-Q8_0.gguf', deletionMethod: 'permanent' });
     assert.ok(!existsSync(join(root, 'diffusion_models', 'qwen-image-2512-Q8_0.gguf')));
-    await deleteModel({ modelRoot: root, mod, folder: 'diffusion_models', file: 'qwen-image-2512-Q4_K_M.gguf', zorla: true, deletionMethod: 'permanent' });
+    await deleteModel({ modelRoot: root, mod, folder: 'diffusion_models', file: 'qwen-image-2512-Q4_K_M.gguf', force: true, deletionMethod: 'permanent' });
     assert.ok(!existsSync(join(root, 'diffusion_models', 'qwen-image-2512-Q4_K_M.gguf')));
     assert.throws(() => modelPath(root, 'diffusion_models', '..'), UserError);
     assert.throws(() => modelPath(root, 'bilinmeyen', 'x.gguf'), UserError);
