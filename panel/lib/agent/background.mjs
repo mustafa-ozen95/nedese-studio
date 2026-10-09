@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { killTree } from '../process.mjs';
 import { USER_AGENT } from '../data-collection.mjs';
-import { commandEnv, shellCommand, startProcess } from './tools.mjs';
+import { commandEnv, shellCommand, startProcess, terminalText } from './tools.mjs';
 
 /** Watches and monitors at a time (all chats), and the longest one may run. */
 export const BACKGROUND_LIMIT = 50;
@@ -259,7 +259,7 @@ export class Watchers {
     }, CHECK_COMMAND_MS);
     await record.done;
     clearTimeout(timer);
-    const output = record.output.trim();
+    const output = terminalText(record.output).trim();
     if (late) return { met: false, text: output, short: `no answer within ${CHECK_COMMAND_MS / 1000} s` };
     const met = w.until ? new RegExp(w.until, 'im').test(output) : record.code === 0;
     return { met, text: output, short: `exit code ${record.code}${output ? `: ${output.split('\n').at(-1)}` : ''}` };

@@ -26,7 +26,7 @@ import { hostname, tmpdir } from 'node:os';
 import { CancelError, UserError } from '../errors.mjs';
 import { LlmError, TEMPERATURE_CAP, THINKING_BUDGET } from '../llm.mjs';
 import { REMOTE_MODEL, remoteRequest } from '../remote-llm.mjs';
-import { APPROVAL_MODES, TOOLS, Processes, WebBrowser, allowRules, allowedBy, cleanRule, fileStream, mcpInstructions, mcpTool, messageLanguage, needsApproval, parsePath, sameRule, searchFold, searchWords, sourcePath, truncate } from './tools.mjs';
+import { APPROVAL_MODES, TOOLS, Processes, WebBrowser, allowRules, allowedBy, cleanRule, fileStream, mcpInstructions, mcpTool, messageLanguage, needsApproval, parsePath, sameRule, searchFold, searchWords, sourcePath, terminalText, truncate } from './tools.mjs';
 import { McpManager, nativeMcpTools } from './mcp.mjs';
 import { Watchers, durationText, shortTime, tail, watchText } from './background.mjs';
 import { Database } from '../database.mjs';
@@ -2269,7 +2269,7 @@ export class AgentManager {
 - Change files with edit_file or write_file (the user sees the diff and can undo it), not with a script, and never put a file's content in your answer; a changed copy of a file: copy it (Copy-Item), then edit_file the parts in the copy. Large work goes in parts: first plan the parts (e.g. 250 lines each) and say the plan in one line, then do them one by one: read with start_line, write a long file in parts (append: true), and change only what is needed (a new design is mostly the CSS: edit that, not every line). Writing a program: write it, run it, read the error, fix it; do not say "done" before it works.
 - Never wait with sleep loops or by polling: start it in the background and you are woken when it happens (run_command back_plan, watch for "wait until X, then Y", monitor for new output lines, sub_agent wait: false). schedule is for set times ("every day at 9:00", "in 20 minutes").
 - Actions that need approval are confirmed by the system (the chat's approval mode); if rejected, do not force it.
-- If your tools cannot do something, look for an MCP server or a skill (search_web: registry.modelcontextprotocol.io, GitHub, npm, PyPI) and install it (add_mcp_server, install_skill; a Claude / Claude Code plugin or marketplace on GitHub: install_plugin). If none fits, build the tool yourself and then do the task with it: a one-off job is a Python script (pip install what it needs) run with run_command; a tool worth keeping becomes a skill (a folder panel-data\tools\<name> with SKILL.md: name, description, how to use it, and its scripts; then install_skill with that folder) or a small local MCP server in Python (pip install mcp, FastMCP; then add_mcp_server with command python and the script's path). Research the library or service first (search_web, fetch_web) and test what you built before you report.`,
+- If your tools cannot do something, look for an MCP server or a skill (search_web: registry.modelcontextprotocol.io, GitHub, npm, PyPI) and install it (add_mcp_server, install_skill; a Claude / Claude Code plugin or marketplace on GitHub: install_plugin). Install only with these tools, which put it where the panel reads it, never with another installer (npx skills, claude mcp add, a README's own install script); load a skill (load_skill) before you use it or say what it does. If none fits, build the tool yourself and then do the task with it: a one-off job is a Python script (pip install what it needs) run with run_command; a tool worth keeping becomes a skill (a folder panel-data\\tools\\<name> with SKILL.md: name, description, how to use it, and its scripts; then install_skill with that folder) or a small local MCP server in Python (pip install mcp, FastMCP; then add_mcp_server with command python and the script's path). Research the library or service first (search_web, fetch_web) and test what you built before you report.`,
     ];
     const more = this.moreTools(s, tools);
     if (more) parts.push(more);
@@ -3059,7 +3059,7 @@ export class AgentManager {
     record.done.then(() => {
       if (record.stopped || record.reported || this.closing) return;
       record.reported = true;
-      this.wake(record.chat, `[Background command ${kid} finished: exit code ${record.code}, ${durationText((record.ended ?? Date.now()) - record.start)}] ${tail(record.output) || '(no output)'}`, { kind: 'command', ref: kid, fallback });
+      this.wake(record.chat, `[Background command ${kid} finished: exit code ${record.code}, ${durationText((record.ended ?? Date.now()) - record.start)}] ${tail(terminalText(record.output)) || '(no output)'}`, { kind: 'command', ref: kid, fallback });
     });
   }
 

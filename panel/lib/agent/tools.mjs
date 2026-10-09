@@ -90,6 +90,19 @@ const DESTRUCTIVE = /\b(Remove-Item|rm|rmdir|rd|del|erase|Clear-Content|Clear-Re
 export const isDestructiveCommand = (k) => DESTRUCTIVE.test(String(k ?? '')) || /(^|[\s;&|(])format(\.com)?\s+[a-z]:/i.test(String(k ?? ''));
 
 /** Panel API requests that cannot be undone or that affect the panel. */
+/**
+ * The program and arguments of a local MCP server. The model often writes the whole line into command ("uvx
+ * mcp-server-time", seen 10.10.2026: three failed starts before it split it): without args, a command with spaces
+ * that is not an existing path is split like a command line (quotes keep a part together).
+ */
+export function mcpCommand(command, args) {
+  const list = (Array.isArray(args) ? args : []).map(String);
+  const line = String(command).trim();
+  if (list.length || !/\s/.test(line) || existsSync(line)) return { command: line, args: list };
+  const parts = [...line.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+  return { command: parts[0], args: parts.slice(1) };
+}
+
 export function isDestructiveApi(method, path) {
   const y = String(method ?? 'GET').toUpperCase();
   const p = String(path ?? '');
@@ -602,10 +615,27 @@ export function shellCommand(shell, command) {
 export function commandEnv(setting) {
   const own = ['python', join('python', 'Scripts'), 'node'].map((d) => join(setting.aiRoot, d)).filter((d) => existsSync(d));
   const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
-  return { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_EDITOR: 'true', GIT_PAGER: 'cat', PAGER: 'cat', [key]: [...own, process.env[key] ?? ''].join(delimiter) };
+  return { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_EDITOR: 'true', GIT_PAGER: 'cat', PAGER: 'cat', NO_COLOR: '1', FORCE_COLOR: '0', [key]: [...own, process.env[key] ?? ''].join(delimiter) };
 }
 
-/** Komut surecini baslatir; cikti biriktirilir. Doner: kayit { id, surec, cikti, kod, bitti (Promise) }. */
+/**
+ * A command's output as the model reads it: without colour and cursor codes, a line rewritten in place (spinner,
+ * progress bar: carriage return or "cursor to column 1") only as its last state. Seen 10.10.2026: "npx skills add"
+ * returned every spinner frame with the codes left in it.
+ */
+export function terminalText(s) {
+  return String(s ?? '')
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[\d*G/g, '\r')
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b[@-_]/g, '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => (line.includes('\r') ? line.split('\r').findLast((p) => p.trim()) ?? '' : line))
+    .join('\n');
+}
+
+/** Starts a command process; its output is collected. Returns the record { output, code, start, proc, done (Promise) }. */
 export function startProcess({ command, args, options = {}, cwd, env }) {
   const record = { output: '', code: null, start: Date.now(), read: 0 };
   const s = spawn(command, args, { cwd, env: { ...process.env, ...env }, windowsHide: true, ...options });
@@ -657,7 +687,7 @@ async function frontPlanCommand(b, record, durationSec) {
   if (b.signal?.aborted) throw new Error('Stopped.');
   const duration = ((Date.now() - record.start) / 1000).toFixed(1);
   const startedAt = timeout ? `[${durationSec} s limit reached, stopped. If it waited for input (a password, an editor, a yes/no), run it without asking: keys or tokens, --yes, -m "message"; a long task: back_plan: true]` : `[exit code ${record.code}, ${duration} s]`;
-  return `${startedAt}\n${truncate(record.output.trimEnd() || '(no output)')}`;
+  return `${startedAt}\n${truncate(terminalText(record.output).trimEnd() || '(no output)')}`;
 }
 
 /* ── Gorsel -> data URL ───────────────────────────────────────────────── */
@@ -1023,12 +1053,12 @@ export const TOOLS = [
         await new Promise((ok) => setTimeout(ok, 1500));
         if (record.code !== null) {
           record.reported = true;
-          return `Finished at once: ${id} (exit code ${record.code}, ${((Date.now() - record.start) / 1000).toFixed(1)} s)\n${truncate(record.output.trimEnd() || '(no output)')}`;
+          return `Finished at once: ${id} (exit code ${record.code}, ${((Date.now() - record.start) / 1000).toFixed(1)} s)\n${truncate(terminalText(record.output).trimEnd() || '(no output)')}`;
         }
         // the chat is woken when it ends (user request 09.10.2026: like Claude Code's background commands)
         const notify = g.notify !== false && Boolean(b.notifyWhenDone);
         if (notify) b.notifyWhenDone(id, record);
-        return `Started in the background: ${id} (pid ${record.proc.pid}). First output:\n${truncate(record.output, 2000) || '(none yet)'}\n${notify ? 'You will be told when it finishes: do not wait for it or poll command_output in a loop. ' : ''}Read its output with command_output, stop it with stop_command.`;
+        return `Started in the background: ${id} (pid ${record.proc.pid}). First output:\n${truncate(terminalText(record.output), 2000) || '(none yet)'}\n${notify ? 'You will be told when it finishes: do not wait for it or poll command_output in a loop. ' : ''}Read its output with command_output, stop it with stop_command.`;
       }
       return frontPlanCommand(b, record, Math.min(3600, Math.max(1, Number(g.duration_sec) || 120)));
     },
@@ -1042,7 +1072,7 @@ export const TOOLS = [
     async run(g, b) {
       const k = b.processes.get(g.id);
       if (g.wait_sec) await Promise.race([k.done, new Promise((ok) => setTimeout(ok, Math.min(3600, Number(g.wait_sec)) * 1000))]);
-      const fresh = k.output.slice(k.read);
+      const fresh = terminalText(k.output.slice(k.read));
       k.read = k.output.length;
       // its end was seen here: no message about it later
       if (k.code !== null) k.reported = true;
@@ -1558,7 +1588,7 @@ export const TOOLS = [
       const definition = g.url
         ? { type: 'http', url: String(g.url), ...(g.headers ? { headers: strings(g.headers) } : {}), ...limit }
         : g.command
-          ? { command: String(g.command), args: (Array.isArray(g.args) ? g.args : []).map(String), ...(g.env && Object.keys(g.env).length ? { env: strings(g.env) } : {}), ...limit }
+          ? { ...mcpCommand(g.command, g.args), ...(g.env && Object.keys(g.env).length ? { env: strings(g.env) } : {}), ...limit }
           : null;
       if (!definition) return 'Give command (+ args) for a local server or url for a remote one.';
       const previous = b.mcp.panelDefinition(g.name);

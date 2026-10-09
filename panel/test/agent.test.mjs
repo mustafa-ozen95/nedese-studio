@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLlm } from '../lib/llm.mjs';
 import { toolBlocks, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, cleanSources, followUpList } from '../lib/agent/agent.mjs';
-import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, sourceTrust, TOOLS } from '../lib/agent/tools.mjs';
+import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, sourceTrust, mcpCommand, terminalText, TOOLS } from '../lib/agent/tools.mjs';
 import { McpClient, McpManager, expandVariables, functionSchema, mcpFunctionName, mcpServers, nativeMcpTools, progressText } from '../lib/agent/mcp.mjs';
 import { startFakeMcpHttp } from './fake-mcp-http.mjs';
 import { startFakeRemote } from './fake-remote-llm.mjs';
@@ -290,6 +290,17 @@ test('installing what the agent needs: skills from a folder or GitHub address, M
     assert.equal(b.mcp.servers().broken, undefined, 'a server that does not start is not kept');
     assert.match(await run('add_mcp_server', { name: 'calc', remove: true }, b), /removed/);
     assert.equal(b.mcp.servers().calc, undefined);
+    // The whole line in command (the model wrote "uvx mcp-server-time", 10.10.2026): split, the server starts
+    assert.match(await run('add_mcp_server', { name: 'calc', command: `"${process.execPath}" "${FAKE_MCP}"` }, b), /added; 1 tools: collect/);
+    assert.deepEqual([b.mcp.servers().calc.command, b.mcp.servers().calc.args], [process.execPath, [FAKE_MCP]]);
+    assert.match(await run('add_mcp_server', { name: 'calc', remove: true }, b), /removed/);
+    assert.deepEqual(mcpCommand('uvx mcp-server-time --local-timezone Europe/Istanbul'), { command: 'uvx', args: ['mcp-server-time', '--local-timezone', 'Europe/Istanbul'] });
+    assert.deepEqual(mcpCommand('npx', ['-y', 'x']), { command: 'npx', args: ['-y', 'x'] }, 'given args are kept');
+    assert.deepEqual(mcpCommand(process.execPath), { command: process.execPath, args: [] }, 'an existing path is never split');
+    // Command output without terminal codes; a line rewritten in place keeps only its last state (npx skills add, 10.10.2026)
+    const spinner = '\x1b[?25l│\n\x1b[1G\x1b[J◒  Cloning repository…\x1b[1G\x1b[J◐  Cloning repository….\x1b[1G\x1b[J◇  Repository cloned\n\x1b[?25h│\n\x1b]0;title\x07\x1b[32m●\x1b[39m  Selected 1 skill: pdf\r\n 50%\r100%\n';
+    assert.equal(terminalText(spinner), '│\n◇  Repository cloned\n│\n●  Selected 1 skill: pdf\n100%\n');
+    assert.equal(terminalText('plain\nline'), 'plain\nline');
     assert.equal(TOOLS.find((t) => t.name === 'add_mcp_server').risk({ name: 'x', command: 'npx' }), 'danger', 'adding a server always asks outside Automatic');
   } finally {
     b.mcp.closeAll();
@@ -2398,7 +2409,13 @@ test('rules: Settings › Assistant rules and the project files (NEDESE.md, AGEN
     // Cleared: no rules section for a chat without project files
     assert.equal((await o.call('/api/v1/chat/rules', { method: 'PATCH', body: { text: '' } })).code, 200);
     const plain = await o.chat({});
-    assert.ok(!o.agent.systemPrompt(o.agent.get(plain.id), o.agent.tools(o.agent.get(plain.id))).includes('RULES FROM THE USER'));
+    const plainPrompt = o.agent.systemPrompt(o.agent.get(plain.id), o.agent.tools(o.agent.get(plain.id)));
+    assert.ok(!plainPrompt.includes('RULES FROM THE USER'));
+    // Missing tools: the panel's installers only, else build it; the folder is written with real backslashes (a lone
+    // backslash in the template made "panel-data<TAB>ools", 10.10.2026) and no control character is in the prompt
+    assert.ok(plainPrompt.includes('a folder panel-data\\tools\\<name> with SKILL.md'));
+    assert.match(plainPrompt, /never with another installer \(npx skills/);
+    assert.doesNotMatch(plainPrompt, /[\x00-\x08\x0b-\x1f]/);
     assert.equal((await o.call('/api/v1/chat/rules', { method: 'PATCH', body: { text: 'x'.repeat(20001) } })).code, 400);
   } finally {
     await o.close();
