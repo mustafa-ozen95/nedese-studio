@@ -34,14 +34,29 @@ Start-Transcript -Path (Join-Path $PSScriptRoot 'setup.log') -Append | Out-Null
 function Title($m) { Write-Host ''; Write-Host "== $m" -ForegroundColor Cyan }
 function Done($m) { Write-Host "   $m" -ForegroundColor Green }
 function Info($m) { Write-Host "   $m" }
-function Stop-Setup($m) { Write-Host ''; Write-Host "ERROR: $m" -ForegroundColor Red; Stop-Transcript | Out-Null; exit 1 }
+function Warn($m) { Write-Host "   WARNING: $m" -ForegroundColor Yellow }
+function Stop-Setup($m) { Write-Host ''; Write-Host "ERROR: $m" -ForegroundColor Red; Release-Awake; Stop-Transcript | Out-Null; exit 1 }
+
+# The computer must not go to sleep while the setup runs for hours (downloads would be cut): the "system required"
+# state is held for this process and released when the script ends (Windows' own power settings are not changed).
+# (PowerShell 5.1 reads 0x80000001 as a negative Int32, so the flags are given as decimal UInt32.)
+$script:awake = $false
+function Release-Awake { if ($script:awake) { [Nedese.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null; $script:awake = $false } }   # ES_CONTINUOUS
+trap { Release-Awake; break }
+Add-Type -Name Power -Namespace Nedese -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);'
+[Nedese.Power]::SetThreadExecutionState([uint32]2147483649) | Out-Null   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+$script:awake = $true
 
 # curl.exe (comes with Windows 10 1803+): redirects, resume, retries; the file is checked with SHA-256 when one is given.
+# --retry-all-errors (curl 7.71+, Windows 10 2004+): a reset connection is retried too, not only a timeout or a 5xx.
+$curlVersion = [version](((& curl.exe --version | Select-Object -First 1) -split ' ')[1])
+$curlRetry = @('--retry', '5', '--retry-delay', '5')
+if ($curlVersion -ge [version]'7.71') { $curlRetry += '--retry-all-errors' }
 function Fetch($url, $target, $sha256) {
     if ((Test-Path $target) -and $sha256 -and ((Get-FileHash $target -Algorithm SHA256).Hash -eq $sha256.ToUpper())) { return }
     New-Item -ItemType Directory -Force (Split-Path -Parent $target) | Out-Null
     for ($i = 1; $i -le 3; $i++) {
-        & curl.exe -L --fail --retry 5 --retry-delay 5 -C - -o $target $url
+        & curl.exe -L --fail @curlRetry -C - -o $target $url
         if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 33) {
             if (-not $sha256) { return }
             if ((Get-FileHash $target -Algorithm SHA256).Hash -eq $sha256.ToUpper()) { return }
@@ -108,12 +123,33 @@ $driver = [version]($gpu[1])
 Info "Graphics card: $($gpu[0]), $($gpu[2]), driver $($gpu[1])"
 # CUDA 13 (ComfyUI torch cu130) needs driver 580 or later.
 if ($driver.Major -lt 580) { Stop-Setup "Driver $($gpu[1]) is too old: CUDA 13 needs at least 580. Update it from nvidia.com." }
+# Video memory: the defaults were measured on 12 GB; images, voice and music work with less, video and film do not fit.
+$vramGb = [math]::Round(([double]($gpu[2] -replace '[^\d.]', '')) / 1024)
+if ($vramGb -lt 8) { Warn "$vramGb GB of video memory: image and voice jobs may run, video and film will not fit (12 GB measured)." }
+elseif ($vramGb -lt 12) { Warn "$vramGb GB of video memory: video and film jobs may run out of memory (the defaults were measured on 12 GB)." }
+$ramGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+Info "RAM: $ramGb GB"
+if ($ramGb -lt 16) { Warn "$ramGb GB of RAM: 16 GB is the minimum, 32 GB is recommended; large video models may not load." }
+# The install folder: a path with characters outside ASCII breaks CUDA kernel compilation (Triton/SageAttention) and some
+# Python packages; a very long path hits Windows' 260-character limit inside the Python environments; a folder synced
+# by OneDrive would upload ~150 GB and lock files while they are written.
+if ($Root -match '[^\x20-\x7E]') { Stop-Setup "The install folder's path contains non-ASCII characters ($Root). Move the folder to a plain path such as C:\nedese-studio and run setup.bat again." }
+if ($Root.Length -gt 80) { Stop-Setup "The install folder's path is too long ($($Root.Length) characters: $Root). Move the folder to a short path such as C:\nedese-studio and run setup.bat again." }
+if ($Root -match '\\OneDrive') { Stop-Setup "The install folder is inside OneDrive ($Root): ~150 GB would be synced and files would be locked while written. Move the folder outside OneDrive, e.g. C:\nedese-studio." }
+if ($Root -match ' ') { Warn "The install folder's path contains spaces ($Root); a path without spaces such as C:\nedese-studio is safer." }
 $disk = (Get-PSDrive -Name (Split-Path -Qualifier $Root).TrimEnd(':'))
 $freeGb = [math]::Round($disk.Free / 1GB)
 Info "Free disk: $freeGb GB"
-# A first install needs ~45 GB without models; a repeated run needs much less.
+# A first install needs ~45 GB without models (all models add ~100 GB, checked again before the download); a repeated run needs much less.
 $firstInstall = -not (Test-Path (Join-Path $Root 'ComfyUI_windows_portable\python_embeded\python.exe'))
 if ($firstInstall -and $freeGb -lt 45) { Stop-Setup 'At least 45 GB of free space is needed (models not included).' }
+if ($firstInstall -and $Models -eq 'all' -and $freeGb -lt 150) { Stop-Setup "All models need ~150 GB in total; $freeGb GB is free. Free up space, or run setup.bat -Models none and download the models you need in Settings > Models." }
+# Files extracted from a downloaded ZIP carry the "from the internet" mark: wscript would ask on every start of
+# Nedese Studio.vbs. The mark is removed from the program's own files (not from models or environments).
+$own = @(Get-ChildItem $Root -File | Where-Object { $_.Extension -in '.bat', '.vbs', '.cmd', '.md' })
+$own += @(Get-ChildItem (Join-Path $Root 'setup') -File | Where-Object { $_.Extension -in '.ps1', '.mjs', '.py', '.json' })
+foreach ($place in 'panel', 'tray', 'bin', 'tools', 'docs') { $own += @(Get-ChildItem (Join-Path $Root $place) -Recurse -File -ErrorAction SilentlyContinue) }
+$own | Unblock-File -ErrorAction SilentlyContinue
 Done 'OK.'
 
 # -- 2. Tools: 7-Zip (extractor), Node, ffmpeg, uv, Python --------------------
@@ -379,6 +415,13 @@ if ($choice -eq 'none') {
     }
     $arguments = @((Join-Path $PSScriptRoot 'download-models.mjs'))
     if ($skip.Count) { $arguments += @('--skip', ($skip -join ',')) }
+    # Free space against what is still to download ("...; to download N files, X GB."), with 5 GB to spare.
+    $plan = & $Node ($arguments + '--list') | Select-Object -First 1
+    $freeGb = [math]::Round((Get-PSDrive -Name (Split-Path -Qualifier $Root).TrimEnd(':')).Free / 1GB)
+    if ($plan -match 'to download \d+ files, ([\d.]+) GB') {
+        $needGb = [double]$Matches[1]
+        if ($freeGb -lt $needGb + 5) { Stop-Setup "The models need $needGb GB more; $freeGb GB is free on this drive. Free up space and run setup.bat again (what was downloaded is kept), or download fewer models in Settings > Models." }
+    }
     Invoke-Step $Node $arguments 'Model download'
     if ($voiceModels) {
         $voiceScript = Join-Path $PSScriptRoot 'voice-models.py'
@@ -466,6 +509,13 @@ Test-Tool 'Model training' (Join-Path $Root 'training\.venv\Scripts\python.exe')
 Test-Tool 'Image training' (Join-Path $Root 'training\musubi\.venv\Scripts\python.exe') @('-c', "$torchCheck; import musubi_tuner, accelerate, diffusers, bitsandbytes")
 Test-Tool 'Music training' (Join-Path $Root 'training\sidestep\.venv\Scripts\python.exe') @('-c', "$torchCheck; import sidestep_engine, peft, lightning, bitsandbytes")
 & $Node (Join-Path $PSScriptRoot 'download-models.mjs') --list | Select-Object -First 1 | ForEach-Object { Info $_ }
+# The panel's port must be free (another program on it: the panel would not start). The panel itself, if it is
+# already running from this folder, is not "another program".
+$holder = Get-NetTCPConnection -LocalPort $panelPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($holder) {
+    $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($holder.OwningProcess)" -ErrorAction SilentlyContinue
+    if (-not ($owner -and $owner.CommandLine -like "*$Root*")) { Warn "Port $panelPort is in use by $($owner.Name) (PID $($holder.OwningProcess)): start the panel with another port (panel.bat --port 1166) or close that program." }
+}
 
 Write-Host ''
 if ($failed) {
@@ -473,4 +523,5 @@ if ($failed) {
 } else {
     Write-Host "Setup complete. Open the `"Nedese Studio`" shortcut on the desktop: an icon appears at the bottom right (right-click for the menu, double-click for the panel); the panel is at http://127.0.0.1:$panelPort." -ForegroundColor Green
 }
+Release-Awake
 Stop-Transcript | Out-Null

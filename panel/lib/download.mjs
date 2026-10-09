@@ -12,11 +12,87 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { UserError } from './errors.mjs';
 import { CATALOG, FOLDERS, diskStatus, checkModelExtension, modelPath } from './models.mjs';
+import { bytesDone, fetchSegments } from './segments.mjs';
 
 const FILE_NAME = /^[\w.-]+$/;
 /** Errors a fresh connection usually cures (the download resumes by itself); anything else waits for the user. */
-const CONNECTION_ERROR = /stalled|socket|terminated|aborted|closed|reset|ECONN|ETIMEDOUT|EAI_AGAIN|fetch failed|Size mismatch/i;
+const CONNECTION_ERROR = /stalled|slow stream|socket|terminated|aborted|closed|reset|ECONN|ETIMEDOUT|EAI_AGAIN|fetch failed|Size mismatch/i;
 const RETRIES = 5;
+/** Slow-stream reconnections per download that do not count as retries (each one is cheap: Range resume). */
+const SLOW_CUTS = 30;
+
+/**
+ * Judges whether a connection has decayed: a CDN stream that still delivers, but at a small fraction of the speed
+ * this process has seen (2 MB/s against 20 MB/s on a fresh connection to the same file, 09.10.2026), is cut and
+ * resumed on a fresh connection. The best rate seen is shared across connections (also between connections running
+ * at the same time) and files; it decays with every cut so a network that is slow for real stops triggering after a
+ * few reconnections.
+ *   const c = judge.connection(); c.feed(bytes) -> a reason string when the stream should be cut, else null;
+ *   judge.cut() after cutting one. start()/feed() on the judge itself drive one default connection.
+ */
+export class StreamJudge {
+  constructor({ bucketMs = 5000, buckets = 6, floor = 4 * 2 ** 20, ratio = 0.15, probes = 5 } = {}) {
+    this.bucketMs = bucketMs;
+    this.buckets = buckets;
+    this.floor = floor;
+    this.ratio = ratio;
+    // While nothing faster than the floor has been seen, a slow connection is cut `probes` times in all to try a
+    // fresh one (the first connection of the process may itself be the decayed one, 09.10.2026).
+    this.probes = probes;
+    this.best = 0;
+    this.start();
+  }
+
+  /** A new connection with its own measuring window. */
+  connection(now = Date.now()) {
+    return new StreamConnection(this, now);
+  }
+
+  /** The default connection starts (again). */
+  start(now = Date.now()) {
+    this.main = this.connection(now);
+  }
+
+  feed(bytes, now = Date.now()) {
+    return this.main.feed(bytes, now);
+  }
+
+  /** A stream was cut for being slow: expect a little less next time. */
+  cut(now = Date.now()) {
+    this.best *= 0.7;
+    this.start(now);
+  }
+}
+
+class StreamConnection {
+  constructor(judge, now) {
+    this.judge = judge;
+    this.window = [];
+    this.bucketStart = now;
+    this.bucketBytes = 0;
+  }
+
+  feed(bytes, now = Date.now()) {
+    const j = this.judge;
+    this.bucketBytes += bytes;
+    if (now - this.bucketStart < j.bucketMs) return null;
+    const rate = (this.bucketBytes * 1000) / (now - this.bucketStart);
+    this.bucketStart = now;
+    this.bucketBytes = 0;
+    j.best = Math.max(j.best, rate);
+    this.window.push(rate);
+    if (this.window.length > j.buckets) this.window.shift();
+    if (this.window.length < j.buckets) return null;
+    const average = this.window.reduce((a, r) => a + r, 0) / this.window.length;
+    if (j.best < j.floor) {
+      if (j.probes <= 0) return null;
+      j.probes--;
+      return `slow stream (${(average / 2 ** 20).toFixed(1)} MB/s; trying a fresh connection)`;
+    }
+    if (average >= j.best * j.ratio) return null;
+    return `slow stream (${(average / 2 ** 20).toFixed(1)} MB/s against ${(j.best / 2 ** 20).toFixed(1)} MB/s seen before)`;
+  }
+}
 const isYes = (v) => v === true || v === 'true' || v === '1' || v === 1;
 const WIN = process.platform === 'win32';
 /** Kayit durumu kodunun mesajlardaki adi (durum kodlari: queued | indiriliyor | duraklatildi | done | error | cancelled). */
@@ -58,7 +134,7 @@ export class Downloader {
    * { modelKok, kayitYolu, korunanKokler, degisti(), gunluk(metin) }
    * korunanKokler: buralardaki dosyalar (model klasoru haric) yalniz kopyalanir, tasinmaz (panel kurulumu: yazi modeli, egitim, ses).
    */
-  constructor({ modelRoot, recordPath, protectedRoots = [], changed = () => {}, log = () => {}, stallMs = 30000, retryDelayMs = 10000 }) {
+  constructor({ modelRoot, recordPath, protectedRoots = [], changed = () => {}, log = () => {}, stallMs = 30000, retryDelayMs = 10000, slow = {} }) {
     this.modelRoot = modelRoot;
     this.protectedRoots = protectedRoots;
     this.recordPath = recordPath;
@@ -66,8 +142,10 @@ export class Downloader {
     this.log = log;
     // A stream that stops delivering (a CDN connection decaying to a few KB/s, seen 09.10.2026) is cut after stallMs
     // without data; a cut or stalled download resumes by itself (Range) up to RETRIES times, retryDelayMs apart.
+    // A stream that only crawls (StreamJudge) is cut and resumed at once, up to SLOW_CUTS times per download.
     this.stallMs = stallMs;
     this.retryDelayMs = retryDelayMs;
+    this.judge = new StreamJudge(slow);
     this.list = [];
     this.active = null;
     this.control = null;
@@ -111,12 +189,20 @@ export class Downloader {
     return this.list.find((i) => i !== exclude && i.folder === folder && name(i.file) === name(file) && ['queued', 'downloading', 'paused'].includes(i.status)) ?? null;
   }
 
+  /** Bytes of the partial file that are complete: the finished segments when a map exists, else the file's size. */
   partialSize(i) {
     try {
-      return statSync(this.partialPath(i)).size;
+      const partial = this.partialPath(i);
+      if (i.expected && existsSync(`${partial}.map`)) return bytesDone(partial, i.expected);
+      return statSync(partial).size;
     } catch {
       return 0;
     }
+  }
+
+  removePartial(i) {
+    rmSync(this.partialPath(i), { force: true });
+    rmSync(`${this.partialPath(i)}.map`, { force: true });
   }
 
   find(id) {
@@ -338,7 +424,7 @@ export class Downloader {
     const i = this.find(id);
     if (i.status === 'downloading') throw new UserError('Cancel it first.');
     // Ayni dosyanin yeni indirmesi suruyorsa yarim dosya onundur
-    if (!this.enabledRecord(i.folder, i.file, i)) rmSync(this.partialPath(i), { force: true });
+    if (!this.enabledRecord(i.folder, i.file, i)) this.removePartial(i);
     this.list = this.list.filter((x) => x !== i);
     this.save();
     this.changed();
@@ -355,6 +441,14 @@ export class Downloader {
       .catch((e) => {
         if (next.status === 'cancelled') return;
         const message = String(e?.message ?? e).slice(0, 400);
+        if (next.type !== 'local' && message.startsWith('slow stream') && (next.slowCuts ?? 0) < SLOW_CUTS) {
+          next.slowCuts = (next.slowCuts ?? 0) + 1;
+          next.status = 'queued';
+          next.error = null;
+          this.judge.cut();
+          this.log(`Download ${next.file}: ${message}; reconnecting (${next.slowCuts}/${SLOW_CUTS}).`);
+          return;
+        }
         // A connection problem (stall, reset, cut) is not the user's business: the download goes on by itself
         if (next.type !== 'local' && CONNECTION_ERROR.test(message) && (next.retries ?? 0) < RETRIES) {
           next.retries = (next.retries ?? 0) + 1;
@@ -388,9 +482,87 @@ export class Downloader {
     i.start = new Date().toISOString();
     i.error = null;
     this.changed();
+    if (!i.sha256) i.sha256 = await connectionSummary(i.url, signal);
 
+    // A one-byte probe: does the server support Range (then several connections at once, segments.mjs) and how big
+    // is the file. The probe gets a time limit of its own: a stalled probe is a connection error like any other.
+    const probe = await fetch(i.url, { headers: { Range: 'bytes=0-0' }, signal: AbortSignal.any([signal, AbortSignal.timeout(this.stallMs)]), redirect: 'follow' }).catch((e) => {
+      if (signal.aborted) throw e;
+      throw e?.name === 'TimeoutError' ? new Error(`No data for ${Math.round(this.stallMs / 1000)} s: the connection stalled.`) : e;
+    });
+    await probe.body?.cancel().catch(() => {});
+    if (!probe.ok && probe.status !== 206) throw new Error(`The server returned ${probe.status} (${probe.statusText}).`);
+    const m = /\/(\d+)$/.exec(probe.headers.get('content-range') ?? '');
+    const total = probe.status === 206 ? (m ? Number(m[1]) : null) : Number(probe.headers.get('content-length')) || null;
+    if (total && i.expected && total !== i.expected) throw new Error(`The file size on the server differs (${total} ≠ ${i.expected}); the catalog may be outdated.`);
+    if (total && !i.expected) i.expected = total;
+    if (probe.status !== 206 || !total) return this.downloadStream(i, signal, target, partial);
+
+    const have = this.partialSize(i);
+    const disk = diskStatus(this.modelRoot);
+    if (disk.freeByte !== null && disk.freeByte < total - have + 2 ** 30) throw new Error(`Not enough disk space: ${gb(total - have)} more needed, ${gb(disk.freeByte)} free.`);
+    i.downloaded = have;
+    let lastTime = Date.now();
+    let lastDownloaded = have;
+    let lastRecord = Date.now();
+    await fetchSegments({
+      url: i.url, path: partial, size: total, signal, judge: this.judge, stallMs: this.stallMs, retryDelayMs: this.retryDelayMs,
+      log: (s) => this.log(`Download ${i.file}: ${s}.`),
+      onProgress: (n) => {
+        i.downloaded = n;
+        const now = Date.now();
+        if (now - lastTime >= 1000) {
+          const instant = ((n - lastDownloaded) * 1000) / (now - lastTime);
+          i.speed = i.speed ? i.speed * 0.7 + instant * 0.3 : instant;
+          lastTime = now;
+          lastDownloaded = n;
+          this.changed();
+        }
+        if (now - lastRecord >= 5000) {
+          lastRecord = now;
+          this.save();
+        }
+      },
+    });
+    if (signal.aborted) return;
+    const size = statSync(partial).size;
+    if (size !== total) throw new Error(`Size mismatch: ${size} bytes downloaded, ${total} expected. "Resume" will complete it.`);
+    i.stage = 'verifying';
+    i.speed = 0;
+    this.changed();
+    const summaryHash = createHash('sha256');
+    await new Promise((ok, red) => {
+      const r = createReadStream(partial, { highWaterMark: 8 * 2 ** 20 });
+      r.on('data', (p) => summaryHash.update(p));
+      r.on('end', ok);
+      r.on('error', red);
+      signal.addEventListener('abort', () => r.destroy(new Error('cancelled')), { once: true });
+    });
+    i.stage = '';
+    if (signal.aborted) return;
+    this.finish(i, partial, target, summaryHash.digest('hex'), size);
+  }
+
+  /** The download is complete: SHA-256 against the catalog, the partial file becomes the model file. */
+  finish(i, partial, target, summary, size) {
+    if (i.sha256 && summary !== i.sha256) {
+      this.removePartial(i);
+      i.downloaded = 0;
+      throw new Error(`SHA-256 mismatch (corrupt download); the partial file was deleted, download again.`);
+    }
+    i.validated = summary;
+    renameSync(partial, target);
+    i.status = 'done';
+    i.end = new Date().toISOString();
+    i.downloaded = size;
+    this.log(`Downloaded: ${i.folder}/${i.file} (${gb(size)}${i.sha256 ? ', SHA-256 verified' : ''})`);
+  }
+
+  /** One connection, for a server without Range support: the SHA-256 runs over the stream. */
+  async downloadStream(i, signal, target, partial) {
     // Yarim dosya varsa once onun ozeti hesaplanir (SHA-256 akan veriyle surer).
     let summaryHash = createHash('sha256');
+    rmSync(`${partial}.map`, { force: true });
     let startedAt = this.partialSize(i);
     if (startedAt > 0) {
       i.stage = 'verifying partial file';
@@ -404,7 +576,6 @@ export class Downloader {
       });
     }
     i.stage = '';
-    if (!i.sha256) i.sha256 = await connectionSummary(i.url, signal);
     const headers = startedAt > 0 ? { Range: `bytes=${startedAt}-` } : {};
     const response = await fetch(i.url, { headers: headers, signal: signal, redirect: 'follow' });
     if (!response.ok && response.status !== 206) throw new Error(`The server returned ${response.status} (${response.statusText}).`);
@@ -441,6 +612,7 @@ export class Downloader {
       }, this.stallMs);
       reader.read().then((r) => { clearTimeout(t); ok(r); }, (e) => { clearTimeout(t); red(e); });
     });
+    this.judge.start();
     try {
       for (;;) {
         const { done, value } = await read();
@@ -449,6 +621,11 @@ export class Downloader {
         if (!printer.write(value)) await new Promise((ok) => printer.once('drain', ok));
         i.downloaded += value.length;
         const now = Date.now();
+        const slow = this.judge.feed(value.length, now);
+        if (slow) {
+          reader.cancel().catch(() => {});
+          throw new Error(slow);
+        }
         if (now - lastTime >= 1000) {
           const instant = ((i.downloaded - lastDownloaded) * 1000) / (now - lastTime);
           i.speed = i.speed ? i.speed * 0.7 + instant * 0.3 : instant;
@@ -467,18 +644,7 @@ export class Downloader {
     if (signal.aborted) return;
     const size = statSync(partial).size;
     if (i.expected && size !== i.expected) throw new Error(`Size mismatch: ${size} bytes downloaded, ${i.expected} expected. "Resume" will complete it.`);
-    const summary = summaryHash.digest('hex');
-    if (i.sha256 && summary !== i.sha256) {
-      rmSync(partial, { force: true });
-      i.downloaded = 0;
-      throw new Error(`SHA-256 mismatch (corrupt download); the partial file was deleted, download again.`);
-    }
-    i.validated = summary;
-    renameSync(partial, target);
-    i.status = 'done';
-    i.end = new Date().toISOString();
-    i.downloaded = size;
-    this.log(`Downloaded: ${i.folder}/${i.file} (${gb(size)}${i.sha256 ? ', SHA-256 verified' : ''})`);
+    this.finish(i, partial, target, summaryHash.digest('hex'), size);
   }
 }
 

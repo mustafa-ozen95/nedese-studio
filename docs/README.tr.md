@@ -33,8 +33,8 @@ Windows için yerel yapay zekâ medya stüdyosu: görsel, video, ses, müzik, 3B
 
 ## Kurulum
 
-1. Depoyu indirin (Code › Download ZIP) ve örneğin `C:\nedese-studio` içine açın.
-2. `setup.bat` dosyasını çalıştırın. ComfyUI, Node, ffmpeg, Python, Python ortamları ve isteğe bağlı olarak modeller bu klasörün içine kurulur; bilgisayarda kurulu olanlar (başka sürüm Python, Node, ffmpeg ya da hiçbiri) kullanılmaz.
+1. Depoyu indirin (Code › Download ZIP) ve örneğin `C:\nedese-studio` içine açın (kısa, boşluksuz, Türkçe karaktersiz bir yol; OneDrive dışında).
+2. `setup.bat` dosyasını çalıştırın. Windows SmartScreen "Windows PC'nizi korudu" derse *Ek bilgi › Yine de çalıştır* deyin (betik kod imzalı değildir). ComfyUI, Node, ffmpeg, Python, Python ortamları ve isteğe bağlı olarak modeller bu klasörün içine kurulur; bilgisayarda kurulu olanlar (başka sürüm Python, Node, ffmpeg ya da hiçbiri) kullanılmaz. Kurulum önce ekran kartı sürücüsünü, belleği, disk alanını ve klasör yolunu denetler, sürerken bilgisayarın uyumasını engeller ve kesilirse yeniden çalıştırıldığında kaldığı yerden devam eder.
    - `setup.bat -Models all`: bütün modeller (~150 GB)
    - `setup.bat -Models none`: model indirmeden (sonra panelde Ayarlar › Modeller'den indirilir ya da "Varsayılan modelleri indir" kullanılır)
 3. Başlatın (aşağıda) ve tarayıcıda açın: <http://127.0.0.1:1071>
@@ -101,6 +101,9 @@ Varsayılanlar 12 GB ekran kartı ve 16 GB RAM için ölçüldü. Daha güçlü 
 - VRAM/RAM yetmedi: başka GPU programlarını (uzun işte tarayıcıyı da) kapatın; Ayarlar › İnce ayarlar'a bakın.
 - Eksik model dosyası: Ayarlar › Modeller kurulu olanı gösterir; indirme, yükleme ve taşıma oradan.
 - Hugging Face indirmesi bazı Windows kurulumlarında sembolik bağ hatası verir (WinError 1314); kurulum betiği düz klasöre indirerek bunu aşar.
+- Duran ya da sürünen model indirmesi kendiliğinden kesilip yeni bağlantıyla sürdürülür (kurulum ve Ayarlar › Modeller); kesilen kurulumdan sonra `setup.bat` yarım dosyalardan devam eder.
+- Kurulum yol hatasıyla duruyorsa klasörü `C:\nedese-studio` gibi kısa, Türkçe karaktersiz bir yola (OneDrive dışına) taşıyıp yeniden çalıştırın.
+- Antivirüs kurulum sırasında dosya karantinaya alıyorsa (Triton/SageAttention derleme adımları) klasörü dışlamalara ekleyip `setup.bat` dosyasını yeniden çalıştırın.
 - Python ortamlarını değiştiren güncellemeden sonra panel `setup.bat -Models none` çalıştırmanızı ister.
 - Blender `Program Files\Blender Foundation\Blender *`, `PATH` ya da `AI_PANEL_BLENDER` ile bulunur.
 

@@ -11,7 +11,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { UserError } from '../lib/errors.mjs';
-import { Downloader } from '../lib/download.mjs';
+import { Downloader, StreamJudge } from '../lib/download.mjs';
+import { fakeServer } from './fake-model-server.mjs';
 import { CATALOG, usedFiles, installedModels, deleteModel, modelPath } from '../lib/models.mjs';
 import { wrapModule, parseQuantization, quantizationOptions, applyQuantization } from '../lib/quantization.mjs';
 import { loadComfyModule } from '../lib/settings.mjs';
@@ -99,57 +100,32 @@ test('quantization wrapper: only the GGUF name changes in the graph, the comfy.m
   assert.match(readFileSync(REAL_COMFY, 'utf8'), /qwen-image-2512-Q4_K_M\.gguf/, 'comfy.mjs unchanged');
 });
 
-/** Fake model server: supports Range; cut: the first request breaks the connection after N bytes; stall: it sends N bytes and then nothing. */
-function fakeServer(data, { noRange = false } = {}) {
-  const status = { requests: [], cut: null, stall: null };
-  const stalled = [];
-  const s = createServer((req, response) => {
-    const sha = createHash('sha256').update(data).digest('hex');
-    // Hugging Face + Xet gibi: /hf/... SHA-256'yi X-Linked-Etag ile verip CDN'e yonlendirir; CDN'in
-    // ETag'i baska bir 64 onaltilik ozet (Xet), SHA-256 degil.
-    if (req.url.startsWith('/hf/')) {
-      response.writeHead(302, { Location: req.url.replace('/hf/', '/cdn/'), 'X-Linked-Etag': `"${sha}"`, 'X-Linked-Size': data.length });
-      response.end();
-      return;
-    }
-    if (req.url.startsWith('/cdn/')) {
-      response.writeHead(200, { 'Content-Length': data.length, ETag: `"${'ab'.repeat(32)}"` });
-      response.end(req.method === 'HEAD' ? undefined : data);
-      return;
-    }
-    if (req.method === 'HEAD') {
-      response.writeHead(200, { 'Content-Length': data.length, 'X-Linked-Etag': `"${sha}"` });
-      response.end();
-      return;
-    }
-    status.requests.push(req.headers.range ?? '');
-    const m = /^bytes=(\d+)-$/.exec(req.headers.range ?? '');
-    if (m && !noRange) {
-      const startedAt = Number(m[1]);
-      response.writeHead(206, { 'Content-Range': `bytes ${startedAt}-${data.length - 1}/${data.length}`, 'Content-Length': data.length - startedAt, 'X-Linked-Etag': `"${sha}"` });
-      response.end(data.subarray(startedAt));
-      return;
-    }
-    response.writeHead(200, { 'Content-Length': data.length, 'X-Linked-Etag': `"${sha}"` });
-    if (status.cut !== null) {
-      const n = status.cut;
-      status.cut = null;
-      // Kopus, yazilan parca gercekten gonderildikten sonra: yalniz 50 ms beklemek yuk altinda yetmiyordu (tam takim
-      // calisirken istemciye 65326 bayt ulasti, "yarim dosya >= 100000" beklentisi ara sira dustu; 06.10.2026)
-      response.write(data.subarray(0, n), () => setTimeout(() => response.destroy(), 50));
-      return;
-    }
-    if (status.stall !== null) {
-      const n = status.stall;
-      status.stall = null;
-      response.write(data.subarray(0, n));
-      stalled.push(response);
-      return;
-    }
-    response.end(data);
-  });
-  return new Promise((ok) => s.listen(0, '127.0.0.1', () => ok({ address: `http://127.0.0.1:${s.address().port}`, status, close: () => { for (const r of stalled) r.destroy(); return new Promise((r) => s.close(r)); } })));
-}
+test('stream judge: a crawl against the best rate seen is cut; the expectation decays with every cut; nothing below the floor', () => {
+  const j = new StreamJudge({ bucketMs: 1000, buckets: 3, floor: 1000, ratio: 0.15, probes: 1 });
+  let t = 0;
+  j.start(t);
+  const bucket = (bytes) => j.feed(bytes, (t += 1000));
+  // Nothing fast seen yet: one probe reconnection, then a slow line is accepted.
+  bucket(100); bucket(100);
+  assert.equal(bucket(100), 'slow stream (0.0 MB/s; trying a fresh connection)');
+  j.cut(t);
+  bucket(100); bucket(100);
+  assert.equal(bucket(100), null, 'no probes left');
+  j.start(t);
+  assert.equal(bucket(20000), null, 'first bucket: 20 KB/s becomes the best');
+  assert.equal(bucket(1000), null, 'window not full yet');
+  assert.equal(bucket(1000), null);
+  assert.match(bucket(1000), /^slow stream \(0\.0 MB\/s against 0\.0 MB\/s seen before\)$/, 'three slow buckets after the fast one');
+  j.cut(t);
+  assert.equal(j.best, 14000, 'expectation decayed by 30 %');
+  assert.equal(bucket(2000), null, 'fresh window after the cut');
+  assert.equal(bucket(2000), null);
+  assert.match(bucket(2000), /^slow stream/, '2 KB/s is below 15 % of 14 KB/s');
+  for (let n = 0; n < 8; n++) j.cut(t);
+  assert.ok(j.best < 1000, 'after enough cuts the best falls below the floor');
+  bucket(100); bucket(100); assert.equal(bucket(100), null, 'below the floor (and no probes left) nothing is cut');
+});
+
 
 const wait = (condition, ms = 10000) =>
   new Promise((ok, red) => {
@@ -173,22 +149,22 @@ test('downloader: byte counter, resume after disconnect (Range), SHA-256 and siz
   try {
     const record = join(root, 'data', 'indirmeler.json');
     const logs = [];
-    const ind = new Downloader({ modelRoot: join(root, 'models'), recordPath: record, stallMs: 500, retryDelayMs: 100, log: (s) => logs.push(s) });
+    const ind = new Downloader({ modelRoot: join(root, 'models'), recordPath: record, stallMs: 500, retryDelayMs: 100, log: (s) => logs.push(s), slow: { bucketMs: 50, buckets: 3, floor: 1 } });
     assert.throws(() => ind.add({ url: 'ftp://x/y.gguf', folder: 'vae' }), /http/);
     assert.throws(() => ind.add({ url: `${server.address}/m.gguf`, folder: 'none' }), /Choose a model folder/);
     assert.throws(() => ind.add({ url: `${server.address}/m.exe`, folder: 'vae' }), /extensions/);
     assert.throws(() => ind.add({ catalog: 'yok-boyle' }), /Not in the catalog/);
-    // First attempt: the server breaks the connection after 100000 bytes -> the download resumes by itself (Range)
-    // from the partial file's real size (the receiver's buffer may lose data when the socket breaks), SHA-256 checked below.
+    // First attempt: the server breaks the connection after 100000 bytes -> the segment resumes by itself (Range)
+    // from the last byte written (segments.mjs; a retry inside the segment, not a record retry), SHA-256 checked below.
     server.status.cut = 100000;
     const i = ind.add({ url: `${server.address}/model.gguf`, folder: 'vae', expected: data.length, name: 'Deneme' });
     assert.ok(['queued', 'downloading'].includes(i.status));
     await wait(() => ['done', 'error'].includes(ind.find(i.id).status));
     const last = ind.find(i.id);
     assert.equal(last.status, 'done', last.error);
-    assert.equal(last.retries, 1, 'one automatic resume');
-    assert.ok(logs.some((s) => /Resuming in 0 s \(attempt 1\/5\)/.test(s)), logs.join('\n'));
-    assert.ok(server.status.requests.some((r) => /^bytes=\d+-$/.test(r)), 'resumed with a Range header');
+    assert.equal(last.retries, undefined, 'the segment resumed by itself');
+    assert.ok(logs.some((s) => /Download model\.gguf: interrupted \(.*\); attempt 1\/6, resuming in 0 s\./.test(s)), logs.join('\n'));
+    assert.ok(server.status.requests.some((r) => /^bytes=[1-9]\d+-\d+$/.test(r)), `resumed inside the segment: ${server.status.requests.join(' ')}`);
     const partial = join(root, 'models', 'vae', 'model.gguf.downloading');
     const target = join(root, 'models', 'vae', 'model.gguf');
     assert.ok(existsSync(target) && !existsSync(partial));
@@ -203,8 +179,18 @@ test('downloader: byte counter, resume after disconnect (Range), SHA-256 and siz
     const st = ind.add({ url: `${server.address}/stalled.gguf`, folder: 'vae', expected: data.length, name: 'Stall' });
     await wait(() => ['done', 'error'].includes(ind.find(st.id).status));
     assert.equal(ind.find(st.id).status, 'done', ind.find(st.id).error);
-    assert.ok(logs.some((s) => /stalled\.gguf: No data for 1 s: the connection stalled\./.test(s)), logs.join('\n'));
+    assert.ok(logs.some((s) => /Download stalled\.gguf: interrupted \(no data for 1 s\); attempt 1\/6/.test(s)), logs.join('\n'));
     assert.equal(statSync(join(root, 'models', 'vae', 'stalled.gguf')).size, data.length);
+    // A stream that only crawls (2 MB/s against 20 MB/s on a fresh connection, 09.10.2026): cut and reconnected at
+    // once; this does not use up the retries.
+    server.status.slow = 200000;
+    const sl = ind.add({ url: `${server.address}/slow.gguf`, folder: 'vae', expected: data.length, name: 'Slow' });
+    await wait(() => ['done', 'error'].includes(ind.find(sl.id).status));
+    assert.equal(ind.find(sl.id).status, 'done', ind.find(sl.id).error);
+    assert.ok(logs.some((s) => /slow\.gguf: slow stream \([\d.]+ MB\/s against [\d.]+ MB\/s seen before\); reconnecting \(1\/30\)/.test(s)), logs.join('\n'));
+    assert.equal(ind.find(sl.id).retries, undefined, 'a slow cut is not a retry');
+    assert.equal(statSync(join(root, 'models', 'vae', 'slow.gguf')).size, data.length);
+    assert.equal(createHash('sha256').update(readFileSync(join(root, 'models', 'vae', 'slow.gguf'))).digest('hex'), createHash('sha256').update(data).digest('hex'));
     // Xet: CDN'in ETag'i SHA-256 sanilmaz; gercek ozet yonlendirmeden once okunur.
     const x = ind.add({ url: `${server.address}/hf/xet.gguf`, folder: 'vae' });
     await wait(() => ['done', 'error'].includes(ind.find(x.id).status));

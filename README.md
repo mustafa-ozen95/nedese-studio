@@ -33,8 +33,8 @@ A local AI media studio for Windows: image, video, voice, music, 3D model and si
 
 ## Installation
 
-1. Download the repository (Code › Download ZIP) and extract it, e.g. to `C:\nedese-studio`.
-2. Run `setup.bat`. ComfyUI, Node, ffmpeg, Python, the Python environments and, optionally, the models are installed inside this folder; whatever is installed on the computer (another Python, Node or ffmpeg, any version or none) is not used.
+1. Download the repository (Code › Download ZIP) and extract it, e.g. to `C:\nedese-studio` (a short path without spaces or non-ASCII characters, outside OneDrive).
+2. Run `setup.bat`. If Windows SmartScreen shows "Windows protected your PC", click *More info › Run anyway* (the script is not code-signed). ComfyUI, Node, ffmpeg, Python, the Python environments and, optionally, the models are installed inside this folder; whatever is installed on the computer (another Python, Node or ffmpeg, any version or none) is not used. The setup checks the graphics driver, memory, disk space and the folder's path first, keeps the computer awake while it runs, and can be run again after an interruption: it continues where it stopped.
    - `setup.bat -Models all`: all models (~150 GB)
    - `setup.bat -Models none`: no model download (download them later from Settings › Models in the panel, or use "Download default models")
 3. Start it (see below) and open <http://127.0.0.1:1071> in your browser.
@@ -101,6 +101,9 @@ The defaults were measured on a 12 GB graphics card with 16 GB RAM. On a stronge
 - Out of VRAM/RAM: close other GPU programs (and the browser during long jobs); check Settings › Fine settings.
 - Missing model file: Settings › Models shows what is installed and lets you download, upload or move files.
 - Hugging Face downloads fail with a symbolic-link error (WinError 1314) on some Windows setups; the setup script downloads into plain folders to avoid it.
+- A model download that stalls or crawls is cut and resumed on a fresh connection by itself (setup and Settings › Models); a run of `setup.bat` after an interruption continues from the partial files.
+- Setup stops with a path error: move the folder to a short ASCII path such as `C:\nedese-studio` (not inside OneDrive) and run it again.
+- An antivirus that quarantines files during setup (Triton/SageAttention build steps): add the folder to its exclusions and run `setup.bat` again.
 - After an update that changed the Python environments, the panel asks you to run `setup.bat -Models none`.
 - Blender is detected in `Program Files\Blender Foundation\Blender *`, on `PATH` or via `AI_PANEL_BLENDER`.
 
