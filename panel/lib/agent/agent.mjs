@@ -89,23 +89,32 @@ const token = (s) => Math.ceil(String(s ?? '').length / 3);
  * folder and no add_mcp_server whose command or args name it. Seen 10.10.2026: the agent wrote a QR skill and an MCP
  * server script, installed neither and answered that the tool was installed.
  */
+/** Tools that are called again to see something change (a job, a command, a sub-agent): a repeat is not a loop. */
+const WAITING_TOOLS = new Set(['wait_job', 'command_output', 'agent_status', 'monitor', 'background', 'schedules', 'watch']);
+
 export function uninstalledTools(messages) {
   let start = messages.length;
   while (start > 0 && !(messages[start - 1].role === 'user' && !messages[start - 1].hidden)) start -= 1;
   const turn = messages.slice(start);
   const ok = new Set(turn.filter((m) => m.role === 'tool' && !m.error).map((m) => m.toolId));
   const folder = (p) => /(?:^|[\\/])panel-data[\\/]+tools[\\/]+([^\\/]+)/i.exec(String(p ?? ''))?.[1]?.toLowerCase() ?? null;
-  const written = new Set();
-  const installed = new Set();
+  const written = new Map();
+  const asSkill = new Set();
+  const asServer = new Set();
   for (const m of turn) {
     for (const c of m.toolCalls ?? []) {
       if (!ok.has(c.id)) continue;
       const g = c.input ?? {};
-      const names = c.name === 'write_file' || c.name === 'edit_file' ? [g.path] : c.name === 'install_skill' ? [g.source] : c.name === 'add_mcp_server' ? [g.command, ...(Array.isArray(g.args) ? g.args : [])] : [];
-      for (const f of names.map(folder).filter(Boolean)) (c.name.endsWith('_file') ? written : installed).add(f);
+      if (c.name === 'write_file' || c.name === 'edit_file') {
+        const f = folder(g.path);
+        // an MCP server script (10.10.2026: the agent put its FastMCP server in with install_skill, which starts nothing)
+        const server = /\.py$/i.test(String(g.path)) && /FastMCP|\bfrom\s+mcp\b|\bimport\s+mcp\b/.test(`${g.text ?? ''}${g.replace ?? ''}`);
+        if (f) written.set(f, written.get(f) || server);
+      } else if (c.name === 'install_skill') [g.source, g.skill].map(folder).filter(Boolean).forEach((f) => asSkill.add(f));
+      else if (c.name === 'add_mcp_server') [g.command, ...(Array.isArray(g.args) ? g.args : [])].map(folder).filter(Boolean).forEach((f) => asServer.add(f));
     }
   }
-  return [...written].filter((f) => !installed.has(f));
+  return [...written].filter(([f, server]) => !asServer.has(f) && (server || !asSkill.has(f))).map(([f, server]) => ({ folder: f, server }));
 }
 
 /**
@@ -1869,7 +1878,8 @@ export class AgentManager {
       const notInstalled = !r.calls.length && (s.work.installNoted ?? 0) < 2 ? uninstalledTools(s.messages) : [];
       if (notInstalled.length) {
         s.work.installNoted = (s.work.installNoted ?? 0) + 1;
-        s.messages.push({ role: 'user', hidden: true, content: `[You wrote a tool in ${notInstalled.map((f) => `panel-data\\tools\\${f}`).join(', ')} but did not install it, so it is not available. Install it now: install_skill with source = that folder (its SKILL.md starts with front matter: ---, name: …, description: …, ---) or add_mcp_server for an MCP server script (command: python, args: [the script's path]); then test it with one real call. If you do not keep it, tell the user plainly that nothing was installed. Never say a tool is installed when it is not.]`, time: new Date().toISOString() });
+        const how = (t) => (t.server ? `panel-data\\tools\\${t.folder} holds an MCP server script: add it with add_mcp_server (command: python, args: [the script's path]; install_skill does not start a server)` : `panel-data\\tools\\${t.folder}: install_skill with source = that folder (its SKILL.md starts with front matter: ---, name: …, description: …, ---), or add_mcp_server if it is an MCP server script`);
+        s.messages.push({ role: 'user', hidden: true, content: `[You wrote a tool but did not install it, so it is not available. Install it now: ${notInstalled.map(how).join('; ')}. Then test it with one real call. If you do not keep it, tell the user plainly that nothing was installed. Never say a tool is installed when it is not.]`, time: new Date().toISOString() });
         this.save(s);
         continue;
       }
@@ -1932,12 +1942,21 @@ export class AgentManager {
             s.work.failures.delete(key);
             result.text += a.answered ? `\n[The user answered: ${a.answer} — follow this.]` : '\n[No answer from the user: stop and explain what failed.]';
           } else if (seen >= 3) stopRepeating = true;
+        } else if (!WAITING_TOOLS.has(c.name) && !(c.name === 'panel_api' && String(c.input?.method ?? 'GET').toUpperCase() === 'GET')) {
+          // The same call with the same result again (10.10.2026: load_tools of a skill name 15 times, the same pip
+          // install 6 times, until the step limit): told at once, stopped at the fourth
+          const key = createHash('sha1').update(`${c.name}\u0000${JSON.stringify(c.input ?? {})}\u0000${result.text.slice(0, 300)}`).digest('hex');
+          const seen = (s.work.repeats ??= new Map()).get(key) ?? 0;
+          s.work.repeats.set(key, seen + 1);
+          if (seen === 1) result.text += '\n[You made exactly this call before and got the same result. Repeating it changes nothing: use the result and take the next step (another tool, other input), or answer.]';
+          else if (seen === 2) result.text += '\n[The same call gave the same result three times. Do not make it again: take another step, or tell the user what is done and what is not.]';
+          else if (seen >= 3) stopRepeating = true;
         }
         s.messages.push({ role: 'tool', toolId: c.id, toolName: c.name, content: result.text, extra: result.extra ?? null, error: result.error ?? false, duration: Math.round((Date.now() - startedAt) / 1000), time: new Date().toISOString() });
         this.emit(s, 'tool_result', { id: c.id, name: c.name, text: result.text.slice(0, 4000), extra: result.extra ?? null, error: result.error ?? false, duration: Math.round((Date.now() - startedAt) / 1000) });
         this.save(s);
         if (stopRepeating) {
-          const m = `Stopped: the same ${c.name} call kept failing the same way (${result.text.split('\n')[0].slice(0, 200)}). Tell me how to go on, or ask differently.`;
+          const m = `Stopped: the same ${c.name} call kept ${result.error ? 'failing the same way' : 'giving the same result'} (${result.text.split('\n')[0].slice(0, 200)}). Tell me how to go on, or ask differently.`;
           s.messages.push({ id: id(), role: 'assistant', content: m, time: new Date().toISOString() });
           this.emit(s, 'text', { text: m, id: s.messages.at(-1).id, final: true });
           this.save(s);
@@ -2303,7 +2322,7 @@ export class AgentManager {
 - Change files with edit_file or write_file (the user sees the diff and can undo it), not with a script, and never put a file's content in your answer; a changed copy of a file: copy it (Copy-Item), then edit_file the parts in the copy. Large work goes in parts: first plan the parts (e.g. 250 lines each) and say the plan in one line, then do them one by one: read with start_line, write a long file in parts (append: true), and change only what is needed (a new design is mostly the CSS: edit that, not every line). Writing a program: write it, run it, read the error, fix it; do not say "done" before it works.
 - Never wait with sleep loops or by polling: start it in the background and you are woken when it happens (run_command back_plan, watch for "wait until X, then Y", monitor for new output lines, sub_agent wait: false). schedule is for set times ("every day at 9:00", "in 20 minutes").
 - Actions that need approval are confirmed by the system (the chat's approval mode); if rejected, do not force it.
-- If your tools cannot do something, look for an MCP server or a skill (search_web: registry.modelcontextprotocol.io, GitHub, npm, PyPI) and install it (add_mcp_server, install_skill; a Claude / Claude Code plugin or marketplace on GitHub: install_plugin). Install only with these tools, which put it where the panel reads it, never with another installer (npx skills, claude mcp add, a README's own install script); load a skill (load_skill) before you use it or say what it does. If none fits, build the tool yourself and then do the task with it: a one-off job is a Python script (pip install what it needs) run with run_command; a tool worth keeping becomes a skill (a folder panel-data\\tools\\<name> with SKILL.md: name, description, how to use it, and its scripts; then install_skill with that folder) or a small local MCP server in Python (pip install mcp, FastMCP; then add_mcp_server with command python and the script's path). Research the library or service first (search_web, fetch_web) and test what you built before you report.`,
+- If your tools cannot do something, look for an MCP server or a skill (search_web: registry.modelcontextprotocol.io, GitHub, npm, PyPI) and install it (add_mcp_server, install_skill; a Claude / Claude Code plugin or marketplace on GitHub: install_plugin). Install only with these tools, which put it where the panel reads it, never with another installer (npx skills, claude mcp add, a README's own install script); load a skill (load_skill) before you use it or say what it does. If none fits, build the tool yourself and then do the task with it: a one-off job is a Python script (python -m pip install what it needs; there is no pip command) run with run_command; a tool worth keeping becomes a skill (a folder panel-data\\tools\\<name> with SKILL.md: name, description, how to use it, and its scripts; then install_skill with that folder) or a small local MCP server in Python (python -m pip install mcp, FastMCP; then add_mcp_server with command python and the script's path; a server is never installed with install_skill, and when the user asks for an MCP server it is this). Research the library or service first (search_web, fetch_web) and test what you built before you report.`,
     ];
     const more = this.moreTools(s, tools);
     if (more) parts.push(more);
@@ -2377,7 +2396,13 @@ export class AgentManager {
     const lines = [];
     if (found.length) lines.push(`Loaded: ${found.map((t) => t.name).join(', ')}; use them from your next step.`);
     lines.push(...mcpLines);
-    if (missing.length) lines.push(`Not available: ${missing.join(', ')} (${missing.some((n) => TOOLS.some((t) => t.name === n) || servers[String(n).replace(/^mcp[:_]+/i, '')]) ? 'this chat has no access to it' : 'no such tool; see the More tools list'}).`);
+    // a skill or a tool folder the agent wrote is not a tool (10.10.2026: load_tools of its own skill 15 times)
+    const skills = this.skills();
+    const toolFolder = (n) => existsSync(join(this.setting.dataRoot, 'tools', String(n)));
+    for (const n of missing.filter((n) => skills.some((k) => k.name === n || k.name.split(':').pop() === n))) lines.push(`"${n}" is a skill, not a tool: read it with load_skill (name "${n}") and follow it; its scripts run with run_command.`);
+    for (const n of missing.filter((n) => !skills.some((k) => k.name === n || k.name.split(':').pop() === n) && toolFolder(n))) lines.push(`"${n}" is a folder you wrote (panel-data\\tools\\${n}), not a tool: an MCP server script in it becomes tools with add_mcp_server (command: python, args: [the script's path]); run other scripts with run_command.`);
+    const unknown = missing.filter((n) => !skills.some((k) => k.name === n || k.name.split(':').pop() === n) && !toolFolder(n));
+    if (unknown.length) lines.push(`Not available: ${unknown.join(', ')} (${unknown.some((n) => TOOLS.some((t) => t.name === n) || servers[String(n).replace(/^mcp[:_]+/i, '')]) ? 'this chat has no access to it' : 'no such tool; see the More tools list'}).`);
     if (fresh.some((t) => t.name === 'panel_api')) lines.push(this.panelGuide());
     return lines.join('\n\n');
   }

@@ -2185,11 +2185,17 @@ test('Settings › Assistant API: scheduled tasks, lasting notes, skills and MCP
 test('a tool the agent wrote but did not install: it is sent back once to install it (10.10.2026: "installed" said, nothing installed)', async () => {
   // which tool folders a turn wrote and did not install
   const turn = (calls) => [{ role: 'user', content: 'go' }, ...calls.flatMap(([name, input, error], i) => [{ role: 'assistant', toolCalls: [{ id: `c${i}`, name, input }] }, { role: 'tool', toolId: `c${i}`, toolName: name, content: 'x', ...(error ? { error: true } : {}) }])];
-  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'panel-data\\tools\\qr_generator\\qr_tool.py' }], ['write_file', { path: 'panel-data\\tools\\qr_generator\\server.py' }], ['run_command', { command: 'python x' }]])), ['qr_generator']);
-  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'C:\\ai\\panel-data\\tools\\qr\\SKILL.md' }], ['install_skill', { source: 'C:\\ai\\panel-data\\tools\\qr' }]])), []);
-  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'panel-data/tools/qr/server.py' }], ['add_mcp_server', { name: 'qr', command: 'python', args: ['panel-data/tools/qr/server.py'] }]])), []);
-  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'panel-data/tools/qr/SKILL.md' }], ['install_skill', { source: 'panel-data/tools/qr' }, true]])), ['qr'], 'a failed install does not count');
-  assert.deepEqual(uninstalledTools(turn([['write_file', { path: 'notes/panel-data-tools.txt' }]])), []);
+  const folders = (calls) => uninstalledTools(turn(calls)).map((t) => `${t.folder}${t.server ? ' (server)' : ''}`);
+  assert.deepEqual(folders([['write_file', { path: 'panel-data\\tools\\qr_generator\\qr_tool.py' }], ['write_file', { path: 'panel-data\\tools\\qr_generator\\server.py' }], ['run_command', { command: 'python x' }]]), ['qr_generator']);
+  assert.deepEqual(folders([['write_file', { path: 'C:\\ai\\panel-data\\tools\\qr\\SKILL.md' }], ['install_skill', { source: 'C:\\ai\\panel-data\\tools\\qr' }]]), []);
+  assert.deepEqual(folders([['write_file', { path: 'panel-data/tools/qr/server.py' }], ['add_mcp_server', { name: 'qr', command: 'python', args: ['panel-data/tools/qr/server.py'] }]]), []);
+  assert.deepEqual(folders([['write_file', { path: 'panel-data/tools/qr/SKILL.md' }], ['install_skill', { source: 'panel-data/tools/qr' }, true]]), ['qr'], 'a failed install does not count');
+  assert.deepEqual(folders([['write_file', { path: 'notes/panel-data-tools.txt' }]]), []);
+  // an MCP server script is installed only by add_mcp_server: install_skill of its folder starts nothing
+  const server = ['write_file', { path: 'panel-data\\tools\\qr-mcp\\server.py', text: 'import os\nfrom fastmcp import FastMCP\n' }];
+  assert.deepEqual(folders([server, ['install_skill', { skill: 'qr-mcp', source: 'panel-data\\tools\\qr-mcp' }]]), ['qr-mcp (server)']);
+  assert.deepEqual(folders([server, ['add_mcp_server', { name: 'qr-mcp', command: 'python', args: ['C:\\ai\\panel-data\\tools\\qr-mcp\\server.py'] }]]), []);
+  assert.deepEqual(folders([['edit_file', { path: 'panel-data/tools/t/run.py', search: 'a', replace: 'from mcp.server.fastmcp import FastMCP' }]]), ['t (server)']);
   // the agent: the model finishes after writing the skill, is sent back, installs it and answers
   const o = await agentEnv();
   try {
@@ -2197,8 +2203,24 @@ test('a tool the agent wrote but did not install: it is sent back once to instal
     const r = await o.send(s.id, 'build tool');
     assert.match(r.response, /^After the note: Installed skill "qr"/);
     const msgs = o.agent.get(s.id).messages;
-    assert.equal(msgs.filter((m) => m.hidden && /^\[You wrote a tool in panel-data\\tools\\qr but did not install it/.test(m.content)).length, 1);
+    assert.equal(msgs.filter((m) => m.hidden && /^\[You wrote a tool but did not install it, so it is not available\. Install it now: panel-data\\tools\\qr: install_skill/.test(m.content)).length, 1);
     assert.ok(o.agent.skills().some((k) => k.name === 'qr'), 'the skill is installed');
+    // a skill or a written tool folder given to load_tools says what it is and how to use it
+    const ctx = o.agent.toolContext(o.agent.get(s.id), new AbortController().signal);
+    assert.match(await TOOLS.find((t) => t.name === 'load_tools').run({ names: ['qr'] }, ctx), /"qr" is a skill, not a tool: read it with load_skill/);
+    // an MCP server script installed as a skill: the note asks for add_mcp_server
+    const s2 = await o.chat({ approvalMode: 'auto' });
+    assert.equal((await o.send(s2.id, 'build server')).response, 'After the server note.');
+    assert.match(await TOOLS.find((t) => t.name === 'load_tools').run({ names: ['qrs-missing', 'qrs'] }, ctx), /"qrs" is a skill[\s\S]*Not available: qrs-missing/);
+    mkdirSync(join(o.agent.setting.dataRoot, 'tools', 'plain'), { recursive: true });
+    assert.match(await TOOLS.find((t) => t.name === 'load_tools').run({ names: ['plain'] }, ctx), /"plain" is a folder you wrote \(panel-data\\tools\\plain\), not a tool: an MCP server script in it becomes tools with add_mcp_server/);
+    // the same call with the same result: told at the second, stopped at the fourth (not 15 times to the step limit)
+    const s3 = await o.chat({ approvalMode: 'auto' });
+    const r3 = await o.send(s3.id, 'repeat load');
+    assert.match(r3.response, /^Stopped: the same load_tools call kept giving the same result/);
+    const results = o.agent.get(s3.id).messages.filter((m) => m.role === 'tool');
+    assert.equal(results.length, 4);
+    assert.match(results[1].content, /You made exactly this call before and got the same result/);
     // a SKILL.md written here without a description is refused with what to add
     const bare = join(o.p.root, 'bare-skill');
     mkdirSync(bare, { recursive: true });

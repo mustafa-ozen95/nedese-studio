@@ -97,7 +97,17 @@ function agentResponse(g) {
   }
   // a tool written into panel-data\tools and not installed: the agent sends the model back once to install it (10.10.2026)
   if (/^build tool/.test(text) && !lastTool) return call('write_file', { path: 'panel-data/tools/qr/SKILL.md', text: '---\nname: qr\ndescription: Makes QR code images\n---\nRun qr.py <text>.' });
-  if (/^\[You wrote a tool in panel-data\\tools\\qr but did not install it/.test(text)) return lastTool ? finish(`After the note: ${lastTool.text.slice(0, 200)}`) : call('install_skill', { source: 'panel-data/tools/qr' });
+  if (/^\[You wrote a tool but did not install it, so it is not available\. Install it now: panel-data\\tools\\qr: install_skill/.test(text)) return lastTool ? finish(`After the note: ${lastTool.text.slice(0, 200)}`) : call('install_skill', { source: 'panel-data/tools/qr' });
+  // an MCP server script put in with install_skill (10.10.2026): the note asks for add_mcp_server
+  if (/^build server/.test(text)) {
+    if (!lastTool) return call('write_file', { path: 'panel-data/tools/qrs/server.py', text: 'from mcp.server.fastmcp import FastMCP\nmcp = FastMCP("qrs")\n' });
+    if (lastTool.name === 'write_file' && !/SKILL/.test(lastTool.text)) return call('write_file', { path: 'panel-data/tools/qrs/SKILL.md', text: '---\nname: qrs\ndescription: QR server\n---\nRun server.py.' });
+    if (lastTool.name === 'write_file') return call('install_skill', { source: 'panel-data/tools/qrs' });
+    return finish('Installed the QR server.');
+  }
+  if (/^\[You wrote a tool but did not install it, so it is not available\. Install it now: panel-data\\tools\\qrs holds an MCP server script: add it with add_mcp_server/.test(text)) return finish('After the server note.');
+  // the same call with the same result again and again (10.10.2026: load_tools of a skill name 15 times)
+  if (/^repeat load/.test(text)) return call('load_tools', { names: ['nope'] });
   // a photo from the web shown in the chat: show_image, then the line it returned goes into the answer
   // an answer that shows pictures from other sites without show_image (Gemma did this with an i.redd.it address)
   if (/^answer pictures /.test(text)) return finish(`Look:\n${text.slice(16).trim().split(/\s+/).map((u, i) => `![picture ${i + 1}](${u})`).join('\n')}`);
