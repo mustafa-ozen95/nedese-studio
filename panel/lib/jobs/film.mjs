@@ -25,7 +25,7 @@ import { GENDERS, AGES, nameKey, findCharacter, validateCharacters, splitSpeech,
 import { runWan } from './wan.mjs';
 import { upscaleModelRequired, upscaleFrames } from './upscale.mjs';
 import { fineSetting } from '../fine-settings.mjs';
-import { partPrompts, directorNote, anatomyPhrase } from '../prompt-translate.mjs';
+import { partPrompts, directorNote, anatomyPhrase, makePromptEnglish, jobPrompt } from '../prompt-translate.mjs';
 import { hasText } from '../text-model.mjs';
 import { MUSIC_LONGEST, musicRequired, generateMusic } from './music.mjs';
 import { SECTION_TRANSITION, musicSections, musicStyles } from '../music-plan.mjs';
@@ -440,7 +440,9 @@ export async function run(ctx) {
   }
   if (musicToGenerate && (!ctx.job.musicPlan || ctx.job.musicPlan.sections.length !== sections.length)) {
     ctx.progress({ percent: 8, stage: '2/5 Preparation', detail: 'music plan' });
-    ctx.job.musicPlan = await musicStyles({ style: g.musicStyle, sections, log: ctx.log, signal: ctx.signal });
+    // ACE-Step takes English style tags: a Turkish style was put in front of every section as written (10.10.2026)
+    const style = g.musicStyle ? await jobPrompt(ctx, g.musicStyle, 'music', { field: 'musicStyleEnglish', translate: g.translate !== false }) : g.musicStyle;
+    ctx.job.musicPlan = await musicStyles({ style, sections, log: ctx.log, signal: ctx.signal });
     ctx.save();
     ctx.log(`Music plan: ${ctx.job.musicPlan.general}`);
   }
@@ -461,6 +463,19 @@ export async function run(ctx) {
     const startedAt = Date.now();
     const gm = IMAGE_MODELS[g.imageModel];
     const [sceneWidth, sceneHeight] = RATIOS[g.ratio][g.imageModel];
+    // A scene image written in Turkish is translated once (kept for a retry): Qwen-Image drew "kızıl bir tilki" (a red
+    // fox) as a girl with a hyena (10.10.2026); the form only says English works best.
+    ctx.job.sceneImageEnglish ??= {};
+    for (const i of missingImage) {
+      const s = g.scenes[i];
+      if (!s.image || typeof ctx.job.sceneImageEnglish[i] === 'string') continue;
+      const c = await makePromptEnglish(s.image, { type: 'image', signal: ctx.signal });
+      ctx.job.sceneImageEnglish[i] = c.prompt;
+      ctx.save();
+      if (c.translated) ctx.log(`Scene ${i + 1} image prompt translated to English: ${c.prompt}`);
+      else if (c.error) ctx.log(`Scene ${i + 1} image prompt could not be translated; using it as is (${c.error}).`);
+    }
+    const sceneImage = (i) => sceneImagePrompt({ ...g.scenes[i], image: ctx.job.sceneImageEnglish[i] ?? g.scenes[i].image }, ctx.job.director[i]);
     let finished = 0;
     // En cok GORSEL_OBEGI gorsel tek ComfyUI isteginde (modeller bir kez yuklenir); yuzlerce
     // sahnede obek obek: her obek bitince diske iner, yeniden denemede yeniden uretilmez.
@@ -482,7 +497,7 @@ export async function run(ctx) {
       }
       ctx.measure(measurement, (Date.now() - start2) / 1000 / list.length);
     };
-    const fromText = (i) => ctx.mod[gm.generator]({ text: sceneImagePrompt(g.scenes[i], ctx.job.director[i]), seed: g.seed + i, width: sceneWidth, height: sceneHeight, prefix: `panel/${ctx.job.id}/s${no2(i)}` });
+    const fromText = (i) => ctx.mod[gm.generator]({ text: sceneImage(i), seed: g.seed + i, width: sceneWidth, height: sceneHeight, prefix: `panel/${ctx.job.id}/s${no2(i)}` });
     if (!g.character) {
       await generate(missingImage, fromText, `image/${g.imageModel}`);
     } else {
@@ -498,7 +513,7 @@ export async function run(ctx) {
       if (remaining.length) {
         const picture = await ctx.comfy.load(reference, `panel_${ctx.job.id}_karakter${extname(reference).toLowerCase() || '.png'}`);
         const [characterWidth, characterHeight] = CHARACTER_SIZE[g.ratio];
-        await generate(remaining, (i) => ctx.mod.editJob({ pictures: [picture], text: characterPrompt(sceneImagePrompt(g.scenes[i], ctx.job.director[i])), seed: g.seed + i, width: characterWidth, height: characterHeight, prefix: `panel/${ctx.job.id}/s${no2(i)}` }), 'edit');
+        await generate(remaining, (i) => ctx.mod.editJob({ pictures: [picture], text: characterPrompt(sceneImage(i)), seed: g.seed + i, width: characterWidth, height: characterHeight, prefix: `panel/${ctx.job.id}/s${no2(i)}` }), 'edit');
       }
     }
     ctx.job.stages.image = Math.round((Date.now() - startedAt) / 1000);

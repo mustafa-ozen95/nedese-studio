@@ -455,8 +455,9 @@ export async function run(ctx) {
 async function drawFrame(ctx, target) {
   const f = ctx.job.input.fromText;
   const startedAt = Date.now();
-  // Qwen-Image understands Turkish (not translated); FLUX (T5) does not.
-  const prompt = f.imageModel === 'qwen' ? f.image : await jobPrompt(ctx, f.image, 'image', { translate: ctx.job.input.translate !== false });
+  // Translated for Qwen-Image too: a Turkish "red fox in the snow" became a girl with a hyena (10.10.2026, image.mjs).
+  // Its own field: promptEnglish would be taken as the motion prompt and skip the part prompts.
+  const prompt = await jobPrompt(ctx, f.image, 'image', { field: 'imageEnglish', translate: ctx.job.input.translate !== false });
   const graph = ctx.mod[IMAGE_MODELS[f.imageModel].generator]({ text: prompt, seed: ctx.job.input.seed + 900, width: f.width, height: f.height, prefix: `panel/${ctx.job.id}/frame` });
   const list = images(await ctx.runComfy(graph, { stage: 'Video · first frame', range: [0, 3] }), nodes(graph, 'SaveImage')[0]);
   if (!list.length) throw new Error('The first frame could not be drawn (the image model returned no image).');

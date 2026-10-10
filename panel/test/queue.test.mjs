@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
+import { setTextModel } from '../lib/prompt-translate.mjs';
 import { UserError } from '../lib/errors.mjs';
 import { Queue } from '../lib/queue.mjs';
 import { makePng, wavDuration } from '../lib/media.mjs';
@@ -222,6 +223,31 @@ test('voice description: a timbre is designed with Qwen3-TTS, added to the libra
     assert.ok(existsSync(isJson.reference));
     assert.equal(job.voiceName, 'Old narrator');
   } finally {
+    await p.close();
+  }
+});
+
+test('voice description written in Turkish: the design model gets it in English (like Qwen-Image, it misreads Turkish)', async () => {
+  const llm = {
+    installed: true,
+    info: { name: 'fake' },
+    releaseGpu: async () => {},
+    req: async (path, body) => {
+      const system = body.messages[0]?.content ?? '';
+      if (/voice descriptions/.test(system)) return { code: 200, json: { choices: [{ message: { content: 'A very old man with a deep, warm voice' } }] } };
+      return { code: 500, json: { error: { message: 'not in this test' } } };
+    },
+  };
+  const p = await createPanel({ llm });
+  setTextModel(llm);
+  try {
+    const job = await p.waitUntilDone(p.queue.add('voice', { text: 'Merhaba dünya.', voice: 'spec', spec: 'derin ve sıcak sesli çok yaşlı bir adam', recordName: 'Yaşlı' }).id);
+    assert.equal(job.status, 'done', job.error);
+    const log = p.queue.logs.get(job.id).join(String.fromCharCode(10));
+    assert.match(log, /Voice description translated to English: A very old man with a deep, warm voice/);
+    assert.match(log, /Voice design \(Qwen3-TTS\): "A very old man with a deep, warm voice"/);
+  } finally {
+    setTextModel(null);
     await p.close();
   }
 });

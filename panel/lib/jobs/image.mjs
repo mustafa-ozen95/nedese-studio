@@ -52,8 +52,9 @@ export function summary(g) {
 export async function run(ctx) {
   const g = ctx.job.input;
   const generator = ctx.mod[IMAGE_MODELS[g.model].generator];
-  // Qwen-Image Turkceyi anliyor (cevrilmez, yerel baglami koruyor); FLUX (T5) anlamaz.
-  let prompt = g.model === 'qwen' ? g.prompt : await jobPrompt(ctx, g.prompt, 'image', { translate: g.translate !== false });
+  // Every image model gets English: with the same seed Qwen-Image drew "kızıl bir tilki" (a red fox) as a girl with a
+  // hyena and dropped the net, pier and sunset of a fisherman (10.10.2026); the English prompts came out right.
+  let prompt = await jobPrompt(ctx, g.prompt, 'image', { translate: g.translate !== false });
   // Egitilmis LoRA'nin tetik kelimesi istemde yoksa basa eklenir (egitim altyazilari onunla basliyordu)
   if (g.lora?.trigger && !prompt.toLowerCase().includes(g.lora.trigger.toLowerCase())) prompt = `${g.lora.trigger}, ${prompt}`;
   const graphs = Array.from({ length: g.count }, (_, i) => {

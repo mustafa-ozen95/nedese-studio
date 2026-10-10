@@ -30,7 +30,7 @@ export function isEnglish(text) {
 
 /**
  * The translation instruction by job type. Measured 04.10.2026 (same image and seed): Qwen-Image-Edit did not follow
- * "Gözlüğü çıkar", it followed the English; Qwen-Image understands Turkish (not translated), FLUX (T5) does not; ACE-Step
+ * "Gözlüğü çıkar", it followed the English; Qwen-Image does not reliably understand Turkish either (10.10.2026: "kızıl bir tilki" became a girl with a hyena), FLUX (T5) does not; ACE-Step
  * was trained with English style tags.
  */
 const COMMON = 'Return ONLY the English text: no quotes, no explanation, no markdown. If the input is already English, return it unchanged.';
@@ -44,6 +44,8 @@ export const SYSTEMS = {
   image: ['You translate text-to-image prompts into English.', COMMON,
     'Keep every detail, style and composition word; do not add or remove content.',
     'Text that should appear in the image (usually in quotes) stays exactly as written, untranslated.'].join('\n'),
+  voice: ['You translate voice descriptions for a voice-design model (Qwen3-TTS VoiceDesign, VoxCPM2) into English.', COMMON,
+    'Keep every trait: gender, age, pitch, timbre, pace, emotion, accent and speaking style; do not add new ones.'].join('\n'),
   music: ['You translate music style descriptions for the ACE-Step music model into English style tags.', COMMON,
     'Output comma-separated English tags (genre, mood, instruments, vocals, tempo feel). Keep proper names. Do not invent new elements.'].join('\n'),
 };

@@ -12,6 +12,7 @@ import { UPLOAD_FOLDER } from '../settings.mjs';
 import { voiceInfo, addVoice, voiceLoraPath, voicePath, voicePace, voiceTimbre, defaultVoice } from '../voices.mjs';
 import { usedFiles, graphFiles, SAMPLE_INPUT } from '../models.mjs';
 import { fixPronunciation } from '../pronunciation.mjs';
+import { makePromptEnglish } from '../prompt-translate.mjs';
 
 /* ── Input checks ───────────────────────────────────────────────────── */
 
@@ -295,6 +296,12 @@ const DESIGN_TARGETS = new Set(['child', 'young', 'adult', 'old']);
  */
 export async function voiceDesign(ctx, { spec, recordName, folder, neutral = false, character = null, separate = [], lang = 'tr' }) {
   mkdirSync(folder, { recursive: true });
+  // The design models take English descriptions (Qwen3-TTS VoiceDesign: English/Chinese); the form asks for English but a
+  // Turkish one went through as written, like the Turkish image prompts Qwen-Image misread (10.10.2026).
+  const english = await makePromptEnglish(spec, { type: 'voice', signal: ctx.signal });
+  if (english.translated) ctx.log(`Voice description translated to English: ${english.prompt}`);
+  else if (english.error) ctx.log(`Voice description could not be translated; using it as is (${english.error}).`);
+  spec = english.prompt;
   writeFileSync(join(folder, 'spec.txt'), spec, 'utf8');
   const engine = ctx.setting.designEngine?.() ?? 'qwen';
   const exampleText = designText(engine, lang, neutral);

@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
+import { setTextModel } from '../lib/prompt-translate.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
 import { wavDuration } from '../lib/media.mjs';
 import { DEFAULT, scenePlan, timeChart } from '../lib/plan.mjs';
@@ -334,6 +335,42 @@ test('film: vertical, no transitions (plain concatenation), ready image from the
     const requests = p.fake.status.records.filter((x) => x.path === '/prompt').length;
     assert.equal(requests, 1 + 1 + 2, 'previous image job + scene 2 image + 2 videos');
   } finally {
+    await p.close();
+  }
+});
+
+test('film: a scene image written in Turkish is drawn from its English (translated once, kept for a retry)', async (t) => {
+  const llm = {
+    installed: true,
+    info: { name: 'fake' },
+    releaseGpu: async () => {},
+    req: async (path, body) => {
+      const system = body.messages[0]?.content ?? '';
+      if (/text-to-image/.test(system)) return { code: 200, json: { choices: [{ message: { content: 'a red fox in fresh snow, soft morning light' } }] } };
+      return { code: 500, json: { error: { message: 'not in this test' } } };
+    },
+  };
+  const p = await createPanel({ llm });
+  if (!p.setting.ffmpeg) {
+    await p.close();
+    t.skip('no ffmpeg');
+    return;
+  }
+  setTextModel(llm);
+  try {
+    const job = p.queue.add('film', { title: '', ratio: '16:9', imageModel: 'qwen', videoModel: 'wan5', voice: 'model', quality: 'fast', transition: false,
+      scenes: [{ narration: 'Bir tilki karda yürüyor.', image: 'karda kızıl bir tilki, sabah ışığı' }, { narration: 'Gece oldu.', image: 'night sky over a frozen lake' }] });
+    const last = await p.waitUntilDone(job.id, 120000);
+    assert.equal(last.status, 'done', last.error);
+    const texts = (n) => p.fake.status.records.filter((x) => x.path === '/prompt').map((x) => Object.values(JSON.parse(x.prompt).prompt))
+      .filter((g) => g.some((d) => d.class_type === 'SaveImage' && String(d.inputs.filename_prefix).includes(`/${job.id}/s${n}`)))
+      .flatMap((g) => g.filter((d) => d.class_type === 'CLIPTextEncode').map((d) => d.inputs.text));
+    assert.ok(texts('01').some((x) => x.startsWith('a red fox in fresh snow, soft morning light')), texts('01').join(' | '));
+    assert.ok(texts('02').some((x) => x.startsWith('night sky over a frozen lake')), 'English stays as written');
+    assert.deepEqual(p.queue.jobs.get(job.id).sceneImageEnglish, { 0: 'a red fox in fresh snow, soft morning light', 1: 'night sky over a frozen lake' });
+    assert.match(p.queue.logs.get(job.id).join(String.fromCharCode(10)), /Scene 1 image prompt translated to English: a red fox in fresh snow/);
+  } finally {
+    setTextModel(null);
     await p.close();
   }
 });

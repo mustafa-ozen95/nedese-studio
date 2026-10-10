@@ -10,6 +10,7 @@ import { runFfmpeg, measureDuration } from '../ffmpeg.mjs';
 import { UserError } from '../errors.mjs';
 import { text, musicPath, number, choice, voiceExtractionError, seed, generatorRequired } from './common.mjs';
 import { MUSIC_LONGEST, musicRequired } from './music.mjs';
+import { jobPrompt } from '../prompt-translate.mjs';
 
 export const name = 'Edit song';
 
@@ -49,7 +50,9 @@ export async function run(ctx) {
     throw voiceExtractionError(e);
   });
   const voice = await ctx.comfy.load(wav, `panel_${ctx.job.id}_s.wav`);
-  const graph = ctx.mod.songEditJob({ voice, style: g.style, lyrics: g.lyrics, duration: Math.max(5, duration), seed: g.seed, bpm: g.bpm, language: g.lang, strength: STRENGTHS[g.strength], prefix: `panel/${ctx.job.id}/song` });
+  // English style tags like the music job (ACE-Step was trained with them); a Turkish style went through as written (10.10.2026)
+  const style = await jobPrompt(ctx, g.style, 'music', { field: 'styleEnglish', translate: g.translate !== false });
+  const graph = ctx.mod.songEditJob({ voice, style, lyrics: g.lyrics, duration: Math.max(5, duration), seed: g.seed, bpm: g.bpm, language: g.lang, strength: STRENGTHS[g.strength], prefix: `panel/${ctx.job.id}/song` });
   ctx.job.modelFiles = modelFiles(graph);
   const record = nodes(graph, 'SaveAudioMP3')[0];
   const startedAt = Date.now();
