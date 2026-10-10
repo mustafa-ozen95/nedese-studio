@@ -178,14 +178,27 @@ export function promoSteps(g, size, narration) {
   return steps;
 }
 
-/** Integrated loudness (LUFS) of a file. */
-export function loudness(ffmpeg, file) {
+/** Integrated loudness (LUFS) of a file, after an optional filter. */
+export function loudness(ffmpeg, file, filter = null) {
   return new Promise((ok) => {
-    const p = spawn(ffmpeg, ['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128=framelog=quiet', '-f', 'null', '-'], { windowsHide: true });
+    const p = spawn(ffmpeg, ['-hide_banner', '-nostats', '-i', file, '-af', [filter, 'ebur128=framelog=quiet'].filter(Boolean).join(','), '-f', 'null', '-'], { windowsHide: true });
     let err = '';
     p.stderr.on('data', (d) => (err = (err + d).slice(-6000)));
     p.on('close', () => ok(Number(/I:\s*(-?[\d.]+) LUFS/.exec(err)?.[1] ?? -70)));
   });
+}
+
+/**
+ * The pictures with a sound at −14 LUFS. The limiter holds −3 dBFS and the AAC runs at 320k: at 192k the encoder
+ * pushed hard-limited music up to +3 dB over full scale on the drops. The limiter takes some loudness off, so the
+ * limited sound is measured once more and the gain raised by what it lost. Returns the gain in dB.
+ */
+export async function finishSound(ffmpeg, pictures, audio, output, duration, { cwd, signal }) {
+  const limit = (g) => `volume=${g.toFixed(2)}dB,alimiter=limit=0.71:level=false`;
+  let gain = -14 - (await loudness(ffmpeg, audio));
+  gain += -14 - (await loudness(ffmpeg, audio, limit(gain)));
+  await runFfmpeg(ffmpeg, ['-y', '-i', pictures, '-i', audio, '-filter_complex', `[1:a]${limit(gain)}[a]`, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-movflags', '+faststart', '-t', duration, output], { cwd, signal });
+  return gain;
 }
 
 /** Raw float samples of an audio file (ffmpeg), interleaved by channel. */
@@ -382,8 +395,7 @@ async function mix(ctx, size, cut, music) {
     } else filter = '[1:a]anull[s]';
     const premix = join(k, `mix-${size}.wav`);
     await runFfmpeg(ff, ['-y', '-i', pictures, ...parts.flatMap((p) => ['-i', p]), '-filter_complex', filter, '-map', '[s]', '-t', duration, premix], { cwd: k, signal: ctx.signal });
-    const gain = -14 - (await loudness(ff, premix));
-    await runFfmpeg(ff, ['-y', '-i', pictures, '-i', premix, '-filter_complex', `[1:a]volume=${gain.toFixed(2)}dB,alimiter=limit=0.89:level=false[a]`, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', '-t', duration, writing], { cwd: k, signal: ctx.signal });
+    const gain = await finishSound(ff, pictures, premix, writing, duration, { cwd: k, signal: ctx.signal });
     ctx.log(`${size}: sound at ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB to −14 LUFS.`);
     rmSync(premix, { force: true });
   }

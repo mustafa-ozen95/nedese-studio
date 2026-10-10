@@ -16,7 +16,7 @@ import { recordPath } from './clone.mjs';
 import { musicRequired, generateMusic } from './music.mjs';
 import { jobPrompt } from '../prompt-translate.mjs';
 import { makeMusic, beatGrid, BPM } from '../promo-music.mjs';
-import { loudness, samples } from './promo.mjs';
+import { samples, finishSound } from './promo.mjs';
 import { cutPlan, musicPlan, pickShots, outputSize, musicStart } from '../beat-edit-plan.mjs';
 
 export const name = 'Beat cut';
@@ -202,9 +202,8 @@ export async function run(ctx) {
     audio = join(k, 'music-cut.wav');
     await runFfmpeg(ff, ['-ss', offset.toFixed(3), '-i', musicFile, '-t', duration, '-af', `afade=t=out:st=${Math.max(0, cut.total - 1.2).toFixed(3)}:d=1.2`, '-ar', '48000', '-ac', '2', audio], { cwd: k, signal: ctx.signal });
   }
-  const gain = -14 - (await loudness(ff, audio));
   const writing = join(k, 'beat-cut.writing.mp4');
-  await runFfmpeg(ff, ['-i', join(k, 'pictures.mp4'), '-i', audio, '-filter_complex', `[1:a]volume=${gain.toFixed(2)}dB,alimiter=limit=0.89:level=false[a]`, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-t', duration, '-movflags', '+faststart', writing], { cwd: k, signal: ctx.signal });
+  const gain = await finishSound(ff, join(k, 'pictures.mp4'), audio, writing, duration, { cwd: k, signal: ctx.signal });
   renameSync(writing, join(k, 'beat-cut.mp4'));
   ctx.log(`Sound at ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB to −14 LUFS.`);
   await makePreview(ff, 'beat-cut.mp4', 'beat-cut.preview.jpg', { cwd: k, signal: ctx.signal, at: Math.min(cut.total / 3, 6) }).catch(() => {});

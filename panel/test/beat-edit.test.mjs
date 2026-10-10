@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,7 @@ import { loadSettings } from '../lib/settings.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
 import { cutPlan, musicPlan, share, pickShots, outputSize, musicStart } from '../lib/beat-edit-plan.mjs';
 import { validate, summary, run, parseMotion } from '../lib/jobs/beat-edit.mjs';
+import { finishSound } from '../lib/jobs/promo.mjs';
 import { makeMusic, BAR } from '../lib/promo-music.mjs';
 
 test('beat cut plan: whole bars, longer shots in the intro, half as long after a drop, the last shot a bar', () => {
@@ -91,5 +92,25 @@ test('beat cut job: two videos and drawn music, then a music file measured; leng
     assert.equal(outputs[1].width, 1080);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('finished sound: a minute of drawn music with drops at −14 LUFS stays under full scale after AAC', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bc-peak-'));
+  const setting = loadSettings({ aiRoot: dir });
+  try {
+    // the music of a real promo (10.10.2026): 192k AAC took it over full scale
+    const kinds = [[0, 4, 'intro'], [4, 18, 'a'], [18, 32, 'b'], [32, 36, 'build'], [36, 48, 'b'], [48, 60, 'break']];
+    const duck = [[4.1, 7.62], [10.1, 13.3], [14.1, 16.18], [18.1, 20.82], [22.1, 25.62], [26.1, 29.46], [30.1, 32.82], [36.1, 40.1], [41.1, 44.46], [48.1, 51.78], [56.1, 59.62]];
+    makeMusic(join(dir, 'm.wav'), { duration: 64, sections: kinds.map(([t0, t1, kind]) => ({ t0, t1, kind })), cuts: [10, 14, 18, 22, 26, 30, 36, 41, 47.75, 52, 53, 56], drops: [4, 18, 36], end: 60, duck });
+    execFileSync(setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=black:s=64x64:r=10:d=64', '-c:v', 'libx264', '-preset', 'ultrafast', join(dir, 'p.mp4')]);
+    await finishSound(setting.ffmpeg, join(dir, 'p.mp4'), join(dir, 'm.wav'), join(dir, 'o.mp4'), '64', { cwd: dir });
+    const meter = spawnSync(setting.ffmpeg, ['-hide_banner', '-nostats', '-i', join(dir, 'o.mp4'), '-af', 'ebur128=peak=true', '-f', 'null', '-'], { encoding: 'utf8' }).stderr;
+    const summary = meter.slice(meter.lastIndexOf('Summary'));
+    const [loud, peak] = [/I:\s*(-?[\d.]+) LUFS/, /Peak:\s*(-?[\d.]+) dBFS/].map((r) => Number(r.exec(summary)?.[1]));
+    assert.ok(Math.abs(loud + 14) < 0.6, `−14 LUFS (${loud})`);
+    assert.ok(peak < 0, `true peak under 0 dBFS (${peak}); 192k AAC went to +3 dB`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
