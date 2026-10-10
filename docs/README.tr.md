@@ -19,7 +19,7 @@ Windows için yerel yapay zekâ medya stüdyosu: görsel, video, ses, müzik, 3B
 - **Tek parça film:** sahneler, karakter tutarlılığı, seslendirme, konuşmalar, müzik, altyazı ve isteğe bağlı dudak eşleme (InfiniteTalk + LatentSync) tek videoda birleşir.
 - **Model eğitimi:** yazı modeli (QLoRA ya da sıfırdan), görsel LoRA, video LoRA, müzik LoRA ve görsel + metin genel model.
 - **Veri toplama:** sitelerden ve Wikimedia Commons'tan eğitime hazır metin, görsel, video ve ses; görseller yerel yazı modeliyle betimlenir.
-- **Yerel yazı modeli:** Gemma (llama.cpp), OpenAI uyumlu `/llm/v1` adresi.
+- **Yerel yazı modeli:** varsayılan Bonsai 2 27B, seçenek olarak Gemma 4 26B (llama.cpp), OpenAI uyumlu `/llm/v1` adresi.
 - **Sohbet ve ajan:** yerel yazı modeli araç çağrılarıyla paneli yönetir (aşağıda).
 - **API:** panelin yaptığı her şey `/api/v1` ile yapılabilir (belgeler panelde `/api/documents`).
 

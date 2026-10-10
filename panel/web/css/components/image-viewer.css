@@ -1,26 +1,45 @@
-/* Image viewer (js/image-viewer.js): a picture over the page, dark in both themes like any photo viewer.
-   Above an open window (the gallery preview opens pictures too) and under the approval window. */
+/* Image viewer (js/image-viewer.js): the panel's one window (modal.css) with the picture in it, as the 3D model.
+   Only the picture's area is here. Above an open window (the gallery preview opens pictures too), under the approval window. */
 
-.image-viewer {
-    position: fixed;
-    inset: 0;
+.modal.image-viewer {
     z-index: var(--z-viewer);
-    display: flex;
-    flex-direction: column;
-    /* 92% left the page's header readable behind the picture on a phone */
-    background: rgb(0 0 0 / 97%);
-    color: #fff;
     touch-action: none;
     overscroll-behavior: contain;
 }
 
+/* The window the picture was opened from (the gallery preview) waits out of sight: one window at a time */
+.modal.is-covered {
+    visibility: hidden;
+}
+
+.image-viewer .modal__header {
+    align-items: center;
+}
+
+.image-viewer .modal__close {
+    margin-left: 0;
+}
+
+.image-viewer__download {
+    margin-left: auto;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.image-viewer__download:hover {
+    color: var(--color-text);
+}
+
+/* The picture's area: its own size up to what the screen leaves, the zoomed picture stays inside it */
 .image-viewer__stage {
     position: relative;
-    flex: 1;
     min-height: 0;
     display: grid;
     place-items: center;
     overflow: hidden;
+    background: var(--color-sunken);
     cursor: zoom-in;
     touch-action: none;
     user-select: none;
@@ -36,8 +55,10 @@
 }
 
 .image-viewer__image {
+    display: block;
     max-width: 100%;
-    max-height: 100%;
+    /* the screen less the window's margins and its header */
+    max-height: calc(100dvh - 2 * var(--space-5) - 4rem);
     object-fit: contain;
     transform-origin: center;
     will-change: transform;
@@ -48,42 +69,14 @@
     opacity: 0;
 }
 
+.image-viewer[data-loading="true"] .image-viewer__stage {
+    min-height: 12rem;
+}
+
 .image-viewer__note {
     position: absolute;
     margin: 0;
-    color: rgb(255 255 255 / 80%);
-}
-
-.image-viewer__bar {
-    display: flex;
-    justify-content: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-4) calc(var(--space-2) + env(safe-area-inset-bottom));
-}
-
-.image-viewer__button {
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    border: 1px solid rgb(255 255 255 / 25%);
-    border-radius: var(--radius-full);
-    background: rgb(255 255 255 / 12%);
-    color: #fff;
-    font-size: 20px;
-    line-height: 1;
-    text-decoration: none;
-    cursor: pointer;
-}
-
-.image-viewer__button:hover {
-    background: rgb(255 255 255 / 22%);
-}
-
-.image-viewer__button:focus-visible {
-    outline: 2px solid #fff;
-    outline-offset: 2px;
+    color: var(--color-text-muted);
 }
 
 /* Chat and gallery pictures that open in the viewer */

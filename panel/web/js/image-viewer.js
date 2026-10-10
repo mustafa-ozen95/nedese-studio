@@ -6,8 +6,14 @@
  * modifier key or the middle button keeps the browser's own behaviour (new tab), and without the script the link
  * still opens the picture. window.ndsImageViewer.open(src, alt, opener) opens one from code.
  *
- * Zoom: the wheel (around the pointer), two fingers, a double click or double tap (fit ↔ 2.5×), the + / − buttons
- * and keys, 0 back to fit. Move: drag while zoomed. Close: ×, Escape, a click beside the picture at fit size.
+ * Shown in the panel's one window (modal.css, as the 3D model; user 10.10.2026: "modal içinde görünmeliydi 3d gibi",
+ * "Bi tane genel modalımız olur onu kullanır herşey"): a header with its name, Download and ×, the picture under it.
+ * Not a [data-modal]: Escape closes the viewer only, the window it opened over stays. A picture opened from a window
+ * (the gallery preview) takes that window's place on the screen, one window at a time; it comes back on close.
+ *
+ * Zoom: the wheel (around the pointer), two fingers, a double click or double tap (fit ↔ 2.5×), the + / − keys, 0 back
+ * to fit; no zoom buttons (user 10.10.2026: "Bu üçünü kaldır"). Move: drag while zoomed. Close: ×, Escape, a click
+ * outside the window or beside the picture at fit size.
  */
 (() => {
     if (window.ndsImageViewer) return;
@@ -29,11 +35,12 @@
     let drag = null; // { x, y, fromX, fromY, moved, onPicture }
     let lastTap = 0;
     let closeLater = null; // a tap beside the picture: closes on its click
+    let covered = null; // the window the picture was opened from: out of sight while the viewer shows
 
     function button(label, text, action) {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'image-viewer__button';
+        b.className = 'modal__close';
         b.textContent = text;
         b.title = label;
         b.setAttribute('aria-label', label);
@@ -194,7 +201,7 @@
 
     function build(src, alt) {
         box = document.createElement('div');
-        box.className = 'image-viewer';
+        box.className = 'modal image-viewer';
         box.setAttribute('role', 'dialog');
         box.setAttribute('aria-modal', 'true');
         box.setAttribute('aria-label', alt || 'Image');
@@ -225,26 +232,28 @@
         stage.append(img, note);
 
         const download = document.createElement('a');
-        download.className = 'image-viewer__button';
+        download.className = 'image-viewer__download';
         download.href = downloadAddress(src);
         download.setAttribute('download', '');
-        download.textContent = '↓';
-        download.title = 'Download';
-        download.setAttribute('aria-label', 'Download');
+        download.textContent = 'Download';
         download.addEventListener('click', (e) => e.stopPropagation());
 
         const close_ = button('Close', '×', close);
         close_.dataset.imageViewerClose = '';
-        const bar = document.createElement('div');
-        bar.className = 'image-viewer__bar';
-        bar.append(
-            button('Zoom out', '−', () => zoomAt(scale / STEP)),
-            button('Fit to screen', '⤢', fit),
-            button('Zoom in', '+', () => zoomAt(scale * STEP)),
-            download,
-            close_,
-        );
-        box.append(stage, bar);
+        const title = document.createElement('h2');
+        title.className = 'modal__title truncate';
+        title.textContent = alt || 'Image';
+        const header = document.createElement('header');
+        header.className = 'modal__header';
+        header.append(title, download, close_);
+        const panel = document.createElement('div');
+        panel.className = 'modal__box modal__box--wide';
+        panel.append(header, stage);
+        box.append(panel);
+        // a click outside the window closes it
+        box.addEventListener('click', (e) => {
+            if (e.target === box) close();
+        });
 
         stage.addEventListener('pointerdown', onPointerDown);
         stage.addEventListener('pointermove', onPointerMove);
@@ -260,6 +269,8 @@
     function open(src, alt = '', from = null) {
         close();
         opener = from ?? document.activeElement;
+        covered = opener?.closest?.('[data-modal]:not([hidden])') ?? null;
+        covered?.classList.add('is-covered');
         const closeButton = build(src, alt);
         document.body.append(box);
         overflowBefore = document.documentElement.style.overflow;
@@ -281,6 +292,8 @@
         drag = null;
         lastTap = 0;
         document.documentElement.style.overflow = overflowBefore;
+        covered?.classList.remove('is-covered');
+        covered = null;
         if (opener?.isConnected) opener.focus({ preventScroll: true });
         opener = null;
     }

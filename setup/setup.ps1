@@ -354,6 +354,18 @@ if (Test-Path (Join-Path $LlmBin 'llama-server.exe')) { Done 'llama.cpp (text mo
     }
     Done 'llama.cpp (text model server) installed.'
 }
+# PrismML's llama.cpp build (llm\bin-prism): the default text model Bonsai 2 27B is PrismML's PQ2_0 quantization,
+# which stock llama.cpp cannot read (PrismML-Eng/llama.cpp prism-b10754-2459f68, Windows CUDA 12.4)
+$PrismBin = Join-Path $Root 'llm\bin-prism'
+if (Test-Path (Join-Path $PrismBin 'llama-server.exe')) { Done 'PrismML llama.cpp (Bonsai server) ready.' } else {
+    New-Item -ItemType Directory -Force $PrismBin | Out-Null
+    foreach ($name in @('llama-prism-b10754-2459f68-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip')) {
+        $zip = Get-Tool $name
+        Invoke-Step $Tar @('-xf', $zip, '-C', $PrismBin) "Extracting $name"
+        Remove-Item $zip -Force
+    }
+    Done 'PrismML llama.cpp (Bonsai server) installed.'
+}
 
 # -- 5. Models (optional) ------------------------------------------------------
 Title 'Models'
@@ -391,10 +403,28 @@ if ($choice -eq 'none') {
         }
         $y = Read-Host '   Download the voice models (Chatterbox, VoxCPM2, Whisper, Qwen3-TTS; ~17 GB)? [Y/n]'
         if ($y -match '^[nN]') { $voiceModels = $false }
-        $y = Read-Host '   Download the text model Gemma 4 26B-A4B QAT (~14 GB)? [Y/n]'
+        $y = Read-Host '   Download the text models Bonsai 2 27B (default, ~8 GB) and Gemma 4 26B-A4B QAT (~15 GB)? [Y/n]'
         if ($y -match '^[nN]') { $textModel = $false }
     }
-    # The text model (Settings > Text model; /llm/v1): Google's official QAT Q4_0 GGUF (Apache 2.0)
+    # The text models (Settings > Text model; /llm/v1). The default: PrismML's Ternary Bonsai 2 27B (PQ2_0, 6.7 GiB, runs
+    # on llm\bin-prism; the panel picks it when nothing is chosen) with its vision encoder (BF16) saved as mmproj-<model>
+    if ($textModel) {
+        $bonsai = Join-Path $Root 'llm\models\Ternary-Bonsai-2-27B-PQ2_0.gguf'
+        New-Item -ItemType Directory -Force (Split-Path $bonsai) | Out-Null
+        if (Test-Path $bonsai) { Done 'Text model (Bonsai 2 27B) ready.' } else {
+            Info 'Downloading the text model Bonsai 2 27B PQ2_0 (~7 GB)...'
+            Fetch 'https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf/resolve/main/Ternary-Bonsai-2-27B-PQ2_0.gguf' "$bonsai.part" '3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1'
+            Move-Item "$bonsai.part" $bonsai
+            Done 'Text model (Bonsai 2 27B) downloaded.'
+        }
+        $bonsaiVision = Join-Path $Root 'llm\models\mmproj-Ternary-Bonsai-2-27B-PQ2_0.gguf'
+        if (-not (Test-Path $bonsaiVision)) {
+            Fetch 'https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf/resolve/main/Ternary-Bonsai-2-27B-mmproj-BF16.gguf' "$bonsaiVision.part" 'e287342d92332fa3577ed1d42e921dac9370c08da58ba9337fa450f6cc76cfd7'
+            Move-Item "$bonsaiVision.part" $bonsaiVision
+            Done 'Bonsai''s vision encoder downloaded.'
+        }
+    }
+    # The second text model (a choice in Settings > Text model): Google's official Gemma 4 QAT Q4_0 GGUF (Apache 2.0)
     if ($textModel) {
         $gemma = Join-Path $Root 'llm\models\gemma-4-26B-qat-q4_0.gguf'
         New-Item -ItemType Directory -Force (Split-Path $gemma) | Out-Null

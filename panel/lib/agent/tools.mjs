@@ -414,14 +414,15 @@ const ENGLISH_WORDS = /\b(the|and|is|are|was|what|how|why|when|where|who|can|cou
 /**
  * The language of a chat message: Turkish letters or Turkish words -> tr, English words -> en; a message with neither
  * ("pinterst", a link) is in the language of the message before it (Gemma answered Hasan's "pinterst" and "emin misin"
- * in English, 08.10.2026).
+ * in English, 08.10.2026); with none before it null: the model tells the language itself (a first "Naber" was marked
+ * English and answered in English, 10.10.2026).
  */
 export function messageLanguage(text, before = null) {
   const t = String(text ?? '');
   const folded = searchFold(t);
   if (/[çğıöşüİ]/i.test(t) || TURKISH_WORDS.test(folded)) return 'tr';
   if (ENGLISH_WORDS.test(folded)) return 'en';
-  return before ?? guessLanguage(t);
+  return before;
 }
 
 // An image address with a slash after its extension (search results list i.redd.it/x.gif/; that address answers 404 with

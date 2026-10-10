@@ -129,13 +129,26 @@ test('UI message actions (phone 402 px): code blocks in colors with Copy; under 
   const o = await chatPage({ width: 402, height: 860 });
   const { t, until } = o;
   try {
-    // the clipboard and the voices are the page's: recorded here instead
+    // the clipboard, the player and the browser's voices are the page's: recorded here instead; read-aloud jobs are counted
     await t.evaluate(`(() => {
       window.__copied = [];
       navigator.clipboard.writeText = async (text) => { window.__copied.push(text); };
       window.__spoken = [];
       speechSynthesis.speak = (u) => window.__spoken.push(u);
       speechSynthesis.cancel = () => { window.__cancelled = (window.__cancelled ?? 0) + 1; };
+      window.__played = [];
+      HTMLMediaElement.prototype.play = function () { if (!this.src.startsWith('data:')) { window.__played.push(this.src); window.__audio = this; } return Promise.resolve(); };
+      HTMLMediaElement.prototype.pause = function () { window.__paused = (window.__paused ?? 0) + 1; };
+      window.__speechJobs = [];
+      const fetch0 = window.fetch;
+      window.fetch = (url, init) => {
+        const body = typeof init?.body === 'string' && init.body.includes('"speech"') ? JSON.parse(init.body) : null;
+        if (body) {
+          window.__speechJobs.push(body);
+          if (window.__speechFails) return Promise.resolve(new Response(JSON.stringify({ error: 'No voice model.' }), { status: 400, headers: { 'Content-Type': 'application/json' } }));
+        }
+        return fetch0(url, init);
+      };
       return true;
     })()`);
     await o.send('preview sample');
@@ -156,20 +169,37 @@ test('UI message actions (phone 402 px): code blocks in colors with Copy; under 
     await t.evaluate(`${bar}.querySelector('[data-message-copy]').click(), true`);
     assert.ok(await until('window.__copied.length === 2', 5000));
     assert.equal(await t.evaluate('window.__copied[1]'), o.chat('preview sample').messages.at(-1).content);
-    // Read aloud: English, the code left out; the button stops it; it ends by itself
+    // Read aloud (user 10.10.2026: the browser's voice "çok robotik"): the panel's voice, a "speech" job in English with
+    // the code left out; the button says it is preparing, then plays voice.wav; it stops it; it ends by itself
     const speakButton = `${bar}.querySelector('[data-message-speak]')`;
     await t.evaluate(`${speakButton}.click(), true`);
-    assert.deepEqual(await t.evaluate(`[${speakButton}.getAttribute('aria-pressed'), ${speakButton}.getAttribute('aria-label'), window.__spoken.length > 0, window.__spoken[0].lang, window.__spoken.map((u) => u.text).join(' ')]`), ['true', 'Stop reading', true, 'en-US', 'A page: A circle: And a script:']);
+    assert.deepEqual(await t.evaluate(`[${speakButton}.getAttribute('aria-pressed'), ${speakButton}.getAttribute('aria-label'), ${speakButton}.classList.contains('is-busy')]`), ['true', 'Preparing the voice… (click to stop)', true]);
+    assert.ok(await until('window.__played.length === 1', 30000), 'the voice plays');
+    assert.deepEqual(await t.evaluate('window.__speechJobs'), [{ type: 'speech', text: 'A page:\nA circle:\nAnd a script:', lang: 'en' }]);
+    assert.match(await t.evaluate('window.__played[0]'), /\/voice\.wav$/);
+    assert.deepEqual(await t.evaluate(`[${speakButton}.getAttribute('aria-pressed'), ${speakButton}.getAttribute('aria-label'), ${speakButton}.classList.contains('is-busy')]`), ['true', 'Stop reading', false]);
     await t.evaluate(`${speakButton}.click(), true`);
     assert.deepEqual(await t.evaluate(`[${speakButton}.getAttribute('aria-pressed'), ${speakButton}.getAttribute('aria-label')]`), ['false', 'Read aloud']);
-    await t.evaluate(`(window.__spoken = [], ${speakButton}.click(), window.__spoken.at(-1).dispatchEvent(new Event('end')), true)`);
+    assert.ok(await t.evaluate('window.__paused > 0'), 'stopped');
+    // played again: the kept file, no new job; the end of the voice resets the button
+    await t.evaluate(`${speakButton}.click(), true`);
+    assert.ok(await until('window.__played.length === 2', 5000));
+    assert.deepEqual(await t.evaluate('[window.__speechJobs.length, window.__played[1] === window.__played[0]]'), [1, true]);
+    await t.evaluate("window.__audio.dispatchEvent(new Event('ended')), true");
     assert.equal(await t.evaluate(`${speakButton}.getAttribute('aria-pressed')`), 'false', 'ended by itself');
-    // a Turkish answer gets the Turkish voice
+    // a Turkish answer; the panel cannot read it (no voice model): the browser's voices, Turkish
     await o.send('bu çok güzel bir örnek, teşekkürler');
     assert.ok(await until(`${o.answers}.some((a) => a.startsWith('EN: bu çok güzel'))`), 'answered');
-    await t.evaluate("(window.__spoken = [], [...document.querySelectorAll('[data-message-speak]')].at(-1).click(), true)");
-    assert.equal(await t.evaluate('window.__spoken[0].lang'), 'tr-TR');
-    await t.evaluate("[...document.querySelectorAll('[data-message-speak]')].at(-1).click(), true");
+    const lastSpeak = "[...document.querySelectorAll('[data-message-speak]')].at(-1)";
+    await t.evaluate(`(window.__speechFails = true, ${lastSpeak}.click(), true)`);
+    assert.ok(await until('window.__spoken.length > 0', 5000), 'the browser reads it');
+    assert.deepEqual(await t.evaluate(`[window.__spoken[0].lang, window.__speechJobs.at(-1).lang, ${lastSpeak}.getAttribute('aria-label')]`), ['tr-TR', 'tr', 'Stop reading']);
+    await t.evaluate(`(window.__speechFails = false, ${lastSpeak}.click(), true)`);
+    // with the voice model it is the panel's Turkish voice
+    await t.evaluate(`${lastSpeak}.click(), true`);
+    assert.ok(await until('window.__played.length === 3', 30000), 'the Turkish voice plays');
+    assert.deepEqual(await t.evaluate('[window.__speechJobs.length, window.__speechJobs.at(-1).lang]'), [3, 'tr']);
+    await t.evaluate(`${lastSpeak}.click(), true`);
     // Quote: select a part of an answer
     await t.evaluate("(() => { const p = document.querySelector('.message--assistant .message__bubble p'); p.scrollIntoView({ block: 'center' }); const r = document.createRange(); r.selectNodeContents(p); getSelection().removeAllRanges(); getSelection().addRange(r); return true; })()");
     const quote = "document.querySelector('[data-chat-quote]')";

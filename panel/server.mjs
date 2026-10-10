@@ -31,6 +31,7 @@ import { killTree, runningProcesses } from './lib/process.mjs';
 import * as image from './lib/jobs/image.mjs';
 import * as video from './lib/jobs/video.mjs';
 import * as voice from './lib/jobs/voice.mjs';
+import * as speech from './lib/jobs/speech.mjs';
 import * as film from './lib/jobs/film.mjs';
 import * as music from './lib/jobs/music.mjs';
 import * as clone from './lib/jobs/clone.mjs';
@@ -77,7 +78,7 @@ if (await isAlreadyOpen()) {
 // Eski Turkce klasor adlari (ciktilar, panel-veri) yenilerine bir kez tasinir.
 migrateOldFolders(setting, (m) => console.log(m));
 // Data written by the Turkish-named versions (ayar.json keys, panel.db columns, is.json): renamed once (lib/migrate.mjs).
-const runners = { image, video, voice, film, music, clone, edit, song, audioEdit, videoEdit, model3d, training, data, describe, pageVideo };
+const runners = { image, video, voice, speech, film, music, clone, edit, song, audioEdit, videoEdit, model3d, training, data, describe, pageVideo };
 migrateLegacyData({ dataRoot: setting.dataRoot, outputRoot: setting.outputRoot, aiRoot: setting.aiRoot, modelRoot: setting.modelRoot, summaries: Object.fromEntries(Object.entries(runners).map(([k, m]) => [k, m.summary])), log: (m) => console.log(`[migration] ${m}`) });
 const settingFile = new SettingsFile(join(setting.dataRoot, DATA_FILES.settings));
 // Ayarlar > "İstemleri İngilizceye çevir" (kapaliysa istemler modele yazildigi gibi gider)

@@ -105,6 +105,8 @@ The voice environment is **separate** from ComfyUI: Chatterbox pins PyTorch to 2
 ## Local text model (`llm\`, llama.cpp)
 
 - `llm\bin\`: llama.cpp `llama-server` (ggml-org/llama.cpp b11392, Windows CUDA 13.4).
+- `llm\bin-prism\`: PrismML's llama.cpp build (PrismML-Eng/llama.cpp prism-b10754-2459f68, Windows CUDA 12.4); the PQ2_0 and PTQ1_0 quantizations load only here, the panel picks this server for them.
+- `llm\models\Ternary-Bonsai-2-27B-PQ2_0.gguf`: PrismML Ternary Bonsai 2 27B, PQ2_0 (6.71 GiB), **the default** when nothing is chosen in Settings > Text model; its vision encoder (BF16) is `mmproj-Ternary-Bonsai-2-27B-PQ2_0.gguf`. Measured 08.10.2026: 65 tokens/s on the 12 GB card.
 - `llm\models\gemma-4-26B-qat-q4_0.gguf`: Google Gemma 4 26B-A4B, official QAT Q4_0 (Apache 2.0, 13.45 GiB).
   - Mixture of experts; the expert layers that do not fit on the card stay in RAM (`--n-cpu-moe`, from the file size).
   - Can be changed under Settings > Text model.

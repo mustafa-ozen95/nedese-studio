@@ -2293,6 +2293,11 @@
 
     function configureSource(k) {
         status.videoSource = k;
+        // Send to video / a picked image switches the form back to "From an image"
+        if (k && videoForm.start.value !== 'image') {
+            videoForm.start.value = 'image';
+            applyVideoStart();
+        }
         videoForm.source.value = k?.source ?? '';
         const picture = $('[data-source-picture]', videoForm);
         $('[data-source-empty]', videoForm).hidden = Boolean(k);
@@ -2307,6 +2312,15 @@
     }
 
     $('[data-source-remove]', videoForm).addEventListener('click', () => configureSource(null));
+
+    // From an image (source picker) or from text (the first frame is drawn from a description)
+    const videoFromText = () => videoForm.start.value === 'text';
+    function applyVideoStart() {
+        $('[data-video-image]', videoForm).hidden = videoFromText();
+        $('[data-video-text]', videoForm).hidden = !videoFromText();
+        videoFields();
+    }
+    $('[data-video-start]', videoForm).addEventListener('change', applyVideoStart);
 
     function orientation(width, height) {
         const ratio = width / height;
@@ -2398,7 +2412,8 @@
             const t = videoForm.lora.selectedOptions[0]?.dataset.trigger;
             $('[data-video-lora-hint]', videoForm).textContent = t ? `Trigger word "${t}" is added to the prompt automatically.` : 'LoRAs you trained under Model training > Video (Wan 2.2 5B only).';
         }
-        const k = status.videoSource;
+        const fromText = videoFromText();
+        const k = fromText ? { width: Number(videoForm.ratio.value.split(':')[0]), height: Number(videoForm.ratio.value.split(':')[1]) } : status.videoSource;
         const direction = k?.width && k?.height ? orientation(Number(k.width), Number(k.height)) : 'landscape';
         // 1080p: İnce ayarlar › Doğrudan 1080p açıksa Wan 1920×1088 üretir (kırpılır); kapalıysa 720p üretilip büyütülür
         const upscale = videoForm.resolution.value === '1080p' && !s.fineSettings?.video1080p;
@@ -3250,7 +3265,15 @@
             data.scenes = scenesCollect();
             data.characters = charactersCollect();
         }
-        if (type === 'video') data.duration = videoDuration();
+        if (type === 'video') {
+            data.duration = videoDuration();
+            if (data.start === 'text') delete data.source;
+            else {
+                delete data.image;
+                delete data.ratio;
+            }
+            delete data.start;
+        }
         if (type === 'edit') {
             data.references = [data.reference1, data.reference2].filter(Boolean);
             delete data.reference1;
@@ -3291,7 +3314,10 @@
         if (type === 'song') songForm.style.value = '';
         if (type === 'audioEdit') voiceEditForm.instruction.value = '';
         if (type === 'videoEdit') videoEditForm.instruction.value = '';
-        if (type === 'video') videoForm.prompt.value = '';
+        if (type === 'video') {
+            videoForm.prompt.value = '';
+            videoForm.image.value = '';
+        }
         if (type === 'voice') $('[data-job-form="voice"]').text.value = '';
         if (type === 'music') {
             const m = $('[data-job-form="music"]');

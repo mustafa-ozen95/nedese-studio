@@ -135,7 +135,9 @@ export function findLlm(aiRoot, preference = '') {
   if ((!existsSync(mainBin) && !existsSync(prismBin)) || !existsSync(folder)) return null;
   // Models trained in the panel (Model training, "-trained-") go last: with no choice the ready model stays the default.
   const trained = (d) => (/-trained-/i.test(d) ? 1 : 0);
-  const files = readdirSync(folder).filter((d) => d.toLowerCase().endsWith('.gguf') && !/^mmproj|^mtp-/i.test(d)).sort((a, b) => trained(a) - trained(b) || a.localeCompare(b));
+  // With no choice Bonsai 2 27B is the default (user's choice since 08.10.2026), then the others by name
+  const preferred = (d) => (/^Ternary-Bonsai-2-27B/i.test(d) ? 0 : 1);
+  const files = readdirSync(folder).filter((d) => d.toLowerCase().endsWith('.gguf') && !/^mmproj|^mtp-/i.test(d)).sort((a, b) => trained(a) - trained(b) || preferred(a) - preferred(b) || a.localeCompare(b));
   if (!files.length) return null;
   // Gorsel kodlayici (Model egitimi > Genel ya da elle): ayni klasorde mmproj-<model dosyasi> -> llama-server --mmproj
   const models = files.map((d) => ({ file: d, name: d.replace(/\.gguf$/i, ''), gib: Math.round((statSync(join(folder, d)).size / 2 ** 30) * 100) / 100, image: existsSync(join(folder, `mmproj-${d}`)) }));

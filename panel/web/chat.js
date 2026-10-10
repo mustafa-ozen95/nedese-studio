@@ -787,12 +787,16 @@
     const icon = (name) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">${ICONS[name]}</svg>`;
 
     /*
-     * Read aloud (user request 08.10.2026): the browser's own voices (speechSynthesis, which needs no secure origin: it
-     * works on the phone over http too), Turkish or English by the answer's language; one answer at a time, its button
-     * stops it. Code blocks are left out, links read by their text.
+     * Read aloud (user request 08.10.2026): Turkish or English by the answer's language; one answer at a time, its button
+     * stops it. Code blocks are left out, links read by their text. The panel's own voice reads it (a "speech" job; user
+     * 10.10.2026: the browser's voice "çok robotik"), each answer's file is kept for playing it again; the browser's
+     * voices (speechSynthesis) only when the panel cannot (no voice model).
      */
-    const speech = { button: null };
-    const canSpeak = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function';
+    const speech = { button: null, audio: null, job: null };
+    const browserSpeech = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function';
+    const spokenFiles = new Map();
+    // a silent sound started inside the click: iOS plays the voice that arrives seconds later only on an element the user started
+    const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
 
     function speakableText(markdownText) {
         return String(markdownText)
@@ -816,11 +820,13 @@
         return turkish > english ? 'tr' : 'en';
     }
 
-    function speakButtonState(button, on) {
+    function speakButtonState(button, on, preparing = false) {
         if (!button) return;
         button.setAttribute('aria-pressed', String(on));
-        button.setAttribute('aria-label', on ? 'Stop reading' : 'Read aloud');
-        button.title = on ? 'Stop reading' : 'Read aloud';
+        button.classList.toggle('is-busy', preparing);
+        const label = preparing ? 'Preparing the voice… (click to stop)' : on ? 'Stop reading' : 'Read aloud';
+        button.setAttribute('aria-label', label);
+        button.title = label;
         button.innerHTML = icon(on ? 'stop' : 'speak');
     }
 
@@ -828,10 +834,26 @@
         const b = speech.button;
         speech.button = null;
         speakButtonState(b, false);
-        if (canSpeak) speechSynthesis.cancel();
+        speech.audio?.pause();
+        speech.audio = null;
+        // a voice still being prepared is cancelled (the queue frees the GPU for the next job)
+        if (speech.job) api(`/api/v1/jobs/${speech.job}/cancel`, { method: 'POST' }).catch(() => {});
+        speech.job = null;
+        if (browserSpeech) speechSynthesis.cancel();
     }
 
-    function speak(text, button) {
+    /** Waits for the read-aloud job; its voice.wav address, or null when it stopped (cancelled, failed). */
+    async function speechFile(id, button) {
+        for (;;) {
+            await new Promise((ok) => setTimeout(ok, 1500));
+            if (speech.button !== button) return null;
+            const job = (await api(`/api/v1/jobs/${id}`)).job;
+            if (job.status === 'done') return job.outputs?.find((o) => o.type === 'voice')?.url ?? null;
+            if (['error', 'cancelled', 'interrupted'].includes(job.status)) throw new Error(job.error || `Read aloud ${job.status}.`);
+        }
+    }
+
+    async function speak(text, button) {
         if (speech.button === button) {
             stopSpeaking();
             return;
@@ -839,6 +861,44 @@
         stopSpeaking();
         const plain = speakableText(text);
         if (!plain) return;
+        const audio = new Audio(SILENCE);
+        audio.play().catch(() => {});
+        speech.button = button;
+        speech.audio = audio;
+        let url = spokenFiles.get(plain);
+        try {
+            if (!url) {
+                speakButtonState(button, true, true);
+                const j = await api('/api/v1/jobs', { method: 'POST', body: { type: 'speech', text: plain.replace(/\s*\n\s*/g, '\n').slice(0, 5000), lang: textLanguage(plain) } });
+                if (speech.button !== button) {
+                    api(`/api/v1/jobs/${j.job.id}/cancel`, { method: 'POST' }).catch(() => {});
+                    return;
+                }
+                speech.job = j.job.id;
+                url = await speechFile(j.job.id, button);
+                speech.job = null;
+                if (!url || speech.button !== button) return;
+                spokenFiles.set(plain, url);
+            }
+            speakButtonState(button, true);
+            audio.src = url;
+            audio.addEventListener('ended', () => speech.button === button && stopSpeaking());
+            await audio.play();
+        } catch (e) {
+            speech.job = null;
+            if (speech.button !== button) return;
+            if (!browserSpeech) {
+                stopSpeaking();
+                notify(e.message, 'warning');
+                return;
+            }
+            speech.audio = null;
+            browserSpeak(plain, button);
+        }
+    }
+
+    /** The browser's own voices: when the panel has no voice model. */
+    function browserSpeak(plain, button) {
         const lang = textLanguage(plain) === 'tr' ? 'tr-TR' : 'en-US';
         const voices = speechSynthesis.getVoices();
         const fits = (v) => String(v.lang ?? '').replace('_', '-').toLowerCase().startsWith(lang.slice(0, 2));
@@ -850,7 +910,6 @@
             if (pieces.length && pieces.at(-1).length + p.length < 220) pieces[pieces.length - 1] += ` ${p}`;
             else pieces.push(p);
         }
-        speech.button = button;
         speakButtonState(button, true);
         pieces.forEach((p, i) => {
             const u = new SpeechSynthesisUtterance(p);
@@ -878,12 +937,10 @@
             copy.innerHTML = icon('copy');
             copy.addEventListener('click', () => copyText(text, copy));
             bar.append(copy);
-            if (canSpeak) {
-                const read = el('button', { type: 'button', class: 'message__action', 'data-message-speak': id });
-                speakButtonState(read, false);
-                read.addEventListener('click', () => speak(text, read));
-                bar.append(read);
-            }
+            const read = el('button', { type: 'button', class: 'message__action', 'data-message-speak': id });
+            speakButtonState(read, false);
+            read.addEventListener('click', () => speak(text, read));
+            bar.append(read);
         }
         const set = (value) => {
             for (const b of bar.querySelectorAll('[data-rate]')) b.setAttribute('aria-pressed', String(Number(b.dataset.rate) === value));
@@ -1830,7 +1887,8 @@
             el('div', { class: 'chat__options-group', role: 'radiogroup', 'aria-label': 'Approval mode' }, el('div', { class: 'chat__options-title', text: 'Approval mode' }), ...APPROVAL_MODES.map(([v, n, d]) => option('mode', v, n, d, v === mode))),
             allowGroup(),
             el('div', { class: 'chat__options-group', role: 'radiogroup', 'aria-label': 'Thinking' }, el('div', { class: 'chat__options-title', text: 'Thinking' }), ...THINKING_LEVELS.map(([v, n, d]) => option('thinking', v, n, d, v === thinking))),
-            models.length > 1 ? el('div', { class: 'chat__options-group', role: 'radiogroup', 'aria-label': 'Text model' }, el('div', { class: 'chat__options-title', text: 'Text model' }), ...models.map(([v, n, d]) => option('model', v, n, d, v === model))) : null,
+            // always shown (user 10.10.2026: "model seçim yok olmuş" with one installed model): which model answers, even without a choice
+            el('div', { class: 'chat__options-group', role: 'radiogroup', 'aria-label': 'Text model' }, el('div', { class: 'chat__options-title', text: 'Text model' }), ...models.map(([v, n, d]) => option('model', v, n, d, v === model))),
             temporaryGroup(),
             followUpGroup(),
         ].filter(Boolean));

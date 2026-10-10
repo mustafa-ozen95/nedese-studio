@@ -40,6 +40,8 @@ const WAIT = (ms, signal) =>
 export const JOB_ID = /^\d{8}-\d{6}-[a-z][a-zA-Z0-9]*-[0-9a-f]{4}$/;
 const ID = JOB_ID;
 const OUTPUT_LIMIT = 60;
+// Jobs that serve another screen (the chat's read aloud): in the queue while they run, never in the gallery or job pages
+export const HIDDEN_TYPES = ['speech'];
 
 export class Queue {
   /**
@@ -391,13 +393,14 @@ export class Queue {
       .slice(0, limit);
   }
 
-  /** A filtered page (from the database): { jobs, total }. */
+  /** A filtered page (from the database): { jobs, total }. Read-aloud jobs only when asked for by type (not in the gallery). */
   page({ type, statuses, limit = 24, skip = 0 } = {}) {
+    const exclude = type ? [] : HIDDEN_TYPES;
     if (!this.db) {
-      const all = [...this.jobs.values()].filter((job) => (!type || job.type === type) && (!statuses || statuses.includes(job.status))).sort((a, b) => b.creation.localeCompare(a.creation));
+      const all = [...this.jobs.values()].filter((job) => (type ? job.type === type : !exclude.includes(job.type)) && (!statuses || statuses.includes(job.status))).sort((a, b) => b.creation.localeCompare(a.creation));
       return { jobs: all.slice(skip, skip + limit), total: all.length };
     }
-    const { ids, total } = this.db.jobQuery({ type, statuses, limit, skip });
+    const { ids, total } = this.db.jobQuery({ type, statuses, limit, skip, exclude });
     return { jobs: ids.map((id) => this.jobs.get(id)).filter(Boolean), total };
   }
 

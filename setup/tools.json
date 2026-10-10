@@ -25,6 +25,16 @@
   "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
  },
  {
+  "file": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+  "size": 391443627,
+  "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+ },
+ {
+  "file": "llama-prism-b10754-2459f68-bin-win-cuda-12.4-x64.zip",
+  "size": 312971133,
+  "sha256": "200842b4c689fe092a8a1684ef1e185d8d025a0bfae6908737607a0f29560b96"
+ },
+ {
   "file": "llama-b11392-bin-win-cuda-13.4-x64.zip",
   "size": 153000261,
   "sha256": "48b12d825155991c4f1a21ce26bf01b037b061f2e2a5b716e1cf2bb73b6fb9cb"

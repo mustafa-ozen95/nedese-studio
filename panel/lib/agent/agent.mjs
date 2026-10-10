@@ -2555,9 +2555,12 @@ export class AgentManager {
         // around, Gemma drifted into English answers to a Turkish user (08.10.2026)
         // a message with no clear language ("pinterst") and the agent's own notes keep the user's language before it
         // a message from the background (wake) keeps the user's language too
+        // a language not clear from the words ("Naber") and none before it: the model reads it itself
         if (!m.hidden && !m.wake) userLanguage = messageLanguage(m.content, userLanguage);
-        const language = (userLanguage ?? messageLanguage(m.content)) === 'tr' ? 'Turkish' : 'English';
-        const sent = m.time ? `\n[sent ${new Date(m.time).toLocaleString('en-GB', { timeZone: 'Europe/Istanbul', dateStyle: 'medium', timeStyle: 'short' })} · written in ${language}: answer in ${language}]` : '';
+        const code = userLanguage ?? messageLanguage(m.content);
+        const language = code === 'tr' ? 'Turkish' : code === 'en' ? 'English' : null;
+        const said = language ? `written in ${language}: answer in ${language}` : 'answer in the language this message is written in';
+        const sent = m.time ? `\n[sent ${new Date(m.time).toLocaleString('en-GB', { timeZone: 'Europe/Istanbul', dateStyle: 'medium', timeStyle: 'short' })} · ${said}]` : '';
         const text = `${notes.length ? `${notes.join('\n')}\n\n` : ''}${m.content}${extraText}${sent}`;
         notes = [];
         const parts = [];

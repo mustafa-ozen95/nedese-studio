@@ -111,9 +111,13 @@ export class Database {
   }
 
   /** Suzgecli, yeniden eskiye; { kimlikler, toplam }. durumlar dizi olabilir. */
-  jobQuery({ type, statuses, limit = 500, skip = 0 } = {}) {
+  jobQuery({ type, statuses, limit = 500, skip = 0, exclude = [] } = {}) {
     const condition = [];
     const value = [];
+    if (exclude.length) {
+      condition.push(`type NOT IN (${exclude.map(() => '?').join(',')})`);
+      value.push(...exclude);
+    }
     if (type) {
       condition.push('type = ?');
       value.push(type);

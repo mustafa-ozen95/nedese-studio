@@ -105,6 +105,8 @@ için **3 tohum** üretir, her adayı ölçer ve hedefe en uyanı seçer (`--can
 ## Yerel yazı modeli (`llm\`, llama.cpp)
 
 - `llm\bin\`: llama.cpp `llama-server` (ggml-org/llama.cpp b11392, Windows CUDA 13.4).
+- `llm\bin-prism\`: PrismML'in llama.cpp derlemesi (PrismML-Eng/llama.cpp prism-b10754-2459f68, Windows CUDA 12.4); PQ2_0 ve PTQ1_0 nicemlemeleri yalnız burada açılır, panel bunlar için bu sunucuyu seçer.
+- `llm\models\Ternary-Bonsai-2-27B-PQ2_0.gguf`: PrismML Ternary Bonsai 2 27B, PQ2_0 (6,71 GiB), Ayarlar > Yazı modeli'nde seçim yoksa **varsayılan**; görsel kodlayıcısı (BF16) `mmproj-Ternary-Bonsai-2-27B-PQ2_0.gguf`. Ölçüldü 08.10.2026: 12 GB kartta 65 belirteç/sn.
 - `llm\models\gemma-4-26B-qat-q4_0.gguf`: Google Gemma 4 26B-A4B, resmî QAT Q4_0 (Apache 2.0, 13,45 GiB).
   - Uzmanlar karması; ekrana sığmayan uzman katmanları RAM'de (`--n-cpu-moe`, dosya boyutundan).
   - Ayarlar > Yazı modeli ile değiştirilebilir.

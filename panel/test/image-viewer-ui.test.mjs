@@ -48,10 +48,13 @@ test('image viewer (phone 402 px): a picture in an answer opens over the chat, n
     assert.equal(await t.evaluate('document.documentElement.style.overflow'), 'hidden', 'the chat does not scroll under it');
     assert.equal(await t.evaluate("document.querySelector('.image-viewer a[download]').getAttribute('href').endsWith('/file/upload/viewer-test.png?download=1')"), true, 'download link');
     assert.deepEqual(await t.evaluate(transform), [0, 0, 1]);
+    // the panel's one window (user 10.10.2026: "Bi tane genel modalımız olur onu kullanır herşey"): its name in the
+    // header, Download and ×; no zoom buttons ("Bu üçünü kaldır")
+    assert.deepEqual(await t.evaluate("[document.querySelector('.image-viewer').classList.contains('modal'), !!document.querySelector('.image-viewer > .modal__box > .modal__header'), document.querySelector('.image-viewer .modal__title').textContent, [...document.querySelectorAll('.image-viewer button')].map((b) => b.getAttribute('aria-label'))]"), [true, true, 'ferry', ['Close']]);
 
-    // the picture fills the phone's width at fit size (402 px, 1200×800 → 268 px high)
-    const box = await t.evaluate("(() => { const r = document.querySelector('.image-viewer__image').getBoundingClientRect(); const s = document.querySelector('.image-viewer__stage').getBoundingClientRect(); return { w: r.width, h: r.height, cx: s.left + s.width / 2, cy: s.top + s.height / 2 }; })()");
-    assert.ok(Math.abs(box.w - 402) < 2 && Math.abs(box.h - 268) < 2, JSON.stringify(box));
+    // the picture fills the window's width at fit size (1200×800: two thirds of it high), the window inside the phone
+    const box = await t.evaluate("(() => { const r = document.querySelector('.image-viewer__image').getBoundingClientRect(); const s = document.querySelector('.image-viewer__stage').getBoundingClientRect(); const w = document.querySelector('.image-viewer .modal__box').getBoundingClientRect(); return { w: r.width, h: r.height, sw: s.width, cx: s.left + s.width / 2, cy: s.top + s.height / 2, left: w.left, right: w.right, top: w.top }; })()");
+    assert.ok(Math.abs(box.w - box.sw) < 2 && Math.abs(box.h - (box.w * 2) / 3) < 2 && box.left >= 0 && box.right <= 402 && box.top > 60, JSON.stringify(box));
     const { cx, cy } = box;
 
     // two fingers spread from 100 px to 300 px apart: about 3× around their middle
@@ -72,7 +75,7 @@ test('image viewer (phone 402 px): a picture in an answer opens over the chat, n
     await wait(100);
     [x, y, scale] = await t.evaluate(transform);
     assert.ok(Math.abs(x - 100) < 2, `moved right: ${x}`);
-    const maxY = (268 * scale - (await t.evaluate("document.querySelector('.image-viewer__stage').getBoundingClientRect().height"))) / 2;
+    const maxY = (box.h * scale - (await t.evaluate("document.querySelector('.image-viewer__stage').getBoundingClientRect().height"))) / 2;
     assert.ok(y <= Math.max(0, maxY) + 1, `not dragged past the edge: ${y}`);
 
     // a double tap goes back to fit, another zooms to 2.5×
@@ -92,11 +95,11 @@ test('image viewer (phone 402 px): a picture in an answer opens over the chat, n
     await wait(100);
     assert.equal((await t.evaluate(transform))[2], 2.5, 'double tap: 2.5×');
 
-    // the wheel zooms too, up to 8×; the − button zooms out
+    // the wheel zooms too, up to 8×; the − key zooms out
     for (let i = 0; i < 6; i++) await t.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: cx, y: cy, deltaX: 0, deltaY: -400 });
     await wait(100);
     assert.equal((await t.evaluate(transform))[2], 8, 'wheel: up to 8×');
-    await t.evaluate("document.querySelector('.image-viewer__button[aria-label=\"Zoom out\"]').click(), true");
+    await t.evaluate("dispatchEvent(new KeyboardEvent('keydown', { key: '-' })), true");
     assert.ok(Math.abs((await t.evaluate(transform))[2] - 8 / 1.5) < 0.01, 'zoom out');
 
     // Escape closes the viewer and only the viewer: a window under it stays open
@@ -107,8 +110,15 @@ test('image viewer (phone 402 px): a picture in an answer opens over the chat, n
     assert.equal(await t.evaluate("document.querySelector('#modal-preview').hidden"), false, 'the window under it stays');
     await t.key('Escape');
     assert.equal(await t.evaluate("document.querySelector('#modal-preview').hidden"), true);
+    // a picture opened from inside a window takes its place: one window on the screen, the window back on close
+    await t.evaluate("openNdsWindow(document.querySelector('#modal-preview')), true");
+    await t.evaluate("(() => { const a = document.createElement('a'); a.href = '/file/upload/viewer-test.png'; a.dataset.imageViewer = ''; a.id = 'in-window'; a.textContent = 'picture'; document.querySelector('[data-preview-body]').append(a); a.click(); return true; })()");
+    assert.deepEqual(await t.evaluate("[!!document.querySelector('.image-viewer'), getComputedStyle(document.querySelector('#modal-preview')).visibility]"), [true, 'hidden']);
+    await t.evaluate("document.querySelector('[data-image-viewer-close]').click(), true");
+    assert.deepEqual(await t.evaluate("[document.querySelector('#modal-preview').hidden, getComputedStyle(document.querySelector('#modal-preview')).visibility]"), [false, 'visible']);
+    await t.evaluate("document.querySelector('#in-window').remove(), ndsCloseWindow(document.querySelector('#modal-preview')), true");
 
-    // × closes it; a tap beside the picture at fit size closes it too; the chat scrolls again
+    // × closes it; a tap outside the window closes it too; the chat scrolls again
     await open();
     assert.ok(await until("!!document.querySelector('.image-viewer')", 3000));
     await t.evaluate("document.querySelector('[data-image-viewer-close]').click(), true");
@@ -120,7 +130,7 @@ test('image viewer (phone 402 px): a picture in an answer opens over the chat, n
     await touch('touchStart', [[cx, 40]]);
     await touch('touchEnd', []);
     await wait(700);
-    assert.equal(await t.evaluate("document.querySelector('.image-viewer')"), null, 'a tap beside the picture closed it');
+    assert.equal(await t.evaluate("document.querySelector('.image-viewer')"), null, 'a tap outside the window closed it');
     assert.deepEqual(await t.evaluate('window.leaked'), [], 'no click reached the chat');
     assert.equal(await t.evaluate('document.documentElement.style.overflow'), '');
     await o.shots('image-viewer');

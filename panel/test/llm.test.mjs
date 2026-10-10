@@ -135,6 +135,10 @@ test('text model list: models trained in the panel come last, the ready-made mod
   assert.equal(findLlm(root, 'Ternary-Bonsai-2-27B-PQ2_0.gguf').bin, join(root, 'llm', 'bin-prism', exe));
   assert.equal(new LocalLlm({ info: findLlm(root, 'Ternary-Bonsai-2-27B-PQ2_0.gguf') }).command().command, join(root, 'llm', 'bin-prism', exe));
   assert.equal(findLlm(root, 'gemma-4-26B-qat-q4_0.gguf').bin, join(root, 'llm', 'bin', exe));
+  // with no choice Bonsai is the default (the user's choice; setup downloads it); a choice still wins
+  assert.deepEqual([findLlm(root, '').file, findLlm(root, 'nothing.gguf').file], ['Ternary-Bonsai-2-27B-PQ2_0.gguf', 'Ternary-Bonsai-2-27B-PQ2_0.gguf']);
+  assert.equal(findLlm(root, '').models.at(-1).file, 'adim-trained-20261005-022841-q8_0.gguf', 'trained models stay last');
+  assert.equal(findLlm(root, 'gemma-4-26B-qat-q4_0.gguf').file, 'gemma-4-26B-qat-q4_0.gguf');
 });
 
 test('/llm/v1 + model trained in the panel: the guide becomes a short marker, no length note and no sectioned flow', async () => {

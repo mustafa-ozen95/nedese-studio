@@ -22,10 +22,10 @@ import { UserError } from '../errors.mjs';
 import { imageSize, orientation } from '../media.mjs';
 import { diskStatus } from '../models.mjs';
 import { partTotalFrame, durationText, videoParts } from '../plan.mjs';
-import { OUTPUT_1080P, RIFE_MAX, VIDEO_MODELS, yes, validateFps, sourcePath, trimmedSize, rifeFactor, text, number, choice, seed, generatorRequired } from './common.mjs';
+import { IMAGE_MODELS, OUTPUT_1080P, RATIOS, RIFE_MAX, VIDEO_MODELS, yes, validateFps, sourcePath, trimmedSize, rifeFactor, text, number, choice, seed, generatorRequired } from './common.mjs';
 import { upscaleModelRequired, upscaleFrames } from './upscale.mjs';
 import { runWan } from './wan.mjs';
-import { partPrompts } from '../prompt-translate.mjs';
+import { jobPrompt, partPrompts } from '../prompt-translate.mjs';
 import { trainedModels } from './training.mjs';
 import { fineSetting } from '../fine-settings.mjs';
 
@@ -68,9 +68,10 @@ export function validate(g, { mod, setting }) {
   if (g.lora && model !== 'wan5') throw new UserError('The selected LoRA was trained for Wan 2.2 5B; choose Wan 2.2 5B as the model.');
   generatorRequired(mod, VIDEO_MODELS[model].generator, VIDEO_MODELS[model].name, setting?.modelRoot);
   const source = String(g.source ?? '');
-  if (!source) throw new UserError('Choose a source image (upload one or pick from the gallery).');
-  const path = sourcePath(setting.outputRoot, source);
-  const size = imageSize(path);
+  // Without a source image the video is made from text: an image model draws the first frame (frame.png, kept as an
+  // output), then the usual image-to-video flow runs on it.
+  const fromText = source ? null : textFrame(g, { mod, setting });
+  const size = fromText ? { width: fromText.width, height: fromText.height } : imageSize(sourcePath(setting.outputRoot, source));
   if (!size) throw new UserError('Could not read the source image size.');
   const resolution = choice(g.resolution, 'Resolution', ['720p', '480p', '1080p'], '720p');
   // 1080p: ince ayar "Dogrudan 1080p" acik (guclu kart) -> Wan 1920x1088 uretir, 1080'e kirpilir. Kapali (12 GB
@@ -113,7 +114,8 @@ export function validate(g, { mod, setting }) {
   const idProtect = yes(g.idProtect) && !keyFrame;
   if (idProtect) generatorRequired(mod, 'editJob', 'Character consistency (Qwen-Image-Edit)', setting?.modelRoot);
   return {
-    source,
+    source: source || null,
+    ...(fromText ? { fromText } : {}),
     prompt: text(g.prompt, 'Motion prompt', { required: false, max: 2000 }) || DEFAULT_MOTION,
     title: text(g.title, 'Title', { required: false, max: 120 }) || null,
     model,
@@ -137,10 +139,31 @@ export function validate(g, { mod, setting }) {
   };
 }
 
+/** The first frame of a text-only video: { image, imageModel, ratio, width, height } (the image prompt defaults to the motion prompt). */
+function textFrame(g, { mod, setting }) {
+  const image = String(g.image ?? '').trim() || String(g.prompt ?? '').trim();
+  if (!image) throw new UserError('Choose a source image (upload one or pick from the gallery), or write a prompt to make the video from text.');
+  text(image, 'Prompt', { max: 2000 });
+  // Default image model: Qwen-Image like the film, FLUX.2 klein when Qwen-Image is not on this machine
+  let imageModel = g.imageModel ? choice(g.imageModel, 'Image model', Object.keys(IMAGE_MODELS), 'qwen') : null;
+  if (!imageModel) {
+    try {
+      generatorRequired(mod, IMAGE_MODELS.qwen.generator, IMAGE_MODELS.qwen.name, setting?.modelRoot);
+      imageModel = 'qwen';
+    } catch {
+      imageModel = 'flux';
+    }
+  }
+  generatorRequired(mod, IMAGE_MODELS[imageModel].generator, IMAGE_MODELS[imageModel].name, setting?.modelRoot);
+  const ratio = choice(g.ratio, 'Aspect ratio', Object.keys(RATIOS), '16:9');
+  const [width, height] = RATIOS[ratio][imageModel];
+  return { image, imageModel, ratio, width, height };
+}
+
 export function summary(g) {
   return {
     title: g.title || g.prompt,
-    detail: `${VIDEO_MODELS[g.model]?.name ?? g.model}${g.lora ? ` + ${g.lora.name}` : ''} · ${(g.upscale ?? g.truncate ?? [g.width, g.height]).join('×')}${g.upscale ? ' (720p upscale)' : ''} · ${durationText(g.duration)}${g.part > 1 ? ` (${g.part} parts)` : ''}${g.fps ? ` · ${g.fps} fps` : g.smooth > 1 ? ` · RIFE ${g.smooth}×` : ''}${g.idProtect && g.part > 1 ? ' · identity protected' : ''}${g.keyFrame && g.part > 1 ? ' · keyframes' : ''}`,
+    detail: `${g.fromText ? 'From text · ' : ''}${VIDEO_MODELS[g.model]?.name ?? g.model}${g.lora ? ` + ${g.lora.name}` : ''} · ${(g.upscale ?? g.truncate ?? [g.width, g.height]).join('×')}${g.upscale ? ' (720p upscale)' : ''} · ${durationText(g.duration)}${g.part > 1 ? ` (${g.part} parts)` : ''}${g.fps ? ` · ${g.fps} fps` : g.smooth > 1 ? ` · RIFE ${g.smooth}×` : ''}${g.idProtect && g.part > 1 ? ' · identity protected' : ''}${g.keyFrame && g.part > 1 ? ' · keyframes' : ''}`,
   };
 }
 
@@ -150,7 +173,8 @@ export async function run(ctx) {
   const g = ctx.job.input;
   const k = ctx.folder;
   const vm = VIDEO_MODELS[g.model];
-  const source = sourcePath(ctx.setting.outputRoot, g.source);
+  const source = g.fromText ? join(k, 'frame.png') : sourcePath(ctx.setting.outputRoot, g.source);
+  if (g.fromText && !existsSync(source)) await drawFrame(ctx, source);
   const parts = videoParts(g.duration, vm.frame, vm.fps);
   const n = parts.length;
   const frameFps = vm.fps * Math.max(1, g.smooth);
@@ -406,7 +430,24 @@ export async function run(ctx) {
   const duration = Math.round((totalFrame / frameFps) * 100) / 100;
   const [outputWidth, outputHeight] = g.upscale ?? g.truncate ?? [g.width, g.height];
   ctx.addOutput({ file: 'video.mp4', type: 'video', preview: 'video.preview.jpg', width: outputWidth, height: outputHeight, duration, fps: videoFps });
+  if (g.fromText) ctx.addOutput({ file: 'frame.png', type: 'image', width: g.fromText.width, height: g.fromText.height, name: 'First frame' });
   ctx.log(`Video: ${n} parts, ${totalFrame} frames, ${durationText(duration)}`);
+}
+
+/** Draws the first frame of a text-only video into target (a retry reuses it). */
+async function drawFrame(ctx, target) {
+  const f = ctx.job.input.fromText;
+  const startedAt = Date.now();
+  // Qwen-Image understands Turkish (not translated); FLUX (T5) does not.
+  const prompt = f.imageModel === 'qwen' ? f.image : await jobPrompt(ctx, f.image, 'image', { translate: ctx.job.input.translate !== false });
+  const graph = ctx.mod[IMAGE_MODELS[f.imageModel].generator]({ text: prompt, seed: ctx.job.input.seed + 900, width: f.width, height: f.height, prefix: `panel/${ctx.job.id}/frame` });
+  const list = images(await ctx.runComfy(graph, { stage: 'Video · first frame', range: [0, 3] }), nodes(graph, 'SaveImage')[0]);
+  if (!list.length) throw new Error('The first frame could not be drawn (the image model returned no image).');
+  const temp = `${target}.temp.png`;
+  await ctx.comfy.getOutput(list[0], temp);
+  renameSync(temp, target);
+  ctx.measure(`image/${f.imageModel}`, (Date.now() - startedAt) / 1000);
+  ctx.log(`First frame drawn from the prompt with ${IMAGE_MODELS[f.imageModel].name} (${Math.round((Date.now() - startedAt) / 1000)} s).`);
 }
 
 /** Son kareyi kaynak gorseldeki karakterle hizalar (Qwen-Image-Edit: 1. gorsel kare, 2. gorsel kaynak). Doner: hedef. */

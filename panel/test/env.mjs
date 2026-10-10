@@ -18,6 +18,7 @@ import { createPanelServer } from '../lib/http.mjs';
 import * as image from '../lib/jobs/image.mjs';
 import * as video from '../lib/jobs/video.mjs';
 import * as voice from '../lib/jobs/voice.mjs';
+import * as speech from '../lib/jobs/speech.mjs';
 import * as clone from '../lib/jobs/clone.mjs';
 import * as film from '../lib/jobs/film.mjs';
 import * as music from '../lib/jobs/music.mjs';
@@ -104,7 +105,7 @@ export async function createPanel({ mode = 'normal', voiceEnv = {}, comfyClosed 
   const comfy = new ComfyClient({ address: comfyAddress, comfyFolder: null });
   // Testler de gerçek kurulum gibi veritabanıyla çalışır (liste, sayfa, ortalamalar sorgudan).
   const db = new Database(join(setting.dataRoot, 'panel.db'));
-  const queue = new Queue({ setting, comfy, mod, db, runners: { image, video, voice, clone, film, music, song, model3d, training, data, describe, pageVideo } });
+  const queue = new Queue({ setting, comfy, mod, db, runners: { image, video, voice, speech, clone, film, music, song, model3d, training, data, describe, pageVideo } });
   queue.load();
   queue.start();
   const downloader = new Downloader({ modelRoot: setting.modelRoot, protectedRoots: [setting.aiRoot], recordPath: join(setting.dataRoot, DATA_FILES.downloads), changed: () => queue.changed() });

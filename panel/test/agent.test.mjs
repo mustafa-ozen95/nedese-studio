@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLlm } from '../lib/llm.mjs';
 import { toolBlocks, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, uninstalledTools, cleanSources, followUpList } from '../lib/agent/agent.mjs';
-import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, sourceTrust, mcpCommand, localPaths, terminalText, TOOLS } from '../lib/agent/tools.mjs';
+import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, messageLanguage, sourceTrust, mcpCommand, localPaths, terminalText, TOOLS } from '../lib/agent/tools.mjs';
 import { McpClient, McpManager, expandVariables, functionSchema, mcpFunctionName, mcpServers, nativeMcpTools, progressText } from '../lib/agent/mcp.mjs';
 import { startFakeMcpHttp } from './fake-mcp-http.mjs';
 import { startFakeRemote } from './fake-remote-llm.mjs';
@@ -1282,6 +1282,12 @@ test('web search helpers: Bing redirect target, relevance filter, page excerpt, 
   assert.equal(guessLanguage("Bursa'da hava nasıl"), 'tr');
   assert.equal(guessLanguage('dolar kuru bugun'), 'tr');
   assert.equal(guessLanguage('Node.js latest LTS version'), 'en');
+  // a chat's first message with no clear language is not called English: the model reads it (user 10.10.2026: "Naber"
+  // got an English answer); a clear one is marked, an unclear later one keeps the language before it
+  for (const m of ['Naber', 'slm', 'pinterst']) assert.equal(messageLanguage(m), null, m);
+  assert.deepEqual([messageLanguage('Naber', 'tr'), messageLanguage('Naber', 'en')], ['tr', 'en']);
+  for (const m of ['bana bir kedi ciz', 'nasılsın']) assert.equal(messageLanguage(m), 'tr', m);
+  for (const m of ['Hello', 'draw me a cat', 'What is this?']) assert.equal(messageLanguage(m), 'en', m);
   // Trust: official > well-known > unknown > low trust (a .xyz copy site was cited over MGM and AccuWeather)
   assert.equal(sourceTrust('https://www.mgm.gov.tr/tahmin/il-ve-ilceler.aspx?il=Bursa'), 2);
   assert.equal(sourceTrust('https://www.bursa.bel.tr/'), 2);

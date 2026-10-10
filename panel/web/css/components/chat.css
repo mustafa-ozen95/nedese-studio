@@ -862,6 +862,11 @@
     fill-opacity: 0.25;
 }
 
+/* Read aloud while the panel prepares the voice */
+.message__action.is-busy svg {
+    animation: chat-pulse 1.2s ease-in-out infinite;
+}
+
 /* The user's messages: Edit shows on hover with a mouse (always on touch screens); the version switcher always */
 @media (hover: hover) {
     .message--user .message__actions:not(:has([data-branch-label])) {
@@ -1815,10 +1820,10 @@ a.file-chip:focus-visible {
 
 /* Send and Stop: square buttons with an icon, like other chat apps (user request 08.10.2026) */
 .chat__send {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     padding: 0;
-    border-radius: 10px;
+    border-radius: 9px;
 }
 
 .chat__send svg {

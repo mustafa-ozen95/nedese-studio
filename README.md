@@ -19,7 +19,7 @@ A local AI media studio for Windows: image, video, voice, music, 3D model and si
 - **Film:** scenes, character consistency, narration, dialogue, music, subtitles and optional lip sync (InfiniteTalk + LatentSync) combined into one video.
 - **Model training:** text model (QLoRA or from scratch), image LoRA, video LoRA, music LoRA and a general image + text model.
 - **Data collection:** text, images, video and audio from websites and Wikimedia Commons, ready for training; images are described by the local text model.
-- **Local text model:** Gemma (llama.cpp) at an OpenAI-compatible `/llm/v1` endpoint.
+- **Local text model:** Bonsai 2 27B by default, Gemma 4 26B as a choice (llama.cpp) at an OpenAI-compatible `/llm/v1` endpoint.
 - **Chat and agent:** the local text model drives the panel with tool calls (see below).
 - **API:** everything the panel does is available through `/api/v1` (docs in the panel at `/api/documents`).
 

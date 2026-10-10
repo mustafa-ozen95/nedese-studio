@@ -37,10 +37,13 @@ export const JOB_TYPES = {
   },
   video: {
     name: 'Video',
-    description: 'Video from a source image with Wan 2.2. Unlimited duration: generated in ~5 s segments, each segment continues from the last frame of the previous one; when the segments are done they are joined without re-encoding. A retry continues from the last finished segment.',
+    description: 'Video from a source image, or from text alone, with Wan 2.2. Without a source the first frame is drawn from the prompt with an image model (kept as frame.png). Unlimited duration: generated in ~5 s segments, each segment continues from the last frame of the previous one; when the segments are done they are joined without re-encoding. A retry continues from the last finished segment.',
     fields: [
-      { name: 'source', type: 'string', required: true, description: 'Source image: "job/<jobId>/<file>" (from the gallery) or "upload/<file>" (from uploads).' },
-      { name: 'prompt', type: 'string', required: false, description: 'Motion prompt (English); a natural gentle motion if empty.' },
+      { name: 'source', type: 'string', required: false, description: 'Source image: "job/<jobId>/<file>" (from the gallery) or "upload/<file>" (from uploads). Leave it out to make the video from text.' },
+      { name: 'prompt', type: 'string', required: false, description: 'Motion prompt (English); a natural gentle motion if empty. Required without a source: it then also describes the first frame unless image is given.' },
+      { name: 'image', type: 'string', required: false, description: 'Without a source: what the first frame shows (defaults to prompt).' },
+      { name: 'ratio', type: 'string', required: false, defaultValue: '16:9', options: Object.keys(RATIOS), description: 'Without a source: aspect ratio of the first frame and the video.' },
+      { name: 'imageModel', type: 'string', required: false, options: Object.keys(IMAGE_MODELS), description: 'Without a source: the image model that draws the first frame (qwen, or flux when Qwen-Image is not on this machine).' },
       { name: 'title', type: 'string', required: false, description: 'Short name shown on the job, gallery and chat cards instead of the prompt, in the language of the user (at most 120 characters).' },
       { name: 'model', type: 'string', required: false, defaultValue: 'wan14', options: Object.keys(VIDEO_MODELS), description: 'wan14: Wan 2.2 A14B (best, 16 fps, 81 frames/part), wan5: Wan 2.2 5B (light, 24 fps).' },
       { name: 'lora', type: 'string', required: false, description: 'Video LoRA file trained in the panel (GET /training → trained[] with field=video → lora); only with model=wan5. The trigger word is added to the prompt automatically.' },
@@ -54,6 +57,15 @@ export const JOB_TYPES = {
       { name: 'seed', type: 'integer', required: false, description: 'Random seed; part p uses seed+p.' },
     ],
     example: { type: 'video', source: 'upload/20261003-120000-frame.png', prompt: 'slow push in, snow falling', duration: 30, resolution: '480p', fps: '30' },
+  },
+  speech: {
+    name: 'Read aloud',
+    description: "Reads a text (a chat answer) in the panel's default voice, one take. Not shown in the gallery or the job pages; the chat's Read aloud button uses it and plays voice.wav.",
+    fields: [
+      { name: 'text', type: 'string', required: true, description: 'Text to read (max 5000 characters).' },
+      { name: 'lang', type: 'string', required: false, defaultValue: 'tr', options: ['tr', 'en'] },
+    ],
+    example: { type: 'speech', text: 'The picture is ready: a red fox in the snow.', lang: 'en' },
   },
   voice: {
     name: 'Voice',
