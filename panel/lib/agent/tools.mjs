@@ -103,6 +103,19 @@ export function mcpCommand(command, args) {
   return { command: parts[0], args: parts.slice(1) };
 }
 
+/**
+ * A server's script given relative to the chat's working folder ("panel-data\tools\qr\server.py") as a full path: the
+ * server is started later and from another folder. Only paths that exist there change; options and package names stay.
+ */
+export function localPaths(b, { command, args }) {
+  const full = (a) => {
+    if (!a || a.startsWith('-') || isAbsolute(a) || !/[\\/.]/.test(a)) return a;
+    const y = resolve(b.cwd, a);
+    return existsSync(y) ? y : a;
+  };
+  return { command: full(command), args: args.map(full) };
+}
+
 export function isDestructiveApi(method, path) {
   const y = String(method ?? 'GET').toUpperCase();
   const p = String(path ?? '');
@@ -1596,7 +1609,7 @@ export const TOOLS = [
       const definition = g.url
         ? { type: 'http', url: String(g.url), ...(g.headers ? { headers: strings(g.headers) } : {}), ...limit }
         : g.command
-          ? { ...mcpCommand(g.command, g.args), ...(g.env && Object.keys(g.env).length ? { env: strings(g.env) } : {}), ...limit }
+          ? { ...localPaths(b, mcpCommand(g.command, g.args)), ...(g.env && Object.keys(g.env).length ? { env: strings(g.env) } : {}), ...limit }
           : null;
       if (!definition) throw new Error('Give command (+ args) for a local server or url for a remote one.');
       const previous = b.mcp.panelDefinition(g.name);

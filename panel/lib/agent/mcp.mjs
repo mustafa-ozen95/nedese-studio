@@ -18,7 +18,7 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { killTree } from '../process.mjs';
 import { DATA_FILES } from '../data-files.mjs';
 import { pluginFolders, pluginMcpServers } from './plugins.mjs';
@@ -595,6 +595,13 @@ export class McpClient {
   }
 }
 
+/** PATH with the panel's own python, python\Scripts and node folders first (those that exist), under the key Windows uses. */
+export function ownPrograms(aiRoot) {
+  const own = ['python', join('python', 'Scripts'), 'node'].map((d) => join(aiRoot, d)).filter((d) => existsSync(d));
+  const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  return own.length ? { [key]: [...own, process.env[key] ?? ''].join(delimiter) } : {};
+}
+
 /** Ad -> istemci; sunucu bir kez acilir, panel kapanirken hepsi kapanir. */
 export class McpManager {
   constructor({ aiRoot, dataRoot, env = process.env, log = () => {} }) {
@@ -611,7 +618,10 @@ export class McpManager {
     if (!definition) throw new Error(`No such MCP server: "${name}". Known: ${Object.keys(this.servers()).join(', ') || '(none)'}`);
     let i = this.clients.get(name);
     if (!i) {
-      i = new McpClient(definition, { log: this.log });
+      // A local server sees the panel's own Python and Node first on its PATH, like the agent's commands, and starts in
+      // the panel's folder (10.10.2026: the agent's "python <its server>.py" hit the Microsoft Store alias)
+      const local = definition.type === 'stdio' ? { env: { ...ownPrograms(this.aiRoot), ...definition.env }, cwd: definition.cwd ?? this.aiRoot } : {};
+      i = new McpClient({ ...definition, ...local }, { log: this.log });
       this.clients.set(name, i);
     }
     return i;

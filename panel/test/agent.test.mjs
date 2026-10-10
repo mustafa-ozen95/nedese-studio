@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLlm } from '../lib/llm.mjs';
 import { toolBlocks, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, uninstalledTools, cleanSources, followUpList } from '../lib/agent/agent.mjs';
-import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, sourceTrust, mcpCommand, terminalText, TOOLS } from '../lib/agent/tools.mjs';
+import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, sourceTrust, mcpCommand, localPaths, terminalText, TOOLS } from '../lib/agent/tools.mjs';
 import { McpClient, McpManager, expandVariables, functionSchema, mcpFunctionName, mcpServers, nativeMcpTools, progressText } from '../lib/agent/mcp.mjs';
 import { startFakeMcpHttp } from './fake-mcp-http.mjs';
 import { startFakeRemote } from './fake-remote-llm.mjs';
@@ -294,6 +294,19 @@ test('installing what the agent needs: skills from a folder or GitHub address, M
     assert.match(await run('add_mcp_server', { name: 'calc', command: `"${process.execPath}" "${FAKE_MCP}"` }, b), /added; 1 tools: collect/);
     assert.deepEqual([b.mcp.servers().calc.command, b.mcp.servers().calc.args], [process.execPath, [FAKE_MCP]]);
     assert.match(await run('add_mcp_server', { name: 'calc', remove: true }, b), /removed/);
+    // A server the agent wrote, started with a program only the panel has ("python" from <ai>\python, 10.10.2026: it
+    // hit the Microsoft Store alias) and its script given relative to the chat folder: found on the panel's PATH, the
+    // script path stored in full
+    if (process.platform === 'win32') {
+      mkdirSync(join(root, 'node'), { recursive: true });
+      writeFileSync(join(root, 'node', 'ownnode.cmd'), `@"${process.execPath}" %*\r\n`);
+      mkdirSync(join(root, 'tools', 'calc'), { recursive: true });
+      writeFileSync(join(root, 'tools', 'calc', 'server.mjs'), readFileSync(FAKE_MCP));
+      assert.match(await run('add_mcp_server', { name: 'own', command: 'ownnode', args: ['tools\\calc\\server.mjs'] }, b), /added; 1 tools: collect/);
+      assert.deepEqual(b.mcp.servers().own.args, [join(root, 'tools', 'calc', 'server.mjs')]);
+      assert.match(await run('add_mcp_server', { name: 'own', remove: true }, b), /removed/);
+    }
+    assert.deepEqual(localPaths({ cwd: root }, { command: 'uvx', args: ['mcp-server-time', '--local-timezone', 'Europe/Istanbul', 'missing\\x.py'] }), { command: 'uvx', args: ['mcp-server-time', '--local-timezone', 'Europe/Istanbul', 'missing\\x.py'] }, 'package names, options and missing paths stay');
     assert.deepEqual(mcpCommand('uvx mcp-server-time --local-timezone Europe/Istanbul'), { command: 'uvx', args: ['mcp-server-time', '--local-timezone', 'Europe/Istanbul'] });
     assert.deepEqual(mcpCommand('npx', ['-y', 'x']), { command: 'npx', args: ['-y', 'x'] }, 'given args are kept');
     assert.deepEqual(mcpCommand(process.execPath), { command: process.execPath, args: [] }, 'an existing path is never split');
