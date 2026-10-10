@@ -1864,11 +1864,12 @@ export class AgentManager {
         this.save(s);
         continue;
       }
-      // Finishing with a tool written but not installed: once per run the model is sent back to install and test it
-      const notInstalled = !r.calls.length && !s.work.installNoted ? uninstalledTools(s.messages) : [];
+      // Finishing with a tool written but not installed: twice per run the model is sent back to install and test it
+      // (10.10.2026: after one note its install_skill call was wrong and it answered "installed" anyway)
+      const notInstalled = !r.calls.length && (s.work.installNoted ?? 0) < 2 ? uninstalledTools(s.messages) : [];
       if (notInstalled.length) {
-        s.work.installNoted = true;
-        s.messages.push({ role: 'user', hidden: true, content: `[You wrote a tool in ${notInstalled.map((f) => `panel-data\\tools\\${f}`).join(', ')} but did not install it, so it is not available. Install it now: install_skill with that folder (its SKILL.md starts with front matter: ---, name: …, description: …, ---) or add_mcp_server for an MCP server script (command: python, args: [the script's path]); then test it with one real call. If you do not keep it, tell the user plainly that nothing was installed. Never say a tool is installed when it is not.]`, time: new Date().toISOString() });
+        s.work.installNoted = (s.work.installNoted ?? 0) + 1;
+        s.messages.push({ role: 'user', hidden: true, content: `[You wrote a tool in ${notInstalled.map((f) => `panel-data\\tools\\${f}`).join(', ')} but did not install it, so it is not available. Install it now: install_skill with source = that folder (its SKILL.md starts with front matter: ---, name: …, description: …, ---) or add_mcp_server for an MCP server script (command: python, args: [the script's path]); then test it with one real call. If you do not keep it, tell the user plainly that nothing was installed. Never say a tool is installed when it is not.]`, time: new Date().toISOString() });
         this.save(s);
         continue;
       }

@@ -1542,9 +1542,13 @@ export const TOOLS = [
         b.skillsChanged?.();
         return `Skill removed: ${folder} (in the Recycle Bin).`;
       }
-      if (!g.source) return 'Give source: a GitHub address or a folder.';
-      const source = githubSource(g.source) ? String(g.source) : parsePath(b, g.source);
-      const r = await installSkill({ source, skill: g.skill ?? '', dataRoot: b.setting.dataRoot, replace: Boolean(g.replace), ...githubFetch(b) });
+      // A folder or address given as skill (the model's call on 10.10.2026: install_skill { skill: "C:\…\qr_generator" })
+      // is the source
+      const asSource = (v) => Boolean(v) && (Boolean(githubSource(v)) || existsSync(parsePath(b, v)));
+      const given = g.source || (asSource(g.skill) ? g.skill : null);
+      if (!given) throw new Error('Give source: a GitHub address or a folder (the folder with SKILL.md).');
+      const source = githubSource(given) ? String(given) : parsePath(b, given);
+      const r = await installSkill({ source, skill: g.source ? g.skill ?? '' : '', dataRoot: b.setting.dataRoot, replace: Boolean(g.replace), ...githubFetch(b) });
       if (r.choices) return `This source has ${r.choices.length} skills; call install_skill again with skill:\n${r.choices.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`;
       b.skillsChanged?.();
       return `Installed skill "${r.installed.name}" in ${r.installed.folder}. Load it with load_skill when a task needs it.`;
@@ -1568,7 +1572,7 @@ export const TOOLS = [
         b.skillsChanged?.();
         return `Plugin removed: ${folder} (in the Recycle Bin).`;
       }
-      if (!g.source) return 'Give source: a GitHub address or a folder of a plugin or marketplace.';
+      if (!g.source) throw new Error('Give source: a GitHub address or a folder of a plugin or marketplace.');
       const source = githubRepo(g.source) ? String(g.source) : parsePath(b, g.source);
       const r = await installPlugin({ source, plugin: g.plugin ?? '', dataRoot: b.setting.dataRoot, replace: Boolean(g.replace), ...githubFetch(b), stop: (folder) => b.mcp?.prune(Object.keys(pluginMcpServers(folder) ?? {})) });
       if (r.choices) return `This marketplace has ${r.choices.length} plugins; call install_plugin again with plugin:\n${r.choices.map((p) => `- ${p.name}: ${p.description}`).join('\n')}`;
@@ -1594,7 +1598,7 @@ export const TOOLS = [
         : g.command
           ? { ...mcpCommand(g.command, g.args), ...(g.env && Object.keys(g.env).length ? { env: strings(g.env) } : {}), ...limit }
           : null;
-      if (!definition) return 'Give command (+ args) for a local server or url for a remote one.';
+      if (!definition) throw new Error('Give command (+ args) for a local server or url for a remote one.');
       const previous = b.mcp.panelDefinition(g.name);
       const name = b.mcp.save(g.name, definition);
       try {

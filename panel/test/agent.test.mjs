@@ -2192,6 +2192,12 @@ test('a tool the agent wrote but did not install: it is sent back once to instal
     writeFileSync(join(bare, 'SKILL.md'), '# QR Generator Skill\n\nMakes QR codes.');
     const b = o.agent.toolContext(o.agent.get(s.id), new AbortController().signal);
     await assert.rejects(TOOLS.find((t) => t.name === 'install_skill').run({ source: bare }, b), /SKILL\.md has no description: start it with front matter/);
+    // the folder given as skill (the model's wrong call) is the source; nothing to install is an error, not a plain answer
+    writeFileSync(join(bare, 'SKILL.md'), '---\nname: bare\ndescription: Makes QR codes\n---\nRun it.');
+    assert.match(await TOOLS.find((t) => t.name === 'install_skill').run({ skill: bare }, b), /Installed skill "bare"/);
+    await assert.rejects(TOOLS.find((t) => t.name === 'install_skill').run({ skill: 'no-such-folder' }, b), /Give source/);
+    await assert.rejects(TOOLS.find((t) => t.name === 'install_plugin').run({ plugin: 'document-skills' }, b), /Give source/);
+    await assert.rejects(TOOLS.find((t) => t.name === 'add_mcp_server').run({ name: 'x' }, b), /Give command/);
   } finally {
     await o.close();
   }
