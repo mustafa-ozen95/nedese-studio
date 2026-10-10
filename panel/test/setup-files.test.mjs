@@ -38,3 +38,22 @@ test('setup: the tools it extracts are in tools.json; Bonsai and its PrismML ser
   const llm = findLlm(root, '');
   assert.deepEqual([llm.file, llm.bin, llm.mmproj], [models[0], join(root, 'llm', 'bin-prism', exe), join(root, 'llm', 'models', models[1])]);
 });
+
+test('setup: singing in a voice gets its code, environment and helper models where the panel looks for them', () => {
+  const script = readFileSync(join(setup, 'setup.ps1'), 'utf8');
+  const settings = readFileSync(join(setup, '..', 'panel', 'lib', 'settings.mjs'), 'utf8');
+  // the code (vendored with its commit) goes to voice\svc, the environment to voice\svc\.venv: where settings.mjs runs it
+  assert.match(readFileSync(join(setup, 'vendor', 'YingMusic-SVC', 'SOURCE.txt'), 'utf8'), /commit [0-9a-f]{40}/);
+  assert.match(script, /\$Svc = Join-Path \$Root 'voice\\svc'/);
+  assert.match(script, /Copy-Vendor 'YingMusic-SVC' \$Svc/);
+  assert.match(settings, /svcPython = join\(aiRoot, 'voice', 'svc', '\.venv', 'Scripts', 'python\.exe'\)/);
+  assert.match(readFileSync(join(setup, 'lock', 'svc.txt'), 'utf8'), /^torch==[\d.]+\+cu130$/m);
+  assert.match(script, /voice-models\.py'\), 'svc'\)/);
+  // the helpers at pinned revisions, one file at a time: parallel downloads into a new cache folder raced huggingface_hub's
+  // symbolic link check and failed with WinError 1314 (10.10.2026)
+  const models = readFileSync(join(setup, 'voice-models.py'), 'utf8');
+  const svc = models.slice(models.indexOf('elif mode == "svc"'), models.indexOf('else:\n    sys.exit'));
+  assert.equal([...svc.matchAll(/"[0-9a-f]{40}"/g)].length, 4);
+  assert.match(svc, /snapshot_download\(.*cache_dir=.*max_workers=1\)/);
+  assert.match(svc, /refs.*\n.*"main"/);
+});

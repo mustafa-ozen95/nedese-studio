@@ -14,7 +14,7 @@
 # the lock files, and the models from Hugging Face.
 #
 #   setup.bat                  interactive (asks about the models)
-#   setup.bat -Models all      image + video + music + voice models + text model + lip sync + mouth correction (~147 GB)
+#   setup.bat -Models all      image + video + music + voice models + text model + lip sync + mouth correction + singing voice (~149 GB)
 #   setup.bat -Models none     no model download (download them later in the panel's Settings, or move your own files)
 param(
     [ValidateSet('ask', 'all', 'none')][string]$Models = 'ask',
@@ -323,6 +323,26 @@ if (Test-Lock $lipMarker $lipDigest) { Done 'Mouth correction (LatentSync) ready
     Done 'Mouth correction (LatentSync) installed.'
 }
 
+# Singing in a voice (voice\sing.py): a song sung again in a library voice. YingMusic-SVC (GiantAILab; code MIT in
+# setup\vendor\YingMusic-SVC, commit in SOURCE.txt; weights CC BY-NC 4.0) in its own environment (Python 3.12.14, torch
+# cu130). The small helper models come with voice-models.py svc, the two large ones (~2 GB) with download-models.mjs
+# (catalog "Singing voice (YingMusic-SVC)").
+$Svc = Join-Path $Root 'voice\svc'
+$svcVenv = Join-Path $Svc '.venv'
+$svcPy = Join-Path $svcVenv 'Scripts\python.exe'
+$svcLock = Join-Path $PSScriptRoot 'lock\svc.txt'
+$svcMarker = Join-Path $svcVenv '.setup-lock'
+Copy-Vendor 'YingMusic-SVC' $Svc | Out-Null
+$svcDigest = (Get-FileHash $svcLock -Algorithm SHA256).Hash + (Get-FileHash (Join-Path $PSScriptRoot 'voice-models.py') -Algorithm SHA256).Hash
+if (Test-Lock $svcMarker $svcDigest) { Done 'Singing voice (YingMusic-SVC) ready.' } else {
+    if (-not (Test-Path $svcPy)) { Invoke-Step $Uv @('venv', '--python', '3.12.14', $svcVenv) 'Singing voice environment' }
+    Invoke-Step $Uv @('pip', 'install', '--no-deps', '--python', $svcPy, '-r', $svcLock, '--index-url', 'https://download.pytorch.org/whl/cu130', '--extra-index-url', 'https://pypi.org/simple', '--index-strategy', 'unsafe-best-match') 'Singing voice packages'
+    $env:PYTHONUTF8 = '1'
+    Invoke-Step $svcPy @((Join-Path $PSScriptRoot 'voice-models.py'), 'svc') 'Singing voice helper models'
+    Set-Content $svcMarker $svcDigest
+    Done 'Singing voice (YingMusic-SVC) installed.'
+}
+
 # Music LoRA training (training\music.py): Side-Step (koda-dernet, MIT; code in setup\vendor\Side-Step); ACE-Step 1.5 LoRA.
 # Its repository has no uv.lock (.gitignore): the solution that works here is kept as setup\lock\sidestep-uv.lock, copied
 # into the source and installed exactly (Python 3.11.16, torch 2.7.1 cu128, a prebuilt flash-attn wheel).
@@ -395,7 +415,8 @@ if ($choice -eq 'none') {
             @{ question = 'Video: Wan 2.2 5B (light, ~11 GB)'; generator = 'wanJob' },
             @{ question = 'Music: ACE-Step 1.5 (~10 GB)'; generator = 'musicJob' },
             @{ question = 'Lip sync: InfiniteTalk (lips follow the voice in films with dialogue, ~16 GB)'; generator = 'lipJob' },
-            @{ question = 'Mouth correction: LatentSync (the mouths of talking people follow the voice, ~5.5 GB)'; generator = 'mouthJob' }
+            @{ question = 'Mouth correction: LatentSync (the mouths of talking people follow the voice, ~5.5 GB)'; generator = 'mouthJob' },
+            @{ question = 'Singing in a voice: YingMusic-SVC (a song sung again in your own voice, ~2 GB)'; generator = 'singJob' }
         )
         foreach ($g in $groups) {
             $y = Read-Host "   Download $($g.question)? [Y/n]"
@@ -543,6 +564,7 @@ Test-Tool 'VoxCPM2' (Join-Path $Root 'voice\voxcpm\.venv\Scripts\python.exe') @(
 Test-Tool 'Voice design' (Join-Path $Root 'voice\design\.venv\Scripts\python.exe') @('-c', "$torchCheck; import qwen_tts")
 Test-Tool 'EMA Lightning' $emaPy @('-c', "$torchCheck; import ema_lightning")
 Test-Tool 'Mouth correction (LatentSync)' $lipPy @('-c', "$torchCheck; import mediapipe, diffusers, kornia, DeepCache, torchvision")
+Test-Tool 'Singing voice (YingMusic-SVC)' $svcPy @('-c', "$torchCheck; import librosa, transformers, dac, einops, soundfile")
 Test-Tool 'Model training' (Join-Path $Root 'training\.venv\Scripts\python.exe') @('-c', "$torchCheck; import peft, bitsandbytes, sentencepiece, gguf")
 Test-Tool 'Image training' (Join-Path $Root 'training\musubi\.venv\Scripts\python.exe') @('-c', "$torchCheck; import musubi_tuner, accelerate, diffusers, bitsandbytes")
 Test-Tool 'Music training' (Join-Path $Root 'training\sidestep\.venv\Scripts\python.exe') @('-c', "$torchCheck; import sidestep_engine, peft, lightning, bitsandbytes")

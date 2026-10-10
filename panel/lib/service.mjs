@@ -184,6 +184,8 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
         // 3D model: TRELLIS.2 kurulu mu, Blender var mi (tanitim videosu, FBX/OBJ/STL).
         hasModel3d: generatorStatus(mod, 'trellis2Job').available,
         hasBlender: Boolean(setting.blender),
+        // Sing in a voice: the YingMusic-SVC models are downloaded (Settings > Models)
+        hasSing: setting.hasSing,
         hasSceneWriter: Boolean(setting.sceneWriter || hasText()),
         // Arayüz motora göre alan gösterir (Duygu şiddeti yalnız Chatterbox'ta etkili).
         voiceEngine: settingFile?.voiceEngine ?? 'voxcpm',

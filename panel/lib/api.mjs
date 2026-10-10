@@ -127,6 +127,18 @@ export const JOB_TYPES = {
     ],
     example: { type: 'song', source: 'job/20261004-010613-music-5e4c/music.mp3', style: 'lo-fi hip hop, mellow piano, vinyl crackle', strength: 'medium' },
   },
+  sing: {
+    name: 'Sing in a voice',
+    description: 'Sings an existing song again in a voice from the voice library (e.g. the user\'s own voice from "My voice"); the melody, words and instruments stay (YingMusic-SVC, up to 10 min). The vocals are separated, the lead vocal (and backing vocals) converted, then mixed back. Outputs: song.mp3 (the mix) and vocal.mp3 (the new vocal alone). Model: Settings > Models > Singing voice (YingMusic-SVC).',
+    fields: [
+      { name: 'source', type: 'string', required: true, description: 'Song with vocals: "upload/…" (POST /uploads/music) or "job/<id>/<file>" (music from the gallery).' },
+      { name: 'voice', type: 'string', required: true, description: 'Library voice: "ref:<id>" (GET /voices).' },
+      { name: 'title', type: 'string', required: false, description: 'Short name shown on the job, gallery and chat cards (at most 120 characters).' },
+      { name: 'shift', type: 'integer', required: false, options: [-12, 0, 12], description: 'Octave change: -12 lower, 0 as sung, 12 higher. Empty: chosen from the two voices. Only whole octaves, the instrumental keeps its key.' },
+      { name: 'backing', type: 'boolean', required: false, defaultValue: true, description: 'Sing the backing vocals in the new voice too.' },
+    ],
+    example: { type: 'sing', source: 'job/20261004-010613-music-5e4c/music.mp3', voice: 'ref:my-voice-1a2b' },
+  },
   audioEdit: {
     name: 'Edit audio',
     description: "Edits the given audio (or a video's sound) from a Turkish instruction. The instruction is turned into a list of operations (local text model) applied in order: cut, speed, pitch, noise removal, silence trimming, loudness, volume, echo, fades, converting to another library voice. The plan is in the job log; requests that cannot be done come back as a warning.",

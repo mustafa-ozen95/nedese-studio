@@ -23,6 +23,7 @@ export const FOLDERS = {
   audio_encoders: 'Audio encoders (lip sync)',
   model_patches: 'Model patches (lip sync)',
   latentsync: 'Mouth correction (LatentSync)',
+  singing: 'Singing voice (YingMusic-SVC)',
 };
 
 const MODEL_FIELDS = { unet_name: 'diffusion_models', ckpt_name: 'checkpoints', lora_name: 'loras', clip_name: 'text_encoders', clip_name1: 'text_encoders', clip_name2: 'text_encoders', vae_name: 'vae', bg_removal_name: 'background_removal', audio_encoder_name: 'audio_encoders' };
@@ -30,7 +31,7 @@ const MODEL_FIELDS = { unet_name: 'diffusion_models', ckpt_name: 'checkpoints', 
 const CLASS_FIELDS = { CLIPVisionLoader: { clip_name: 'clip_vision' }, LoadMoGeModel: { model_name: 'geometry_estimation' }, ModelPatchLoader: { name: 'model_patches' } };
 const FILE_NAME = /^[\w.-]+$/;
 
-export const GENERATOR_NAMES = { qwenJob: 'Image: Qwen-Image 2512', fluxJob: 'Image: FLUX.2 klein', wan14Job: 'Video: Wan 2.2 A14B', wanJob: 'Video: Wan 2.2 5B', musicJob: 'Music: ACE-Step 1.5', songEditJob: 'Song editing: ACE-Step 1.5', editJob: 'Image editing: Qwen-Image-Edit', trellis2Job: '3D model: TRELLIS.2', lipJob: 'Lip sync: InfiniteTalk', mouthJob: 'Mouth correction: LatentSync' };
+export const GENERATOR_NAMES = { qwenJob: 'Image: Qwen-Image 2512', fluxJob: 'Image: FLUX.2 klein', wan14Job: 'Video: Wan 2.2 A14B', wanJob: 'Video: Wan 2.2 5B', musicJob: 'Music: ACE-Step 1.5', songEditJob: 'Song editing: ACE-Step 1.5', editJob: 'Image editing: Qwen-Image-Edit', trellis2Job: '3D model: TRELLIS.2', lipJob: 'Lip sync: InfiniteTalk', mouthJob: 'Mouth correction: LatentSync', singJob: 'Singing in a voice: YingMusic-SVC' };
 
 /**
  * The default model set (setup.bat -Models all, Settings "Download default models"): every catalog entry except the
@@ -186,6 +187,10 @@ export const CATALOG = [
   { id: 'mouth-whisper', group: 'Mouth correction (LatentSync)', name: 'Whisper tiny (audio features)', folder: 'latentsync', file: 'whisper-tiny.pt', urlFile: 'tiny.pt', url: `${HF}/ByteDance/LatentSync-1.5/resolve/main/whisper/tiny.pt`, size: 75572083, sha256: '65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9', user: ['mouthJob'] },
   { id: 'mouth-vae', group: 'Mouth correction (LatentSync)', name: 'SD VAE ft-mse', folder: 'latentsync', file: 'sd-vae-ft-mse.safetensors', urlFile: 'diffusion_pytorch_model.safetensors', url: `${HF}/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.safetensors`, size: 334643276, sha256: 'a1d993488569e928462932c8c38a0760b874d166399b14414135bd9c42df5815', user: ['mouthJob'] },
   { id: 'mouth-face', group: 'Mouth correction (LatentSync)', name: 'MediaPipe face landmarks', folder: 'latentsync', file: 'face_landmarker.task', url: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', size: 3758596, sha256: '64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff', user: ['mouthJob'] },
+  // Singing in a voice (voice\sing.py): YingMusic-SVC (GiantAILab; code MIT, weights CC BY-NC 4.0), zero-shot, built on Seed-VC;
+  // its BS-RoFormer separates the lead vocal, backing vocals and instrumental first.
+  { id: 'singing-svc', group: 'Singing voice (YingMusic-SVC)', name: 'YingMusic-SVC', folder: 'singing', file: 'YingMusic-SVC-full.pt', url: `${HF}/GiantAILab/YingMusic-SVC/resolve/da6b73938afeb7ede4c8d93ef007af2abb04ef49/YingMusic-SVC-full.pt`, size: 731683240, sha256: '8e4b83e18669b046be79e7c6a979ad33f162d2a75c40213d998ad5687d7c6054', user: ['singJob'], note: 'An existing song sung again in a library voice (Edit > Sing in a voice); the melody and instruments stay. Both files are required.' },
+  { id: 'singing-separator', group: 'Singing voice (YingMusic-SVC)', name: 'BS-RoFormer vocal separator', folder: 'singing', file: 'bs_roformer.ckpt', url: `${HF}/GiantAILab/YingMusic-SVC/resolve/da6b73938afeb7ede4c8d93ef007af2abb04ef49/bs_roformer.ckpt`, size: 1295074954, sha256: '364964794b0c82c843c53099d80b6ecfee852cf2bf42f098515276c779623bb6', user: ['singJob'] },
   { id: 'lip-wav2vec2', group: 'Lip sync (InfiniteTalk)', name: 'wav2vec2 Chinese base audio encoder (fp16)', folder: 'audio_encoders', file: 'wav2vec2-chinese-base_fp16.safetensors', url: `${HF}/Kijai/wav2vec2_safetensors/resolve/main/wav2vec2-chinese-base_fp16.safetensors`, size: 190115368, sha256: '000813e441020f18cff844c969d2d5d4adc2a5ce46b2db1f23950b05d88805b4' },
 
   // TRELLIS.2 (gorselden 3D model; Microsoft, MIT). ComfyUI 0.37 yerlesik dugumleri.

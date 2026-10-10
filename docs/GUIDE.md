@@ -55,6 +55,26 @@ Python 3.13, pinned to transformers 4.57.3, conflicts with Chatterbox). `exagger
 a slower, more measured reading. Write foreign words like "Prime" the way they are pronounced ("Praym").
 The voice environment is **separate** from ComfyUI: Chatterbox pins PyTorch to 2.6 on Python ≤3.13, which does not recognise the RTX 50 series.
 
+### Singing in a voice (Edit > Sing in a voice, 10.10.2026)
+
+An existing song is sung again in a voice from the library (your own voice from "My voice", a designed or uploaded one); the melody,
+words and instruments stay. `voice\sing.py` drives **YingMusic-SVC** (GiantAILab, zero-shot, built on Seed-VC; code MIT in
+`voice\svc`, weights **CC BY-NC 4.0: noncommercial use**):
+1. BS-RoFormer splits the song into lead vocal, backing vocals and instrumental;
+2. the lead vocal (and, by default, the backing vocals) is converted to the library voice's timbre (its WAV is the reference, up to 25 s);
+3. ffmpeg mixes the converted vocal back with the instrumental (`song.mp3`); `vocal.mp3` is the new vocal alone.
+
+- **Octave, not key:** the instrumental is not moved, so the vocal moves only by whole octaves (−12 / 0 / +12). "Automatic" lets the
+  model pick from the two voices' pitch (an octave when the difference is ≥7 semitones after its adaptive factor; a male arabesk song with
+  the EMA female voice stayed at 0, predicted 4.2).
+- **Measured (RTX 5070, 150 s arabesk song):** separation ~50 s with model load (~6.7 GB VRAM), conversion RTF 0.19-0.31; lead +
+  backing 87 s in all. Whisper large-v3 heard 79% of the lyric words in the separated original vocal, 69% in the converted one.
+- A retry continues: the stems and converted vocals stay in the job's `work\` folder.
+- Setup: `setup.bat` copies the code (`setup\vendor\YingMusic-SVC`), creates `voice\svc\.venv` (Python 3.12.14, torch cu130,
+  `setup\lock\svc.txt`) and downloads the helpers at pinned revisions with `voice-models.py svc` (RMVPE, CAM++, BigVGAN, Whisper small;
+  ~1.6 GB, run offline afterwards). The two large models are in Settings > Models > "Singing voice (YingMusic-SVC)" (~2 GB).
+- Windows: `sing.py` saves through soundfile (torchaudio 2.9+ wants torchcodec), and does not load the sox-based remix or wandb.
+
 ### Character voices (Film dialogue, 07.10.2026)
 
 **Input.**
@@ -340,7 +360,7 @@ Data collection and image description are inside Nedese Studio (Training tab). T
 
 - ComfyUI portable (Python 3.13, PyTorch 2.13 CUDA 13); extensions: ComfyUI-GGUF, ComfyUI-Frame-Interpolation.
 - **Third-party code is in the repository** (08.10.2026, to avoid version drift): `setup\vendor\<name>` — ComfyUI-GGUF,
-  ComfyUI-Frame-Interpolation, LatentSync, musubi-tuner, Side-Step, the llama.cpp GGUF converter. Every folder has a `SOURCE.txt`
+  ComfyUI-Frame-Interpolation, LatentSync, musubi-tuner, Side-Step, YingMusic-SVC, the llama.cpp GGUF converter. Every folder has a `SOURCE.txt`
   (origin, commit, license, the promotional media that was removed). `setup.ps1` copies them to their targets with `Copy-Vendor` (the `.setup-source` marker
   is a digest of SOURCE.txt; when it changes the copy is redone, the environment/output/weight files at the target are kept; when LatentSync is copied the patch is
   reapplied as well). To update: change the folder contents and update the commit in SOURCE.txt.

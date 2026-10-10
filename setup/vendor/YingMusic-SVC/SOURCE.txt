@@ -1,0 +1,5 @@
+Source: https://github.com/GiantAILab/YingMusic-SVC  commit 4974a80c6044c4557059548409379f6365129f88  license MIT (LICENSE.txt; the model weights are CC BY-NC 4.0: noncommercial use)
+Changes: only the promotional and example media and scripts were removed (figs\, tech_report\, prompts\,
+accom_separation\samples\, the dataset lists, gradio_app.py, *.sh, compiled __pycache__). The code is unchanged;
+voice\sing.py drives it (Windows: torchaudio saves through soundfile, the sox-based remix and wandb are not loaded).
+Setup (setup\setup.ps1) copies this folder into voice\svc\.

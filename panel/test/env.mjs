@@ -23,6 +23,7 @@ import * as clone from '../lib/jobs/clone.mjs';
 import * as film from '../lib/jobs/film.mjs';
 import * as music from '../lib/jobs/music.mjs';
 import * as song from '../lib/jobs/song.mjs';
+import * as sing from '../lib/jobs/sing.mjs';
 import * as model3d from '../lib/jobs/model3d.mjs';
 import * as training from '../lib/jobs/training.mjs';
 import * as data from '../lib/jobs/data.mjs';
@@ -38,10 +39,11 @@ export const FAKE_TRAINING = fileURLToPath(new URL('./fake-training.mjs', import
 export const FAKE_IMAGE_TRAINING = fileURLToPath(new URL('./fake-image-training.mjs', import.meta.url));
 export const FAKE_MUSIC_TRAINING = fileURLToPath(new URL('./fake-music-training.mjs', import.meta.url));
 export const FAKE_MOUTH = fileURLToPath(new URL('./fake-mouth.mjs', import.meta.url));
+export const FAKE_SING = fileURLToPath(new URL('./fake-sing.mjs', import.meta.url));
 export const FAKE_CLONE = fileURLToPath(new URL('./fake-clone.mjs', import.meta.url));
 export const REAL_COMFY = resolve(PANEL_ROOT, '..', 'tools', 'comfy.mjs');
 
-export async function createPanel({ mode = 'normal', voiceEnv = {}, comfyClosed = false, stepDuration = 5, server: openServer = false, imageData = null, port = 0, blender = false, llm = null, trainingEnv = null, imageTrainingEnv = null, musicTrainingEnv = null, generalTrainingEnv = null, mouthEnv = null, cloneEnv = null, setting: extraSetting = {}, setupUpdater = null, restart = null } = {}) {
+export async function createPanel({ mode = 'normal', voiceEnv = {}, comfyClosed = false, stepDuration = 5, server: openServer = false, imageData = null, port = 0, blender = false, llm = null, trainingEnv = null, imageTrainingEnv = null, musicTrainingEnv = null, generalTrainingEnv = null, mouthEnv = null, singEnv = null, cloneEnv = null, setting: extraSetting = {}, setupUpdater = null, restart = null } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'ai-panel-test-'));
   const fake = await startFakeComfy({ mode, stepDuration, imageData });
   let comfyAddress = fake.address;
@@ -74,6 +76,8 @@ export async function createPanel({ mode = 'normal', voiceEnv = {}, comfyClosed 
     // Agiz duzeltme (LatentSync): agizOrtami verilirse sahte agiz.py (SAHTE_AGIZ_KAYIT, SAHTE_AGIZ_HATA); yoksa kurulu degil.
     ...(mouthEnv ? { mouthCommand: (args) => ({ command: process.execPath, args: [FAKE_MOUTH, ...args], env: { ...process.env, ...mouthEnv } }) } : {}),
     // Own voice (voice\clone): with cloneEnv the fake prepare.py / train.py (FAKE_CLONE_SPEECH, FAKE_CLONE_LOG); otherwise not installed.
+    // Singing in a voice (voice\sing.py): with singEnv the fake sing.py (FAKE_SING_LOG, FAKE_SING_ERROR); otherwise not installed.
+    ...(singEnv ? { singCommand: (args) => ({ command: process.execPath, args: [FAKE_SING, ...args], env: { ...process.env, ...singEnv } }) } : {}),
     ...(cloneEnv ? { cloneCommand: (stage, args) => ({ command: process.execPath, args: [FAKE_CLONE, stage, ...args], env: { ...process.env, ...cloneEnv } }) } : {}),
     // Video 1080p buyutme: sahte buyut.py (SAHTE_BUYUT_HATA ile hata); model dosyasi gecici kokte
     upscaleCommand: (args) => ({ command: process.execPath, args: [FAKE_UPSCALE, ...args], env: { ...process.env } }),
@@ -105,7 +109,7 @@ export async function createPanel({ mode = 'normal', voiceEnv = {}, comfyClosed 
   const comfy = new ComfyClient({ address: comfyAddress, comfyFolder: null });
   // Testler de gerçek kurulum gibi veritabanıyla çalışır (liste, sayfa, ortalamalar sorgudan).
   const db = new Database(join(setting.dataRoot, 'panel.db'));
-  const queue = new Queue({ setting, comfy, mod, db, runners: { image, video, voice, speech, clone, film, music, song, model3d, training, data, describe, pageVideo } });
+  const queue = new Queue({ setting, comfy, mod, db, runners: { image, video, voice, speech, clone, film, music, song, sing, model3d, training, data, describe, pageVideo } });
   queue.load();
   queue.start();
   const downloader = new Downloader({ modelRoot: setting.modelRoot, protectedRoots: [setting.aiRoot], recordPath: join(setting.dataRoot, DATA_FILES.downloads), changed: () => queue.changed() });

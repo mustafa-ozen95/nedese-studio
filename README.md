@@ -14,7 +14,7 @@ A local AI media studio for Windows: image, video, voice, music, 3D model and si
 - **Images:** generation with Qwen-Image 2512 and FLUX.2 klein; multi-reference editing with Qwen-Image-Edit 2511.
 - **Video:** image-to-video with Wan 2.2 (A14B / 5B); unlimited length (5-second parts continue from the previous part's last frame); 480p, 720p and 1080p; frame interpolation with RIFE.
 - **Voice:** narration (VoxCPM2, Chatterbox, EMA Lightning), voice cloning from your own recordings, voice design from a description (Qwen3-TTS), per-character voices in films.
-- **Music:** songs with or without lyrics using ACE-Step 1.5; a trained LoRA can set the style.
+- **Music:** songs with or without lyrics using ACE-Step 1.5; a trained LoRA can set the style. Any song can be sung again in a library voice, e.g. your own (YingMusic-SVC).
 - **3D:** image-to-model with TRELLIS.2 and Pixal3D; FBX/OBJ/STL export and an optional turntable video with Blender.
 - **Film:** scenes, character consistency, narration, dialogue, music, subtitles and optional lip sync (InfiniteTalk + LatentSync) combined into one video.
 - **Model training:** text model (QLoRA or from scratch), image LoRA, video LoRA, music LoRA and a general image + text model.
@@ -115,7 +115,7 @@ Nedese Studio is released under the [PolyForm Noncommercial License 1.0.0](LICEN
 
 ## Third-party components
 
-The models are downloaded from their publishers under their own licenses (most are Apache 2.0 / MIT; LatentSync weights are OpenRAIL++, the audeering age/gender model is CC BY-NC-SA 4.0 and is used only for measurement; details in the guide). Third-party code is vendored under `setup\vendor\<name>` with a `SOURCE.txt` giving its origin, commit and license; the binary tools (7-Zip extractor, Node, ffmpeg, uv, Python, ComfyUI portable, llama.cpp, SageAttention, the environments' Pythons) are downloaded from this repository's own GitHub release (`tools-2026.10`; `setup\tools.json` lists size and SHA-256, which setup verifies), never from another site. Only Python packages (PyPI, pinned versions) and models come from elsewhere.
+The models are downloaded from their publishers under their own licenses (most are Apache 2.0 / MIT; LatentSync weights are OpenRAIL++, YingMusic-SVC weights are CC BY-NC 4.0 (noncommercial), the audeering age/gender model is CC BY-NC-SA 4.0 and is used only for measurement; details in the guide). Third-party code is vendored under `setup\vendor\<name>` with a `SOURCE.txt` giving its origin, commit and license; the binary tools (7-Zip extractor, Node, ffmpeg, uv, Python, ComfyUI portable, llama.cpp, SageAttention, the environments' Pythons) are downloaded from this repository's own GitHub release (`tools-2026.10`; `setup\tools.json` lists size and SHA-256, which setup verifies), never from another site. Only Python packages (PyPI, pinned versions) and models come from elsewhere.
 
 ## Documentation
 

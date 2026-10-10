@@ -56,6 +56,10 @@ export function loadSettings(parent = {}) {
   const lipPython = join(aiRoot, 'lip', '.venv', 'Scripts', 'python.exe');
   const mouthPy = join(aiRoot, 'lip', 'mouth.py');
   const latentsyncFolder = join(parent.modelRoot ?? join(aiRoot, 'models'), 'latentsync');
+  // Singing in a voice (YingMusic-SVC, voice\svc): voice\sing.py in its own environment, the two model files in models\singing
+  const svcPython = join(aiRoot, 'voice', 'svc', '.venv', 'Scripts', 'python.exe');
+  const singPy = join(aiRoot, 'voice', 'sing.py');
+  const singingFolder = join(parent.modelRoot ?? join(aiRoot, 'models'), 'singing');
   const settings = {
     aiRoot,
     panelRoot: PANEL_ROOT,
@@ -139,6 +143,18 @@ export function loadSettings(parent = {}) {
         command: lipPython,
         args: [mouthPy, ...args],
         env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', PATH: addPath(ffmpeg), AI_LATENTSYNC_MODEL: latentsyncFolder },
+      })),
+    // Checked on every query like the mouth fix: usable as soon as Settings > Models has downloaded the two files
+    get hasSing() {
+      return parent.singCommand ? true : existsSync(svcPython) && existsSync(singPy) && ['YingMusic-SVC-full.pt', 'bs_roformer.ckpt'].every((d) => existsSync(join(singingFolder, d)));
+    },
+    singCommand:
+      parent.singCommand ??
+      ((args) => ({
+        command: svcPython,
+        args: [singPy, ...args],
+        // HF_HUB_OFFLINE: the helper models are in voice\svc\checkpoints at pinned revisions (setup: voice-models.py svc)
+        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', PATH: addPath(ffmpeg), AI_SVC_MODEL: singingFolder, HF_HUB_OFFLINE: '1' },
       })),
     // Own voice (voice\clone): prepare.py in voice\.venv (Whisper), train.py in the VoxCPM2 environment (LoRA).
     hasClone: parent.cloneCommand ? true : existsSync(join(aiRoot, 'voice', 'clone', 'prepare.py')) && existsSync(join(aiRoot, 'voice', '.venv', 'Scripts', 'python.exe')),

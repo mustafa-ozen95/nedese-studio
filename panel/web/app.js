@@ -72,7 +72,7 @@
         return `${iki(t.getDate())}.${iki(t.getMonth() + 1)} ${iki(t.getHours())}:${iki(t.getMinutes())}`;
     }
 
-    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', audioEdit: 'Edit audio', videoEdit: 'Edit video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
+    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
     // Is turu adi: once arayuzun bildigi (cevrilebilir), yoksa sunucunun gonderdigi, o da yoksa "İş".
     const typeName = (job) => TYPE_NAME[job?.type] ?? job?.typeName ?? 'Job';
     const STATUS_NAME = {
@@ -1441,6 +1441,8 @@
             choice.value = previous;
         });
         fillVoiceChoices(s.voices);
+        fillSingVoices(s.voices);
+        $('[data-sing-missing]').hidden = Boolean(s.hasSing);
         renderVoiceLibrary(s.voices);
         applyVoiceEngine(s.voiceEngine);
         applyM3Blender(s.hasBlender);
@@ -1561,6 +1563,7 @@
             const j = await api('/api/voices');
             if (status.options) status.options.voices = j.voices;
             fillVoiceChoices(j.voices);
+            fillSingVoices(j.voices);
             renderVoiceLibrary(j.voices);
             renderCharacters();
         } catch (e) {
@@ -2162,6 +2165,48 @@
         }
     });
 
+    /* Sing in a voice: the song (uploaded or from the gallery) and a voice from the library */
+    const singForm = $('[data-job-form="sing"]');
+
+    function configureSing(m) {
+        singForm.source.value = m?.source ?? '';
+        $('[data-sing-name]', singForm).textContent = m?.name ?? 'No song selected';
+        const listen = $('[data-sing-listen]', singForm);
+        listen.hidden = !m?.url;
+        if (m?.url) listen.src = m.url;
+        else listen.removeAttribute('src');
+        saveDraft();
+        updateEstimates();
+    }
+    // the estimate is per second of song: known once the player has read the length
+    $('[data-sing-listen]', singForm).addEventListener('loadedmetadata', updateEstimates);
+
+    $('[data-sing-upload]', singForm).addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+        try {
+            $('[data-sing-name]', singForm).textContent = `Uploading: ${file.name}`;
+            const j = await api(`/api/music/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
+            configureSing(j.music);
+            notify(j.message, 'success');
+        } catch (e) {
+            configureSing(null);
+            notify(e.message, 'danger');
+        }
+    });
+
+    /* The voice list: library voices only (the converter needs a recording to copy the timbre from) */
+    function fillSingVoices(voices) {
+        const choice = $('[data-sing-voice]', singForm);
+        const previous = choice.value;
+        choice.replaceChildren(...(voices.length
+            ? voices.map((s) => el('option', { value: `ref:${s.id}`, translate: 'no', text: s.name }))
+            : [el('option', { value: '', text: 'The voice library is empty' })]));
+        if (voices.some((s) => `ref:${s.id}` === previous)) choice.value = previous;
+        else if (voices.length) choice.value = `ref:${(voices.find((s) => s.ownVoice) ?? voices.find((s) => s.defaultValue) ?? voices[0]).id}`;
+    }
+
     /* Ses düzenle / Video düzenle: dosya alanları (gizli girdi + ad + önizleme) */
     const voiceEditForm = $('[data-job-form="audioEdit"]');
     const videoEditForm = $('[data-job-form="videoEdit"]');
@@ -2557,7 +2602,7 @@
         const trigger = event.target.closest('[data-voice-picker]');
         if (!trigger) return;
         const pickerType = trigger.dataset.voicePicker;
-        status.voicePickerTarget = pickerType === 'scene' ? trigger.closest('[data-scene]') : ['song', 'audioEdit', 'videoEdit', 'videoMusic', 'model3d'].includes(pickerType) ? pickerType : 'music';
+        status.voicePickerTarget = pickerType === 'scene' ? trigger.closest('[data-scene]') : ['song', 'sing', 'audioEdit', 'videoEdit', 'videoMusic', 'model3d'].includes(pickerType) ? pickerType : 'music';
         const videoMu = pickerType === 'videoEdit' || pickerType === 'model3d';
         $('#voice-picker-title').textContent = videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
         const list = $('[data-voice-picker-list]', voicePicker);
@@ -2584,7 +2629,7 @@
             }
             for (const x of y.uploads.filter((x) => x.type === 'music')) items.push({ source: x.source, url: x.url, name: x.name, type: 'Uploaded' });
             // Sahne anlatımında önce sesler, film müziğinde önce müzikler.
-            if (status.voicePickerTarget !== 'music') items.sort((a, b) => (a.type === 'Voice' ? -1 : 0) - (b.type === 'Voice' ? -1 : 0));
+            if (status.voicePickerTarget !== 'music' && status.voicePickerTarget !== 'sing') items.sort((a, b) => (a.type === 'Voice' ? -1 : 0) - (b.type === 'Voice' ? -1 : 0));
             status.voicePickerList = items;
             status.voicePickerPage = 1;
             renderVoicePicker();
@@ -2626,6 +2671,8 @@
             configureMusic({ source: o.source, name: o.name });
         } else if (target === 'song') {
             configureSong({ source: o.source, name: o.name, url: o.url });
+        } else if (target === 'sing') {
+            configureSing({ source: o.source, name: o.name, url: o.url });
         } else if (target === 'model3d') {
             configureM3Video({ source: o.source, name: o.name, url: o.url });
         } else if (typeof target === 'string' && FILE_FIELDS[target]) {
@@ -3189,6 +3236,9 @@
         estimateWrite('voice', (o[`voice/${quality}`] ?? 0) * (s.text.value.length / 100));
         const mz = $('[data-job-form="music"]');
         estimateWrite('music', (o.music ?? 0) * Number(mz.duration.value || 60));
+        // the separation and conversion take about the same per second of song
+        const singLength = $('[data-sing-listen]', singForm).duration;
+        estimateWrite('sing', Number.isFinite(singLength) ? (o.sing ?? 0) * singLength : 0);
         const m3 = o[`model3d/${m3Form.quality.value}`];
         const m3Blender = m3Form.intro.checked || ['fbx', 'obj', 'stl'].some((b) => m3Form[`format_${b}`].checked) ? (o.blender3d ?? 0) : 0;
         estimateWrite('model3d', m3 ? m3 + (m3Form.complete.checked ? (o.edit ?? 60) : 0) + (status.options.hasBlender ? m3Blender : 0) : 0);

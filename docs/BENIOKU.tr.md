@@ -55,6 +55,25 @@ Python 3.13, transformers 4.57.3'e sabit, Chatterbox'la çakışır). `exaggerat
 daha yavaş ve ölçülü okuma. "Prime" gibi yabancı kelimeleri okunuşuyla yaz ("Praym").
 Ses ortamı ComfyUI'den **ayrı**: Chatterbox Python ≤3.13'te PyTorch'u 2.6'ya sabitler, bu RTX 50'yi tanımaz.
 
+### Sesle söylet (Düzenle > Sesle söylet, 10.10.2026)
+
+Var olan bir şarkı kütüphanedeki bir sesle (Kendi sesim'deki sesiniz, tasarlanan ya da yüklenen bir ses) yeniden söyletilir; ezgi,
+sözler ve çalgılar kalır. `voice\sing.py` **YingMusic-SVC**'yi çalıştırır (GiantAILab, sıfır atış, Seed-VC tabanlı; kod MIT,
+`voice\svc`; ağırlıklar **CC BY-NC 4.0: ticari olmayan kullanım**):
+1. BS-RoFormer şarkıyı ana vokal, arka vokaller ve müzik olarak ayırır;
+2. ana vokal (varsayılan olarak arka vokaller de) kütüphane sesinin tınısına dönüştürülür (sesin WAV'ı referans, en çok 25 sn);
+3. ffmpeg dönüşen vokali müzikle yeniden karıştırır (`song.mp3`); `vocal.mp3` yalnız yeni vokal.
+
+- **Ton değil oktav:** müzik kaydırılmaz, bu yüzden vokal yalnız tam oktav kayar (−12 / 0 / +12). "Otomatik" iki sesin perdesine bakarak
+  modele seçtirir (uyarlama katsayısından sonra fark ≥7 yarım tonsa bir oktav; erkek arabesk şarkı EMA kadın sesiyle 0'da kaldı, tahmin 4,2).
+- **Ölçüm (RTX 5070, 150 sn arabesk şarkı):** ayırma model yüklemeyle ~50 sn (~6,7 GB VRAM), dönüştürme RTF 0,19-0,31; ana + arka
+  vokal toplam 87 sn. Whisper large-v3 sözlerin %79'unu ayrılmış orijinal vokalde, %69'unu dönüşmüş vokalde duydu.
+- Yeniden deneme kaldığı yerden sürer: ayrılmış parçalar ve dönüşen vokaller işin `work\` klasöründe kalır.
+- Kurulum: `setup.bat` kodu kopyalar (`setup\vendor\YingMusic-SVC`), `voice\svc\.venv`'i kurar (Python 3.12.14, torch cu130,
+  `setup\lock\svc.txt`) ve yardımcıları sabit sürümle `voice-models.py svc` ile indirir (RMVPE, CAM++, BigVGAN, Whisper small;
+  ~1,6 GB, sonra çevrimdışı çalışır). İki büyük model Ayarlar > Modeller > "Şarkı sesi (YingMusic-SVC)" altında (~2 GB).
+- Windows: `sing.py` soundfile ile kaydeder (torchaudio 2.9+ torchcodec ister), sox tabanlı remiks ve wandb'yi yüklemez.
+
 ### Karakter sesleri (Tek parça diyalog, 07.10.2026)
 
 **Girdi.**
@@ -340,7 +359,7 @@ Veri toplama ve görsel betimleme Nedese Studio'nun içinde (Eğitim sekmesi). 0
 
 - ComfyUI taşınabilir (Python 3.13, PyTorch 2.13 CUDA 13); eklentiler: ComfyUI-GGUF, ComfyUI-Frame-Interpolation.
 - **Üçüncü taraf kod depoda** (08.10.2026, sürüm kayması olmasın diye): `setup\vendor\<ad>` — ComfyUI-GGUF,
-  ComfyUI-Frame-Interpolation, LatentSync, musubi-tuner, Side-Step, llama.cpp GGUF dönüştürücüsü. Her klasörde `SOURCE.txt`
+  ComfyUI-Frame-Interpolation, LatentSync, musubi-tuner, Side-Step, YingMusic-SVC, llama.cpp GGUF dönüştürücüsü. Her klasörde `SOURCE.txt`
   (köken, commit, lisans, çıkarılan tanıtım medyası). `setup.ps1` `Copy-Vendor` ile hedefe kopyalar (`.setup-source` işareti
   SOURCE.txt özeti; değişince yeniden kopyalar, hedefteki ortam/çıktı/ağırlık dosyaları korunur; LatentSync kopyalanınca yama da
   yeniden uygulanır). Güncellemek için: klasör içeriğini değiştir, SOURCE.txt'deki commit'i güncelle.

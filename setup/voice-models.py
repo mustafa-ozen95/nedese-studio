@@ -3,6 +3,7 @@
 #   voice\voxcpm\.venv   python voice-models.py voxcpm    VoxCPM2
 #   voice\design\.venv   python voice-models.py design    Qwen3-TTS VoiceDesign + Base + Tokenizer
 #   voice\ema\.venv      python voice-models.py ema       EMA Lightning + its single library voice
+#   voice\svc\.venv      python voice-models.py svc       YingMusic-SVC helpers (RMVPE, CAM++, BigVGAN, Whisper small)
 # The revisions were taken from the copies running on the development machine (04.10.2026).
 import os
 import sys
@@ -79,5 +80,24 @@ elif mode == "ema":
             "panel": 1,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
     print("EMA Lightning done", flush=True)
+elif mode == "svc":
+    # Singing in a voice (voice\sing.py): the small models YingMusic-SVC loads by repository name, in the caches it looks
+    # in (voice\svc\checkpoints; BigVGAN and Whisper under hf_cache). refs\main points to the pinned revision so the panel
+    # runs them offline (HF_HUB_OFFLINE). The large models (YingMusic-SVC-full.pt, bs_roformer.ckpt) are in the model
+    # catalog (Settings > Models > Singing voice).
+    checkpoints = VOICE / "svc" / "checkpoints"
+    for repo, version, files, cache in [
+        ("lj1995/VoiceConversionWebUI", "e6d0c1a17da07c33557852f9dfa2bd44cc75737d", ["rmvpe.pt"], checkpoints),
+        ("funasr/campplus", "e4b6ede7ce16997aff4ae69fbca1f0175e2afede", ["campplus_cn_common.bin"], checkpoints),
+        ("nvidia/bigvgan_v2_44khz_128band_512x", "95a9d1dcb12906c03edd938d77b9333d6ded7dfb", ["bigvgan_generator.pt", "config.json"], checkpoints / "hf_cache"),
+        ("openai/whisper-small", "973afd24965f72e36ca33b3055d56a652f456b4d", ["config.json", "model.safetensors", "preprocessor_config.json"], checkpoints / "hf_cache"),
+    ]:
+        # one file at a time: huggingface_hub checks the symbolic link support of a new cache folder once, and parallel
+        # downloads used it before the check finished (WinError 1314 without the privilege, 10.10.2026)
+        snapshot_download(repo, revision=version, allow_patterns=files, cache_dir=str(cache), max_workers=1)
+        refs = cache / f"models--{repo.replace('/', '--')}" / "refs"
+        refs.mkdir(parents=True, exist_ok=True)
+        (refs / "main").write_text(version, encoding="ascii")
+        print(repo, "ok", flush=True)
 else:
-    sys.exit("usage: voice-models.py voice|voxcpm|design|ema")
+    sys.exit("usage: voice-models.py voice|voxcpm|design|ema|svc")

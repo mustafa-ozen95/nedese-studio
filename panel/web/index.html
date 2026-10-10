@@ -91,6 +91,7 @@
                 <div class="mode-choice edit-type" data-edit-type role="radiogroup" aria-label="What to edit">
                     <label class="mode-choice__option"><input type="radio" name="editType" value="image" checked><span>Image</span></label>
                     <label class="mode-choice__option"><input type="radio" name="editType" value="song"><span>Song</span></label>
+                    <label class="mode-choice__option"><input type="radio" name="editType" value="sing"><span>Sing in a voice</span></label>
                     <label class="mode-choice__option"><input type="radio" name="editType" value="voice"><span>Voice</span></label>
                     <label class="mode-choice__option"><input type="radio" name="editType" value="video"><span>Video</span></label>
                 </div>
@@ -242,6 +243,59 @@
                                 <div class="form-actions">
                                     <span class="text-sm text-muted" data-estimate="song"></span>
                                     <button type="submit" class="btn btn--primary">Edit</button>
+                                </div>
+                            </div>
+                        </form>
+
+                        <form class="panel" data-job-form="sing" data-edit-form="sing" novalidate autocomplete="off" hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Sing in a voice</h2>
+                                    <p class="text-sm text-muted">The same song, sung in a voice from your library (e.g. your own voice). The melody, words and instruments stay. YingMusic-SVC.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <p class="text-sm field__error" data-sing-missing hidden>Not installed: download "Singing voice (YingMusic-SVC)" in Settings › Models.</p>
+                                <div class="field">
+                                    <span class="field__label">Song <span class="required tag-note">required</span></span>
+                                    <input type="hidden" name="source" data-sing-field>
+                                    <div class="row row--wrap">
+                                        <label class="btn btn--sm">Upload<input type="file" accept="audio/*,video/*" data-sing-upload hidden></label>
+                                        <button type="button" class="btn btn--sm" data-voice-picker="sing" data-modal-open="modal-voice-picker">Pick from gallery</button>
+                                        <span class="text-sm text-muted" data-sing-name translate="no">No song selected</span>
+                                    </div>
+                                    <audio controls preload="metadata" data-sing-listen hidden></audio>
+                                    <span class="field__hint">Up to 10 minutes, with vocals. Audio or video; the video's sound is used.</span>
+                                </div>
+
+                                <div class="field">
+                                    <label class="field__label" for="sv-ses">Voice <span class="required tag-note">required</span></label>
+                                    <select class="select" id="sv-ses" name="voice" data-sing-voice></select>
+                                    <span class="field__hint">Voices from the library. For your own voice, record it first in Voice › My voice.</span>
+                                </div>
+
+                                <div class="field">
+                                    <span class="field__label">Octave</span>
+                                    <div class="mode-choice mode-choice--small">
+                                        <label class="mode-choice__option"><input type="radio" name="shift" value="" checked><span>Automatic</span></label>
+                                        <label class="mode-choice__option"><input type="radio" name="shift" value="-12"><span>Lower</span></label>
+                                        <label class="mode-choice__option"><input type="radio" name="shift" value="0"><span>As sung</span></label>
+                                        <label class="mode-choice__option"><input type="radio" name="shift" value="12"><span>Higher</span></label>
+                                    </div>
+                                    <span class="field__hint">Automatic picks it from the two voices (a man singing a woman's song an octave lower). The music keeps its key.</span>
+                                </div>
+
+                                <div class="field">
+                                    <label class="checkbox">
+                                        <input type="checkbox" name="backing" value="1" checked>
+                                        <span>Backing vocals in the new voice too</span>
+                                    </label>
+                                    <span class="field__hint">Off: only the lead vocal changes, the backing vocals stay as they were.</span>
+                                </div>
+
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="sing"></span>
+                                    <button type="submit" class="btn btn--primary">Sing</button>
                                 </div>
                             </div>
                         </form>

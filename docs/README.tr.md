@@ -14,7 +14,7 @@ Windows için yerel yapay zekâ medya stüdyosu: görsel, video, ses, müzik, 3B
 - **Görsel:** Qwen-Image 2512 ve FLUX.2 klein ile üretim; Qwen-Image-Edit 2511 ile çok referanslı düzenleme.
 - **Video:** Wan 2.2 (A14B / 5B) ile görselden video; süre sınırsız (5 saniyelik parçalar bir öncekinin son karesinden sürer); 480p, 720p ve 1080p; RIFE ile akıcılaştırma.
 - **Ses:** seslendirme (VoxCPM2, Chatterbox, EMA Lightning), kendi kaydınızdan ses klonlama, tariften ses tasarımı (Qwen3-TTS), filmde karakter başına ses.
-- **Müzik:** ACE-Step 1.5 ile sözlü ya da sözsüz parça; eğitilen LoRA ile tarz verilebilir.
+- **Müzik:** ACE-Step 1.5 ile sözlü ya da sözsüz parça; eğitilen LoRA ile tarz verilebilir. Herhangi bir şarkı kütüphanedeki bir sesle, ör. kendi sesinizle yeniden söyletilebilir (YingMusic-SVC).
 - **3B:** TRELLIS.2 ve Pixal3D ile görselden model; Blender ile döner tabla videosu ve FBX/OBJ/STL dışa aktarma.
 - **Tek parça film:** sahneler, karakter tutarlılığı, seslendirme, konuşmalar, müzik, altyazı ve isteğe bağlı dudak eşleme (InfiniteTalk + LatentSync) tek videoda birleşir.
 - **Model eğitimi:** yazı modeli (QLoRA ya da sıfırdan), görsel LoRA, video LoRA, müzik LoRA ve görsel + metin genel model.
@@ -115,7 +115,7 @@ Nedese Studio [PolyForm Noncommercial License 1.0.0](../LICENSE.md) ile yayımla
 
 ## Üçüncü taraf bileşenler
 
-Modeller yayımcılarından kendi lisanslarıyla indirilir (çoğu Apache 2.0 / MIT; LatentSync ağırlıkları OpenRAIL++, audeering yaş-cinsiyet modeli CC BY-NC-SA 4.0 ve yalnız ölçümde kullanılır; ayrıntı kılavuzda). Üçüncü taraf kod `setup\vendor\<ad>` altında depodadır; her klasörde köken, commit ve lisansı veren `SOURCE.txt` bulunur. İkili araçlar (7-Zip açıcı, Node, ffmpeg, uv, Python, ComfyUI taşınabilir, llama.cpp, SageAttention, ortamların Python'ları) bu deponun kendi GitHub yayınından iner (`tools-2026.10`; `setup\tools.json` boyut ve SHA-256 verir, kurulum doğrular), başka siteden asla. Yalnız Python paketleri (PyPI, sabit sürüm) ve modeller başka yerden gelir.
+Modeller yayımcılarından kendi lisanslarıyla indirilir (çoğu Apache 2.0 / MIT; LatentSync ağırlıkları OpenRAIL++, YingMusic-SVC ağırlıkları CC BY-NC 4.0 (ticari olmayan), audeering yaş-cinsiyet modeli CC BY-NC-SA 4.0 ve yalnız ölçümde kullanılır; ayrıntı kılavuzda). Üçüncü taraf kod `setup\vendor\<ad>` altında depodadır; her klasörde köken, commit ve lisansı veren `SOURCE.txt` bulunur. İkili araçlar (7-Zip açıcı, Node, ffmpeg, uv, Python, ComfyUI taşınabilir, llama.cpp, SageAttention, ortamların Python'ları) bu deponun kendi GitHub yayınından iner (`tools-2026.10`; `setup\tools.json` boyut ve SHA-256 verir, kurulum doğrular), başka siteden asla. Yalnız Python paketleri (PyPI, sabit sürüm) ve modeller başka yerden gelir.
 
 ## Belgeler
 
