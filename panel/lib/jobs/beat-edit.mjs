@@ -136,7 +136,9 @@ export async function run(ctx) {
   /* 1) The videos: size, length, motion ──────────────────────── */
   const infoFile = join(k, 'sources.json');
   let sources;
-  if (existsSync(infoFile)) sources = JSON.parse(readFileSync(infoFile, 'utf8'));
+  // kept with the clips it was made of: a retry after an update may use other clips (a film's scenes)
+  const kept = existsSync(infoFile) ? JSON.parse(readFileSync(infoFile, 'utf8')) : null;
+  if (kept && JSON.stringify(kept.refs) === JSON.stringify(refs)) sources = kept.sources;
   else {
     sources = [];
     for (const [i, file] of files.entries()) {
@@ -145,7 +147,8 @@ export async function run(ctx) {
       if (!(info.duration > 0.3)) throw new UserError(`Video ${i + 1} is too short.`);
       sources.push({ ...info, ...(await motionOf(ff, file, { signal: ctx.signal })) });
     }
-    writeFileSync(infoFile, JSON.stringify(sources));
+    writeFileSync(infoFile, JSON.stringify({ refs, sources }));
+    rmSync(join(k, 'shots'), { recursive: true, force: true });
   }
   const footage = sources.reduce((s, x) => s + x.duration, 0);
 

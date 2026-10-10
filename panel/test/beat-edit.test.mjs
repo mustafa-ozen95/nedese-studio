@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSettings } from '../lib/settings.mjs';
@@ -82,6 +82,10 @@ test('beat cut job: two videos and drawn music, then a music file measured; leng
     const v = s.streams.find((x) => x.codec_type === 'video');
     assert.deepEqual([v.width, v.height, outputs[0].width], [320, 240, 320]);
     assert.ok(s.streams.some((x) => x.codec_type === 'audio'));
+    // a retry whose kept measurement was of other clips (one video, the old list) measures again
+    writeFileSync(join(setting.outputRoot, 'made', 'sources.json'), JSON.stringify([{ width: 320, height: 240, duration: 6, motion: [], cuts: [] }]));
+    await run(ctx(g, 'made'));
+    assert.equal(JSON.parse(readFileSync(join(setting.outputRoot, 'made', 'sources.json'), 'utf8')).sources.length, 2);
 
     // the drawn music as a file of the user's: its tempo is found again, the cut on it
     makeMusic(join(trial, 'm.wav'), { duration: 24, sections: [{ t0: 0, t1: 24, kind: 'b' }], cuts: [], drops: [], end: 22, duck: [] });
@@ -89,7 +93,7 @@ test('beat cut job: two videos and drawn music, then a music file measured; leng
     assert.match(logs.find((m) => m.startsWith('Music:')), /Music: 1(19\.[5-9]\d*|20(\.[0-4]\d*)?) BPM/);
     const f = await streams(setting.ffprobe, join(setting.outputRoot, 'file', 'beat-cut.mp4'));
     assert.ok(Math.abs(f.duration - 3 * BAR) < 0.1, `6 s is three bars (${f.duration})`);
-    assert.equal(outputs[1].width, 1080);
+    assert.equal(outputs.at(-1).width, 1080);
 
     // a film with burned-in subtitles stands for its scene clips (a crop cut its lines in half); one without stays
     const film = (id, subtitle) => {
