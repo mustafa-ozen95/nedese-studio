@@ -537,6 +537,7 @@ test('UI artifacts (user request 10.10.2026, like Claude): an HTML page the agen
     // the saved chat keeps every version
     const s = o.chat(`call tool write_file ${JSON.stringify({ path: 'site.html', text: page('First') })}`.slice(0, 60));
     assert.deepEqual(s.messages.filter((m) => m.role === 'tool').map((m) => [m.extra?.artifact?.kind, /<h1>(\w+)/.exec(m.extra?.artifact?.content)?.[1]]), [['html', 'First'], ['html', 'Second']]);
+    assert.ok(s.messages.filter((m) => m.role === 'tool').every((m) => m.content.endsWith(". The user sees it running in the chat's preview panel.")), 'the model knows the user sees it');
     await t.evaluate(`localStorage.setItem('chat.current', ${JSON.stringify(s.id)}); true`);
     await t.goto(`${o.p.address}/?reopen=1#chat`);
     assert.ok(await until("document.querySelectorAll('[data-artifact-open]').length === 2"), 'a card per version');

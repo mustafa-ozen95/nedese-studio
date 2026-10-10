@@ -155,10 +155,14 @@ export function artifactOf(path, content) {
   return { path, kind, content };
 }
 
-/** A written file's result extra: its diff (edit) and, for HTML and SVG, the artifact. */
-function fileExtra(path, content, edit) {
+/**
+ * A written file's result: its diff (edit) and, for HTML and SVG, the artifact, which the model is told the user already
+ * sees (a live run told the user to open the page in a browser while it was open beside the chat).
+ */
+function fileResult(text, path, content, edit) {
   const artifact = artifactOf(path, content);
-  return edit || artifact ? { ...(edit ? { edit } : {}), ...(artifact ? { artifact } : {}) } : undefined;
+  const extra = edit || artifact ? { ...(edit ? { edit } : {}), ...(artifact ? { artifact } : {}) } : undefined;
+  return { text: artifact ? `${text}. The user sees it running in the chat's preview panel.` : text, extra };
 }
 
 // Commands that only read (Manual mode runs them without asking). Script blocks, subexpressions and redirections into
@@ -969,7 +973,7 @@ export const TOOLS = [
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, content, 'utf8');
       const edit = b.recordEdit?.(path, before, content) ?? null;
-      return { text: `${existed ? (g.append ? 'Appended' : 'Overwritten') : 'Created'}: ${path} (${Buffer.byteLength(content)} B${edit ? `, +${edit.added} -${edit.removed} lines` : ''})`, extra: fileExtra(path, content, edit) };
+      return fileResult(`${existed ? (g.append ? 'Appended' : 'Overwritten') : 'Created'}: ${path} (${Buffer.byteLength(content)} B${edit ? `, +${edit.added} -${edit.removed} lines` : ''})`, path, content, edit);
     },
   },
   {
@@ -999,7 +1003,7 @@ export const TOOLS = [
       const after = g.all ? s.split(e).join(fresh) : s.replace(e, () => fresh);
       writeFileSync(path, after, 'utf8');
       const edit = b.recordEdit?.(path, bytes, after) ?? null;
-      return { text: `Edited: ${path} (${g.all ? number : 1} places${edit ? `, +${edit.added} -${edit.removed} lines` : ''})`, extra: fileExtra(path, after, edit) };
+      return fileResult(`Edited: ${path} (${g.all ? number : 1} places${edit ? `, +${edit.added} -${edit.removed} lines` : ''})`, path, after, edit);
     },
   },
   {
