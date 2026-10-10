@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer as netServer } from 'node:net';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -162,6 +163,16 @@ test('UI with measured timings (film too): the estimates are written, the recent
     assert.ok(await until(`/Estimated time/.test(document.querySelector('[data-estimate="film"]').textContent)`), `film estimate: ${await t.evaluate(`document.querySelector('[data-estimate="film"]').textContent`)}`);
     await t.evaluate(`location.hash = '#image'`);
     assert.ok(await until(`document.querySelectorAll('[data-last="image"] .gallery-card').length === 1`), 'the recent images panel shows the finished image');
+
+    // the recent edits follow the kind of edit (10.10.2026: the beat cut tab showed the image edits)
+    mkdirSync(join(p.setting.outputRoot, 'trial'), { recursive: true });
+    execFileSync(p.setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x120:r=30:d=3', '-c:v', 'libx264', '-preset', 'ultrafast', join(p.setting.outputRoot, 'trial', 'a.mp4')]);
+    const beat = await p.waitUntilDone(p.queue.add('beatEdit', { sources: ['job/trial/a.mp4'], length: 4 }).id);
+    assert.equal(beat.status, 'done', beat.error);
+    await t.evaluate(`location.hash = '#edit'`);
+    assert.ok(await until(`Boolean(document.querySelector('[data-side="edit"] [data-last="edit"]'))`), 'image edits first');
+    await t.evaluate(`(() => { const r = document.querySelector('[data-edit-type] input[value="beat"]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+    assert.ok(await until(`Boolean(document.querySelector('[data-side="edit"] [data-last="beatEdit"] [data-preview="${beat.id}"]'))`), 'the beat cut tab shows the beat cut');
     assert.deepEqual(errors, []);
   } finally {
     await t.close();

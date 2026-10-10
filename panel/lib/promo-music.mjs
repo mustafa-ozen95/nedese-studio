@@ -487,13 +487,18 @@ export function beatGrid(samples, rate, { around = null } = {}) {
   const at = (x, t) => { const i = Math.floor(t); const f = t - i; return i + 1 < x.length ? x[i] * (1 - f) + x[i + 1] * f : 0; };
   // around: the tempo the track was asked for (the music model keeps near it): searched within 12% of it
   const [lo, hi] = around ? [around * 0.88, around * 1.12] : [90, 160];
-  let best = { bpm: around ?? BPM, score: -Infinity };
+  const scores = [];
   for (let bpm = lo; bpm <= hi; bpm += 0.1) {
     const lag = (60 / bpm) * fps;
     let s = 0;
     for (let i = 0; i + lag * 2 < frames; i++) s += onset[i] * (at(onset, i + lag) + 0.5 * at(onset, i + lag * 2));
-    if (s > best.score) best = { bpm, score: s };
+    scores.push({ bpm, score: s });
   }
+  // the three highest peaks: a pattern can repeat best at 4/3 or 3/2 of the tempo (measured 10.10.2026: a 120 BPM
+  // track of the music model read as 157.5), the beats of the right one land on onsets most often (below)
+  const peaks = scores.filter((x, i) => (i === 0 || x.score >= scores[i - 1].score) && (i === scores.length - 1 || x.score >= scores[i + 1].score));
+  const candidates = peaks.sort((x, y) => y.score - x.score).slice(0, around ? 1 : 3);
+  if (!candidates.length) candidates.push({ bpm: around ?? BPM });
   // then finer: the tempo and phase whose beats over the whole track land on the most onsets (a 1% error is 0.75 s
   // off after a minute; measured 10.10.2026: 110 BPM read as 111.1 by the lag alone)
   const comb = (beat) => {
@@ -506,12 +511,18 @@ export function beatGrid(samples, rate, { around = null } = {}) {
     }
     return { most, phase };
   };
-  let fine = { bpm: best.bpm, ...comb((60 / best.bpm) * fps) };
-  for (let bpm = best.bpm - 1.5; bpm <= best.bpm + 1.5; bpm += 0.02) {
-    const c = comb((60 / bpm) * fps);
-    if (c.most > fine.most) fine = { bpm, ...c };
+  let fine = null;
+  for (const peak of candidates) {
+    let near = { bpm: peak.bpm, ...comb((60 / peak.bpm) * fps) };
+    for (let bpm = peak.bpm - 1.5; bpm <= peak.bpm + 1.5; bpm += 0.02) {
+      const c = comb((60 / bpm) * fps);
+      if (c.most > near.most) near = { bpm, ...c };
+    }
+    // onsets per beat, not in all: a faster grid has more beats to sum
+    near.perBeat = (near.most * (60 / near.bpm) * fps) / frames;
+    if (!fine || near.perBeat > fine.perBeat) fine = near;
   }
-  best = { bpm: fine.bpm };
+  const best = { bpm: fine.bpm };
   const beat = (60 / best.bpm) * fps;
   const phase = fine.phase;
   // the bar line: chords change on it (the pitch classes of a beat against the beat before), the kick is on it too;

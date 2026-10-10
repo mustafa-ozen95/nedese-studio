@@ -415,6 +415,7 @@
         }
         updateEstimates();
         finishedAnnounce(d);
+        status.last = d.last;
         for (const type of Object.keys(TYPE_NAME)) renderLast(type, d.last.filter((job) => job.type === type).slice(0, 4));
         if (status.section === 'gallery' && d.version !== status.galleryVersion) {
             status.galleryVersion = d.version;
@@ -2135,6 +2136,14 @@
         $$('[data-edit-form]').forEach((f) => {
             f.hidden = f.dataset.editForm !== type;
         });
+        // the recent edits of the chosen kind (a beat cut showed the image edits)
+        const box = $('[data-side="edit"] [data-last]');
+        const jobType = $(`[data-edit-form="${type}"]`)?.dataset.jobForm ?? 'edit';
+        if (box && box.dataset.last !== jobType) {
+            box.dataset.last = jobType;
+            delete status.lastSignature[jobType];
+            renderLast(jobType, (status.last ?? []).filter((job) => job.type === jobType).slice(0, 4));
+        }
     }
     $('[data-edit-type]').addEventListener('change', editTypeApply);
     editTypeApply();
@@ -3720,6 +3729,7 @@
         $('[data-side="voice"]').append(lastPanel('voice', 'Recent voice-overs'));
         $('[data-side="music"]').append(lastPanel('music', 'Recent music'));
         $('[data-side="edit"]').append(lastPanel('edit', 'Recent edits'));
+        editTypeApply();
         $('[data-side="model3d"]').append(lastPanel('model3d', 'Recent 3D models'));
         $('[data-side="film"]').append(lastPanel('film', 'Recent films'));
         $('[data-side="promo"]').append(lastPanel('promo', 'Recent promos'));

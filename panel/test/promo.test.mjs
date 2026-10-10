@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { validate, promoSteps, PANEL_SECTIONS } from '../lib/jobs/promo.mjs';
+import { fileURLToPath } from 'node:url';
+import { validate, promoSteps, PANEL_SECTIONS, samples } from '../lib/jobs/promo.mjs';
+import { loadSettings } from '../lib/settings.mjs';
 import { parsePromoResponse, promoSchema, usableSections } from '../lib/promo-writer.mjs';
 import { makeMusic, beatGrid, BAR, BEAT, SR } from '../lib/promo-music.mjs';
 import { beatCut, bigScenes, INTRO, OUTRO } from '../lib/beat-cut.mjs';
@@ -96,6 +98,13 @@ test('beat grid: the tempo and the first bar line of a track, also stretched and
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('beat grid: a music model track whose pattern repeats best at 4/3 of its tempo is still read at its tempo', async () => {
+  // 16 s of a 120 BPM track of the music model (10.10.2026): read as 159.8 BPM with nothing asked
+  const mono = await samples(loadSettings({}).ffmpeg, fileURLToPath(new URL('./fixtures/model-120bpm.mp3', import.meta.url)), { rate: 11025, channels: 1 });
+  const g = beatGrid(mono, 11025);
+  assert.ok(Math.abs(g.bpm - 120) < 0.3, `120 BPM measured as ${g.bpm}`);
 });
 
 test('beat cut: scene cuts on the grid, the narration with its scene, the length in whole bars', () => {
