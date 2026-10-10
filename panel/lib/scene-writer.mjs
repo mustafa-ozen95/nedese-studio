@@ -10,9 +10,11 @@ import { GENDERS, TYPES, AGES, nameKey, normalizeGender, normalizeAge, normalize
 
 // Istem Ingilizce, uretilen metin (baslik, anlatim, replikler) Turkce. Alan adlari ve cinsiyet/yas/tur degerleri
 // Ingilizce istenir; model yine de Turkce yazarsa sahneYanitiniCoz ic degere cevirir (karakterler.mjs normalize*).
+// The spoken and shown text (title, narration, lines) is written in the film's language (lang: tr | en, the voice language).
+const LANGUAGES = { tr: 'Turkish', en: 'English' };
 const SYSTEM_BASE = [
   'You are a scene writer for short narrated films. Return only the requested JSON object; no explanation, markdown or code block.',
-  '- title: Turkish, at most 60 characters.',
+  '- title: {L}, at most 60 characters.',
   '- image: ENGLISH, detailed image prompt (subject, setting, light, camera angle, style). Keep characters and style the same in every scene: describe the appearance of the character again with the same words in every scene. Do not ask for text in the image.',
 ];
 // Yalniz anlatim (tek ses) ya da karakterlerin de konustugu yazim. 07.10.2026 kullanici: "karakterleri disi-erkek
@@ -20,7 +22,7 @@ const SYSTEM_BASE = [
 const SYSTEM = [
   ...SYSTEM_BASE,
   'Format: {"title": "...", "scenes": [{"narration": "...", "image": "...", "motion": "..."}]}',
-  '- narration: Turkish voice-over text, 1-3 sentences, at most 220 characters; the scenes should tell one story that flows together.',
+  '- narration: {L} voice-over text, 1-3 sentences, at most 220 characters; the scenes should tell one story that flows together.',
   '- motion: ENGLISH, short motion prompt; describe the motion and camera movement that will happen, not what is in the image.',
 ].join('\n');
 const SYSTEM_DIALOG = [
@@ -28,14 +30,34 @@ const SYSTEM_DIALOG = [
   'Format: {"title": "...", "characters": [{"name": "...", "gender": "female|male", "age": "child|young|adult|old", "type": "human|animal", "spec": "..."}], "scenes": [{"narration": "...", "dialogue": [{"who": "...", "text": "..."}], "image": "...", "motion": "..."}]}',
   // 07.10.2026 olculdu: Gemma tarife gorunusu de yaziyordu ("yellow raincoat ... high-pitched voice"); tarif ses tasariminda kullanilir
   '- characters: the SPEAKING characters in the story (not the narrator); gender and age must be correct for voice selection and use exactly these English values. spec: ENGLISH, VOICE description ONLY, at most 8 words; do NOT write appearance such as clothes, hair, color (example: "soft and shy", "deep and calm", "squeaky and playful"). Talking animals are characters too (type: animal; humans type: human); an animal is not an object or a toy.',
-  '- narration: Turkish narrator text, 1-2 sentences, at most 180 characters; in a scene with dialogue it may be short or empty.',
-  "- dialogue: the characters' Turkish lines, 0-3 short lines per scene (each at most 100 characters); who is a name from the characters list. Let the characters speak at the important moments of the story.",
+  '- narration: {L} narrator text, 1-2 sentences, at most 180 characters; in a scene with dialogue it may be short or empty.',
+  "- dialogue: the characters' {L} lines, 0-3 short lines per scene (each at most 100 characters); who is a name from the characters list. Let the characters speak at the important moments of the story.",
   // 07.10.2026 kullanici: "Konusurken yuzu donmus olmali diger karaktere, bosluga konusuyor gibi olmamali" (ilk denemede
   // ikisi de kameraya bakip poz veriyordu)
   // 07.10.2026 kullanici: "Gozler de karsiya degil konustuguna bakmali"
   '- image (in a scene with dialogue): speaking characters face each other, half profile; their EYES look at each other (eye contact); they must not look at the camera or straight ahead. If a character is calling to someone outside the frame, their face and eyes should be turned that way.',
   '- motion: ENGLISH, short motion prompt; describe the motion and camera movement that will happen. The speaking character should turn to the listener and talk looking into their eyes, and the listener should look back at them (example: "the girl turns to her father and talks to him, looking into his eyes; he looks down at her and answers"); nobody talks to the camera.',
 ].join('\n');
+const systemFor = (speech, lang) => (speech ? SYSTEM_DIALOG : SYSTEM).replaceAll('{L}', LANGUAGES[lang] ?? LANGUAGES.tr);
+
+/**
+ * The answer's shape as a JSON schema: llama-server writes only what fits it (a grammar), so a scene can no longer
+ * come back broken or outside the list (10.10.2026: one answer in three was unreadable).
+ */
+export function sceneSchema(speech, sceneCount) {
+  const str = { type: 'string' };
+  const scene = { narration: str, image: str, motion: str, ...(speech ? { dialogue: { type: 'array', items: { type: 'object', properties: { who: str, text: str }, required: ['who', 'text'] } } } : {}) };
+  const character = { name: str, gender: { enum: Object.keys(GENDERS) }, age: { enum: Object.keys(AGES) }, type: { enum: Object.keys(TYPES) }, spec: str };
+  return {
+    type: 'object',
+    properties: {
+      title: str,
+      ...(speech ? { characters: { type: 'array', items: { type: 'object', properties: character, required: Object.keys(character) } } } : {}),
+      scenes: { type: 'array', minItems: sceneCount, maxItems: sceneCount, items: { type: 'object', properties: scene, required: Object.keys(scene) } },
+    },
+    required: ['title', ...(speech ? ['characters'] : []), 'scenes'],
+  };
+}
 
 /**
  * Model yanitindan JSON nesnesini cikarir ve dogrular. Karakter: cinsiyeti gecerliyse (yas yoksa yetiskin);
@@ -101,10 +123,10 @@ export function scenePrompt({ topic, sceneCount, ratio, startedAt = 1, total = s
  * ilerleme({ yazilan, toplam }) her obekten once ve sonunda; sinyal (Kuyruk'taki Iptal) istegi keser;
  * bekliyor(true|false): panelde is calisirken ekran karti bekleniyor.
  */
-export async function writeScenes({ topic, sceneCount, ratio, speech = true, chunk = CHUNK, progress = () => {}, signal = null, waiting = null }) {
+export async function writeScenes({ topic, sceneCount, ratio, speech = true, lang = 'tr', chunk = CHUNK, progress = () => {}, signal = null, waiting = null }) {
   if (!hasText()) throw new UserError('The text model is not installed; write the scenes yourself.');
-  const system = speech ? SYSTEM_DIALOG : SYSTEM;
-  if (sceneCount <= chunk) return singleChunk({ system, prompt: scenePrompt({ topic, sceneCount, ratio }), sceneCount, signal, waiting });
+  const system = systemFor(speech, lang);
+  if (sceneCount <= chunk) return singleChunk({ system, prompt: scenePrompt({ topic, sceneCount, ratio }), sceneCount, speech, signal, waiting });
   const scenes = [];
   const characters = [];
   let title = '';
@@ -112,7 +134,7 @@ export async function writeScenes({ topic, sceneCount, ratio, speech = true, chu
     const count = Math.min(chunk, sceneCount - startedAt + 1);
     progress({ written: scenes.length, total: sceneCount });
     const prompt = scenePrompt({ topic, sceneCount: count, ratio, startedAt, total: sceneCount, previous: scenes.slice(-3).map((s) => s.narration || (s.dialogue ?? []).map((r) => r.text).join(' ')), title, characters });
-    const r = await singleChunk({ system, prompt, sceneCount: count, signal, waiting });
+    const r = await singleChunk({ system, prompt, sceneCount: count, speech, signal, waiting });
     if (!title) title = r.title;
     scenes.push(...r.scenes);
     for (const k of r.characters) if (!characters.some((y) => nameKey(y.name) === nameKey(k.name))) characters.push(k);
@@ -121,7 +143,7 @@ export async function writeScenes({ topic, sceneCount, ratio, speech = true, chu
   return { title, scenes, characters };
 }
 
-function singleChunk({ system, prompt, sceneCount, signal = null, waiting = null }) {
-  // Yaratici yazi (sicaklik 0.7); 15 sahne ~3.500 token (repliklerle daha cok). JSON dilbilgisiyle gecerli nesne.
-  return runText({ system, prompt, json: true, temperature: 0.7, maxToken: 8192, externalRequest: true, signal, waiting, name: 'Scene writer', parse: (text) => parseSceneResponse(text, sceneCount) });
+function singleChunk({ system, prompt, sceneCount, speech, signal = null, waiting = null }) {
+  // Yaratici yazi (sicaklik 0.7); 15 sahne ~3.500 token (repliklerle daha cok). The schema keeps the answer to the scene list.
+  return runText({ system, prompt, json: true, schema: sceneSchema(speech, sceneCount), temperature: 0.7, maxToken: 8192, externalRequest: true, signal, waiting, name: 'Scene writer', parse: (text) => parseSceneResponse(text, sceneCount) });
 }

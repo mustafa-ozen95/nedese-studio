@@ -504,9 +504,25 @@ test('text jobs only with the local model: scene/lyric writer waits for the GPU 
     const s = await writeScenes({ topic: 'fox', sceneCount: 2, ratio: '16:9' });
     assert.deepEqual(s.scenes.map((x) => x.narration), ['Bir tilki.', 'Eve döndü.']);
     assert.equal(requests[0].path, '/v1/chat/completions');
-    assert.deepEqual(requests[0].body.response_format, { type: 'json_object' }, 'valid JSON (with grammar)');
+    // the answer's shape as a schema (a grammar): exactly the asked number of scenes, characters with the known values
+    const format = requests[0].body.response_format;
+    assert.equal(format.type, 'json_schema');
+    assert.deepEqual([format.json_schema.schema.properties.scenes.minItems, format.json_schema.schema.properties.scenes.maxItems], [2, 2]);
+    assert.deepEqual(format.json_schema.schema.properties.characters.items.properties.gender.enum, ['female', 'male']);
+    assert.deepEqual(format.json_schema.schema.properties.scenes.items.required, ['narration', 'image', 'motion', 'dialogue']);
+    assert.match(requests[0].body.messages[0].content, /narration: Turkish narrator text/, 'Turkish by default');
+    assert.doesNotMatch(requests[0].body.messages[0].content, /\{L\}|English narrator/);
     assert.equal(requests[0].option.externalRequest, true, 'from the UI: waits for the GPU while a panel job is running');
     assert.equal(requests[0].option.waitSec, Infinity, 'scene writer waits indefinitely (cancel from Queue)');
+    // an English film (the voice language): English title, narration and lines; narrator only: no characters asked
+    responses.push(JSON.stringify({ title: 'Fox', scenes: [{ narration: 'A fox.', image: 'a fox', motion: 'runs' }] }));
+    await writeScenes({ topic: 'fox', sceneCount: 1, ratio: '16:9', speech: false, lang: 'en' });
+    const english = requests.pop().body;
+    assert.match(english.messages[0].content, /title: English, at most 60/);
+    assert.match(english.messages[0].content, /narration: English voice-over text/);
+    assert.doesNotMatch(english.messages[0].content, /Turkish/);
+    assert.equal('characters' in english.response_format.json_schema.schema.properties, false);
+    assert.deepEqual(english.response_format.json_schema.schema.properties.scenes.items.required, ['narration', 'image', 'motion']);
     responses.push(JSON.stringify({ lyrics: '[verse]\nla la' }));
     assert.equal((await writeLyrics({ topic: 'deniz', style: 'pop', language: 'tr', duration: 30 })).lyrics, '[verse]\nla la');
     assert.deepEqual([requests[1].option.externalRequest, requests[1].option.waitSec], [true, 600]);
@@ -526,6 +542,17 @@ test('text jobs only with the local model: scene/lyric writer waits for the GPU 
     setTextModel(null);
   }
   await assert.rejects(writeScenes({ topic: 'x', sceneCount: 1, ratio: '16:9' }), /The text model is not installed; write the scenes yourself/);
+});
+
+test('local model: a JSON object request goes to llama-server as an object schema (it ignores json_object)', async () => {
+  const { localFormat } = await import('../lib/llm.mjs');
+  const body = { messages: [], temperature: 0.2, response_format: { type: 'json_object' } };
+  assert.deepEqual(localFormat(body), { messages: [], temperature: 0.2, response_format: { type: 'json_schema', json_schema: { name: 'answer', schema: { type: 'object' } } } });
+  assert.deepEqual(body.response_format, { type: 'json_object' }, 'the caller\'s body is not changed');
+  const schema = { type: 'json_schema', json_schema: { name: 'plan', schema: { type: 'object', properties: { a: { type: 'string' } } } } };
+  assert.equal(localFormat({ response_format: schema }).response_format, schema, 'a schema goes as it is');
+  const plain = { messages: [] };
+  assert.equal(localFormat(plain), plain);
 });
 
 test("pronunciation: apostrophized proper nouns soften in speech (Kuzguncuk\'u -> Kuzguncuğu), exceptions untouched", async () => {

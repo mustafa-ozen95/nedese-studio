@@ -42,6 +42,16 @@ function localPost(port, path, body, signal = null) {
 }
 
 /**
+ * llama-server (the 2026.10 build) ignores response_format { type: 'json_object' } and answers in plain text, but keeps
+ * to a json_schema (measured 10.10.2026: the scene writer got broken JSON one time in three). A JSON object request
+ * goes to it as the schema of any object, which is the same grammar.
+ */
+export function localFormat(body) {
+  if (body?.response_format?.type !== 'json_object') return body;
+  return { ...body, response_format: { type: 'json_schema', json_schema: { name: 'answer', schema: { type: 'object' } } } };
+}
+
+/**
  * Streaming POST (stream: true): every "data:" event of the answer goes to onEvent as parsed JSON. An answer that is
  * not 200 is collected as text like localPost.
  */
@@ -498,6 +508,7 @@ export class LocalLlm {
    */
   async req(path, body, { externalRequest = true, waitSec = this.waitSec, signal = null, waiting = null, info = null, onChunk = null, onEvent = null } = {}) {
     if (!this.installed) throw new LlmError('Text model is not installed (<ai>\\llm\\bin\\llama-server.exe and llm\\models\\*.gguf).', 503);
+    body = localFormat(body);
     if (externalRequest) {
       const last = Date.now() + waitSec * 1000;
       let notified = null;

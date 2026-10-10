@@ -20,7 +20,7 @@ export const readsImages = () => Boolean(model?.info?.mmproj);
  * bekleme durumunu bildirir. Is icinden cagri (disIstek false) beklemez. json: yanit gecerli JSON nesnesi (dilbilgisiyle).
  * gorsel: istemle birlikte okunacak gorsel (data: URL; gorsel kodlayici kurulu olmali).
  */
-export async function runText({ system, prompt, image = null, parse = (m) => m, json = false, temperature = 0.3, maxToken = 2048, signal = null, externalRequest = false, waitSec = Infinity, waiting = null, name = 'Text model' }) {
+export async function runText({ system, prompt, image = null, parse = (m) => m, json = false, schema = null, temperature = 0.3, maxToken = 2048, signal = null, externalRequest = false, waitSec = Infinity, waiting = null, name = 'Text model' }) {
   if (!model) throw new UserError('Text model is not installed (<ai>\\llm); this feature runs on the local text model.');
   if (image && !readsImages()) throw new UserError("The text model's image encoder (mmproj) is not installed; the image cannot be read.");
   if (signal?.aborted) throw new CancelError();
@@ -31,7 +31,8 @@ export async function runText({ system, prompt, image = null, parse = (m) => m, 
       temperature: temperature,
       max_tokens: maxToken,
       chat_template_kwargs: { enable_thinking: false },
-      ...(json ? { response_format: { type: 'json_object' } } : {}),
+      // schema: the answer's exact shape (a JSON schema); json alone: any JSON object
+      ...(schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema } } } : json ? { response_format: { type: 'json_object' } } : {}),
     },
     { externalRequest, waitSec, signal, waiting },
   );

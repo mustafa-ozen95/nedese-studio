@@ -487,6 +487,8 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
         ratio: choice(g.ratio, 'Format', ['16:9', '9:16'], '16:9'),
         // Karakterler de konussun (cinsiyet/yasa gore ses); false: yalniz anlatici
         speech: g.speech === undefined || g.speech === null || g.speech === '' ? true : g.speech === true || g.speech === 'true' || g.speech === '1' || g.speech === 1,
+        // the film's voice language: title, narration and lines are written in it
+        lang: choice(g.lang, 'Language', ['tr', 'en'], 'tr'),
       };
       const secScene = queue.averages?.()?.['write-scenes'] ?? null;
       const task = tasks.add({ type: 'write-scenes', title: input.topic, expectedSec: secScene ? secScene * input.sceneCount : null });

@@ -896,6 +896,7 @@ globalThis.NedeseDictionary = {
         "Animal": "Hayvan",
         "Voice description (English, optional)": "Ses tarifi (İngilizce, isteğe bağlı)",
         "Characters speak too: the response has characters (name, gender, age) and dialogue in scenes; false: narrator only.": "Karakterler de konuşsun: yanıtta karakterler (ad, cinsiyet, yaş) ve sahnelerde konusmalar; false: yalnız anlatıcı.",
+        "Language of the title, narration and lines (the film's voice language).": "Başlık, anlatım ve repliklerin dili (filmin ses dili).",
         "Stops a running short task that does not enter the queue (scene writing); the id is tasks[].id in the GET /status response. The scene-writing request returns a cancellation error.": "Kuyruğa girmeyen, çalışan kısa işi (sahne yazımı) durdurur; kimlik GET /status yanıtındaki tasks[].id. Sahne yazımı isteği iptal hatasıyla döner.",
         "Task id (e.g. gorev-mg0abc-1)": "Görev kimliği (örn. gorev-mg0abc-1)",
         "Write song lyrics": "Şarkı sözü yaz",

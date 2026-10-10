@@ -240,7 +240,9 @@ test('scene writer: visible with its progress in /status gorevler while running,
     const b = { Authorization: `Bearer ${p.settingFile.apiKey}`, 'Content-Type': 'application/json' };
     const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
     let resume = null;
-    p.setting.sceneWriter = async ({ sceneCount, progress, signal }) => {
+    const languages = [];
+    p.setting.sceneWriter = async ({ sceneCount, lang, progress, signal }) => {
+      languages.push(lang);
       progress({ written: 0, total: sceneCount });
       await new Promise((ok, red) => {
         resume = ok;
@@ -250,7 +252,7 @@ test('scene writer: visible with its progress in /status gorevler while running,
       return { title: 'Tilki', scenes: Array.from({ length: sceneCount }, (_, i) => ({ narration: `a${i}`, image: 'g', motion: 'h' })) };
     };
     // 1) Calisirken gorunur, bitince listeden cikar; sahne basi sure olculur
-    const writing = req(p.address, '/api/v1/write-scenes', { method: 'POST', headers: b, body: JSON.stringify({ topic: 'Ormanda kaybolan tilki', sceneCount: 3 }) });
+    const writing = req(p.address, '/api/v1/write-scenes', { method: 'POST', headers: b, body: JSON.stringify({ topic: 'Ormanda kaybolan tilki', sceneCount: 3, lang: 'en' }) });
     await wait(300);
     let d = (await req(p.address, '/api/v1/status', { headers: b })).json;
     assert.equal(d.tasks.length, 1, JSON.stringify(d.tasks));
@@ -263,6 +265,7 @@ test('scene writer: visible with its progress in /status gorevler while running,
     const r = await writing;
     assert.equal(r.code, 200, JSON.stringify(r.json));
     assert.equal(r.json.scenes.length, 3);
+    assert.deepEqual(languages, ['en'], 'the film language reaches the writer');
     d = (await req(p.address, '/api/v1/status', { headers: b })).json;
     assert.deepEqual(d.tasks, [], 'removed from the list when done');
     assert.ok(d.averages['write-scenes'] > 0, `per-scene time measured: ${JSON.stringify(d.averages)}`);

@@ -1,6 +1,7 @@
 /**
  * Sahte llama-server: node sahte-llm.mjs <port>. /health, /v1/chat/completions (OpenAI bicimi).
- * response_format json_object ise JSON doner; degilse "EN: <son kullanici mesaji>".
+ * A json_schema response_format ("answer", what lib/llm.mjs sends for json_object) gets JSON; anything else, json_object
+ * included, gets "EN: <last user message>".
  */
 import { createServer } from 'node:http';
 
@@ -407,7 +408,8 @@ createServer(async (req, response) => {
       response.writeHead(200, { 'Content-Type': 'application/json' });
       return response.end(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({ queries: [{ language: 'tr', query: 'sahte sorgu bir' }, { language: 'tr', query: 'sahte sorgu iki' }], ...sources }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }));
     }
-    const text = schema === 'plan' ? JSON.stringify(plan) : schema === 'section' ? JSON.stringify(section) : g.response_format?.type === 'json_object' ? JSON.stringify({ prompt: last, system: g.messages[0]?.content ?? '', thinking: g.chat_template_kwargs?.enable_thinking ?? null }) : `EN: ${last}`;
+    // like llama-server's 2026.10 build: response_format json_object is ignored, a json_schema is kept (lib/llm.mjs localFormat)
+    const text = schema === 'plan' ? JSON.stringify(plan) : schema === 'section' ? JSON.stringify(section) : schema === 'answer' ? JSON.stringify({ prompt: last, system: g.messages[0]?.content ?? '', thinking: g.chat_template_kwargs?.enable_thinking ?? null }) : `EN: ${last}`;
     // a request that does not fit the context: llama-server's error, before any event
     if (/TOO LONG FOR CONTEXT/.test(getText(last))) {
       response.writeHead(400, { 'Content-Type': 'application/json' });

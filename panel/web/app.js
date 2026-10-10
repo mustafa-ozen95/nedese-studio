@@ -3102,7 +3102,7 @@
         button.disabled = true;
         statusText.textContent = 'Writing… (progress in Queue)';
         try {
-            const req = api('/api/write-scenes', { method: 'POST', body: { topic, sceneCount: $('[data-scene-count]', filmForm).value, ratio: filmForm.ratio.value, speech: $('[data-speech]', filmForm)?.checked !== false } });
+            const req = api('/api/write-scenes', { method: 'POST', body: { topic, sceneCount: $('[data-scene-count]', filmForm).value, ratio: filmForm.ratio.value, speech: $('[data-speech]', filmForm)?.checked !== false, lang: filmForm.lang?.value } });
             // Yazim Kuyruk'ta yan gorev olarak gorunur (ilerleme, Iptal): durum hemen yoklanir
             setTimeout(pollStatus, 400);
             const j = await req;
