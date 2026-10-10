@@ -25,7 +25,7 @@ import { partTotalFrame, durationText, videoParts } from '../plan.mjs';
 import { IMAGE_MODELS, OUTPUT_1080P, RATIOS, RIFE_MAX, VIDEO_MODELS, yes, validateFps, sourcePath, trimmedSize, rifeFactor, text, number, choice, seed, generatorRequired } from './common.mjs';
 import { upscaleModelRequired, upscaleFrames } from './upscale.mjs';
 import { runWan } from './wan.mjs';
-import { jobPrompt, partPrompts } from '../prompt-translate.mjs';
+import { jobPrompt, partPrompts, anatomyPhrase } from '../prompt-translate.mjs';
 import { trainedModels } from './training.mjs';
 import { fineSetting } from '../fine-settings.mjs';
 
@@ -209,6 +209,22 @@ export async function run(ctx) {
     }
     ctx.save();
   }
+  // A14B has no negative prompt: the text model names the animal or person in the first frame and prompt with its leg
+  // count, once per job (user 10.10.2026: a fox grew a spider-like extra leg; wan.mjs ANATOMY)
+  if (g.model === 'wan14' && ctx.job.anatomy === undefined) {
+    let image = null;
+    try {
+      const jpg = join(pFolder, 'anatomy.jpg');
+      await runFfmpeg(ctx.setting.ffmpeg, ['-y', '-i', source, '-frames:v', '1', '-vf', "scale='min(1280,iw)':-2", '-q:v', '3', jpg], { signal: ctx.signal });
+      image = `data:image/jpeg;base64,${readFileSync(jpg).toString('base64')}`;
+    } catch {
+      /* the prompt alone */
+    }
+    const a = await anatomyPhrase(ctx.job.prompts[0], { image, signal: ctx.signal });
+    ctx.job.anatomy = a.phrase;
+    ctx.save();
+    ctx.log(a.phrase ? `Body: ${a.phrase}` : a.phrase === '' ? 'Body: no animal or person in the video.' : `Body: the general sentence (${a.error}).`);
+  }
   // Egitilmis LoRA'nin tetik kelimesi (Ingilizce istemden sonra) istemde yoksa basa eklenir
   const withTrigger = (s) => (g.lora?.trigger && !s.toLowerCase().includes(g.lora.trigger.toLowerCase()) ? `${g.lora.trigger}, ${s}` : s);
   const getPrompt = (p) => {
@@ -388,7 +404,7 @@ export async function run(ctx) {
     const stage = n > 1 ? `Video · part ${p + 1}/${n}${endText(p)}` : 'Video';
     const result = await runWan(ctx, {
       model: g.model, source: start, lastSource, prompt: getPrompt(p), seed: g.seed + p, width: g.width, height: g.height, frame: parts[p], smooth: g.smooth, lora: g.lora ?? null,
-      target: frames, startNo: 1, skip: p === 0 ? 0 : 1, stage, range: [rangeStart, rangeLast], prefixExtra: `p${no4(p + 1)}`,
+      target: frames, startNo: 1, skip: p === 0 ? 0 : 1, stage, range: [rangeStart, rangeLast], prefixExtra: `p${no4(p + 1)}`, anatomy: ctx.job.anatomy,
     });
     const generation = (Date.now() - startedAt) / 1000;
     // Son kare zincir icin uretim boyutunda saklanir (buyutmeden once)

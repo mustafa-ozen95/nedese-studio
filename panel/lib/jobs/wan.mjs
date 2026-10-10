@@ -11,6 +11,22 @@ import { VIDEO_MODELS } from './common.mjs';
 
 const NO_WAN_NEGATIVE = '';
 
+/**
+ * Wan 2.2 A14B (4 steps, cfg 1) has no negative prompt, so "three legs" in it never applied: a walking fox grew a thin
+ * extra leg and melting front legs (user 10.10.2026: "tilkiye örümcek bacağı eklenmiş gibi"). Measured on the same frame
+ * and seed: the animal with its leg count in the prompt ("anatomically correct fox with exactly four legs, natural
+ * four-legged gait", written by the text model: anatomyPhrase) kept four clean legs at the same picture quality; this
+ * general sentence did not fix the failing seed, it is only the fallback without a text model; guidance with the negative
+ * on the first step (cfg 3.5) burned the colours.
+ */
+export const ANATOMY = 'anatomically correct body with the natural number of limbs, natural gait';
+/** phrase: the job's sentence ('' = no animal or person: nothing added; null/undefined: the general sentence). */
+export function withAnatomy(prompt, phrase = ANATOMY) {
+  const p = String(prompt ?? '');
+  const add = phrase ?? ANATOMY;
+  return !add || /anatomically correct/i.test(p) ? p : `${p.replace(/[.,;\s]+$/, '')}, ${add}`;
+}
+
 /** comfy.mjs'teki RIFE dugumunu sablon olarak alir (5B grafina eklemek icin). */
 export function rifeTemplate(mod) {
   if (typeof mod.wan14Job !== 'function') return null;
@@ -22,7 +38,7 @@ export function rifeTemplate(mod) {
  * Doner: { frameCount, fps (akici dahil), lastNo (hedef klasordeki son kare numarasi) }.
  * baslangicNo: hedef klasordeki ilk dosya numarasi; atla: bastan atlanacak kare (devam parcasinda 1).
  */
-export async function runWan(ctx, { model, source, lastSource = null, prompt, seed, width, height, frame, smooth, target, startNo = 1, skip = 0, stage, range, prefixExtra = 'v', lora = null }) {
+export async function runWan(ctx, { model, source, lastSource = null, prompt, seed, width, height, frame, smooth, target, startNo = 1, skip = 0, stage, range, prefixExtra = 'v', lora = null, anatomy = null }) {
   const m = VIDEO_MODELS[model];
   const generator = ctx.mod[m.generator];
   if (typeof generator !== 'function') throw new Error(`${m.generator} is not in comfy.mjs`);
@@ -33,7 +49,7 @@ export async function runWan(ctx, { model, source, lastSource = null, prompt, se
   if (model === 'wan14') {
     // Anahtar kare: bitis karesi de verilirse parca ilk-son kare arasinda uretilir
     const lastPicture = lastSource ? await ctx.comfy.load(lastSource, `panel_${ctx.job.id}_${prefixExtra}_last${extname(lastSource).toLowerCase() || '.png'}`) : null;
-    graph = generator({ picture, ...(lastPicture ? { lastPicture } : {}), text: prompt, seed, width, height, frame, smooth, prefix });
+    graph = generator({ picture, ...(lastPicture ? { lastPicture } : {}), text: withAnatomy(prompt, anatomy), seed, width, height, frame, smooth, prefix });
   } else {
     graph = generator({ picture, text: prompt, seed, width, height, frame, prefix });
     // Panelde egitilmis video LoRA'si (yalniz 5B): UNETLoader'dan sonra LoraLoaderModelOnly

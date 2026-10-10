@@ -12,6 +12,8 @@ import { streams } from '../lib/ffmpeg.mjs';
 import { makePng } from '../lib/media.mjs';
 import { partTotalFrame, durationText, videoParts } from '../lib/plan.mjs';
 import { validate as validateVideo, splitCount } from '../lib/jobs/video.mjs';
+import { ANATOMY, withAnatomy } from '../lib/jobs/wan.mjs';
+import { anatomyPhrase, setTextModel } from '../lib/prompt-translate.mjs';
 
 const promptCount = (p) => p.fake.status.records.filter((k) => k.path === '/prompt').length;
 
@@ -216,6 +218,11 @@ test('identity protection: before a continuation part the last frame goes throug
     assert.equal(wanTexts.length, 3);
     assert.ok(!/Keep the main character fully in frame/.test(wanTexts[0]), 'no suffix in the first part');
     assert.ok(wanTexts.slice(1).every((m) => /Keep the main character fully in frame/.test(m)), wanTexts.join(' | '));
+    // A14B has no negative prompt: every part asks for the natural number of limbs, once (user 10.10.2026: a fox with
+    // a spider-like extra leg)
+    assert.ok(wanTexts.every((m) => m.split(ANATOMY).length === 2), wanTexts.join(' | '));
+    assert.equal(withAnatomy('a fox walks.'), `a fox walks, ${ANATOMY}`);
+    assert.equal(withAnatomy(withAnatomy('a fox walks')), `a fox walks, ${ANATOMY}`);
     const log = readFileSync(join(p.setting.outputRoot, job.id, 'log.txt'), 'utf8');
     assert.equal((log.match(/the character in the starting frame was corrected to match the source/g) ?? []).length, 2);
     // Kapaliyken (varsayilan): kimlik duzeltmesi yok; A14B cok parcada varsayilan anahtar kare (ilk-son kare)
@@ -329,6 +336,26 @@ test('keyframe default: on for A14B with multiple parts; 5B, single part, anahta
   }
 });
 
+test('body sentence: the text model names the animal with its leg count; NONE adds nothing; an odd answer or no text model falls back to the general sentence', async () => {
+  let answer = '';
+  const seen = [];
+  setTextModel({ installed: true, info: { mmproj: 'x.gguf' }, req: async (path, body) => (seen.push(body.messages.at(-1).content), { code: 200, json: { choices: [{ message: { content: answer } }] } }) });
+  try {
+    answer = 'Anatomically correct red fox with exactly four legs, natural four-legged gait.';
+    assert.deepEqual(await anatomyPhrase('a red fox walks', { image: 'data:image/jpeg;base64,AA==' }), { phrase: 'Anatomically correct red fox with exactly four legs, natural four-legged gait' });
+    assert.equal(seen.at(-1)[0].image_url.url, 'data:image/jpeg;base64,AA==', 'the first frame goes with the prompt');
+    answer = 'NONE';
+    assert.deepEqual(await anatomyPhrase('the camera pushes in toward the cabin'), { phrase: '' });
+    assert.equal(withAnatomy('the camera pushes in toward the cabin', ''), 'the camera pushes in toward the cabin', 'no creature: nothing added');
+    answer = 'Sure! Here is the phrase you asked for.';
+    assert.equal((await anatomyPhrase('a fox')).phrase, null);
+    assert.equal(withAnatomy('a fox walks', null), `a fox walks, ${ANATOMY}`);
+  } finally {
+    setTextModel(null);
+  }
+  assert.deepEqual(await anatomyPhrase('a fox'), { phrase: null, error: 'no text model' });
+});
+
 test('sayimAyir: "<type> = <count>" lines; list line, total and plural suffix', () => {
   assert.deepEqual(splitCount('kitten | center | armor\nkitten | left | armor\n**Kittens = 2**\n- Dragon: 1\nTOTAL = 3\nCharacters = 3'), { kitten: 2, dragon: 1 });
   assert.deepEqual(splitCount('young woman | left | red dress\nyoung woman = 1\ncat=0'), { 'young woman': 1, cat: 0 });
@@ -338,12 +365,20 @@ test('sayimAyir: "<type> = <count>" lines; list line, total and plural suffix', 
 test('keyframe duplicate check: a keyframe with a duplicate is not used; that part has no end frame, the next part continues from its last frame', async (t) => {
   // Sahte gorsel yazi modeli: kaynakta 1 kedi + 1 ejder; 1. anahtar karede 2 kedi (kopya), digerlerinde 1
   const questions = [];
+  const bodyQuestions = [];
   const llm = {
     installed: true,
     understandsImages: true,
     info: { name: 'fake' },
     releaseGpu: async () => {},
     req: async (path, body) => {
+      // the body sentence (A14B has no negative prompt): asked once per job
+      if (/draw bodies correctly/.test(body.messages[0]?.content ?? '')) {
+        bodyQuestions.push(body.messages.at(-1).content);
+        return { code: 200, json: { choices: [{ message: { content: '"anatomically correct kitten with exactly four legs and dragon with exactly four legs, natural movement."' } }] } };
+      }
+      // the part prompts (another system prompt) are not part of this test: the prompt is used as written
+      if (body.messages[0]?.role === 'system') return { code: 500, json: { error: { message: 'not in this test' } } };
       const parts = body.messages.at(-1).content;
       const text = parts.find((x) => x.type === 'text').text;
       assert.match(parts.find((x) => x.type === 'image_url').image_url.url, /^data:image\/jpeg;base64,/);
@@ -363,6 +398,7 @@ test('keyframe duplicate check: a keyframe with a duplicate is not used; that pa
     t.skip('no ffmpeg');
     return;
   }
+  setTextModel(llm); // server.mjs does this with the real model
   try {
     mkdirSync(join(p.setting.outputRoot, 'uploads'), { recursive: true });
     writeFileSync(join(p.setting.outputRoot, 'uploads', '20261006-150000-kedi.png'), makePng(160, 90, [200, 120, 40]));
@@ -390,8 +426,15 @@ test('keyframe duplicate check: a keyframe with a duplicate is not used; that pa
     assert.match(log, /Characters in the source: 1 kitten, 1 dragon/);
     assert.match(log, /Keyframe 1: 2 kitten, 1 dragon \(source: 1 kitten\): character duplicated, not used; part 1 is generated without an end frame/);
     assert.match(log, /Keyframe 2: 1 kitten, 1 dragon, no duplicate\./);
+    // the body sentence: asked once, every part ends with it (user 10.10.2026: a fox grew a spider-like extra leg)
+    const sentence = 'anatomically correct kitten with exactly four legs and dragon with exactly four legs, natural movement';
+    assert.deepEqual(bodyQuestions, ['Video prompt: the kitten leaps sideways']);
+    assert.match(log, new RegExp(`Body: ${sentence}`));
+    const texts = wan.map((g) => Object.values(g).find((d) => d.class_type === 'CLIPTextEncode').inputs.text);
+    assert.ok(texts.length === 3 && texts.every((m) => m.endsWith(`, ${sentence}`) && !m.includes(ANATOMY)), texts.join(' | '));
     assert.ok(last.outputs.some((c) => c.file === 'video.mp4'));
   } finally {
+    setTextModel(null);
     await p.close();
   }
 });

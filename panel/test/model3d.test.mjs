@@ -26,9 +26,11 @@ test('3D model: full-body completion + TRELLIS.2 + Blender (showcase video, FBX/
     const previous = await p.waitUntilDone(p.queue.add('image', { prompt: 'old fisherman portrait', model: 'flux', ratio: '1:1' }).id);
     const source = `job/${previous.id}/${previous.outputs[0].file}`;
     assert.throws(() => p.queue.add('model3d', { source, printHeight: 5 }), /Print height/);
-    const job = p.queue.add('model3d', { source, complete: true, title: 'Balıkçı', seed: 3, printHeight: 60 });
-    assert.deepEqual(job.input.formats, ['fbx', 'obj', 'stl'], 'three formats by default when Blender is present');
-    assert.equal(job.input.intro, true);
+    const job = p.queue.add('model3d', { source, complete: true, title: 'Balıkçı', seed: 3, printHeight: 60, intro: true });
+    // Default: no turntable video (user 10.10.2026: "3d için video üretmeye gerek olduğunu düşünmüyorum"), all exports
+    const plain = p.queue.add('model3d', { source, seed: 3 });
+    assert.deepEqual([plain.input.intro, plain.input.formats], [false, ['fbx', 'obj', 'stl']], 'three formats, no video by default when Blender is present');
+    assert.equal(job.input.intro, true, 'the turntable when ticked');
     assert.match(job.summary.detail, /full body.*print 60 mm/);
     const last = await p.waitUntilDone(job.id, 120000);
     assert.equal(last.status, 'done', last.error);
@@ -60,6 +62,11 @@ test('3D model: full-body completion + TRELLIS.2 + Blender (showcase video, FBX/
     assert.equal(glb.headers.get('content-type'), 'model/gltf-binary');
     assert.equal((await fetch(`${p.address}/file/job/${job.id}/turntable.preview.jpg`)).status, 200);
     // Panel yeniden acilinca is diskten geri yuklenir.
+    const plainLast = await p.waitUntilDone(plain.id, 120000);
+    assert.equal(plainLast.status, 'done', plainLast.error);
+    assert.deepEqual(plainLast.outputs.map((c) => c.file), ['model.glb', 'model.fbx', 'model-obj.zip', 'model.stl']);
+    assert.equal(plainLast.outputs.find((c) => c.main)?.file, 'model.glb');
+    assert.ok(!existsSync(join(p.setting.outputRoot, plain.id, 'turntable.mp4')), 'no turntable rendered');
     p.queue.jobs.clear();
     p.queue.load();
     assert.equal(p.queue.jobs.get(job.id)?.status, 'done');

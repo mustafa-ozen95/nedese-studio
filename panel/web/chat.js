@@ -663,10 +663,12 @@
         }
     }
 
-    function assistantMessage(text, { error = false, reasoning = '', id = null, rating = 0, rateable = false, sources = null } = {}) {
+    // panel: a text the panel wrote (step limit, stopped, an error), not the model: it is translated like the rest of the
+    // page (user 10.10.2026: "Step limit reached (40)" stayed English in a Turkish chat); the model's answer never is
+    function assistantMessage(text, { error = false, panel = false, reasoning = '', id = null, rating = 0, rateable = false, sources = null } = {}) {
         return el('div', { class: `message message--assistant${error ? ' message--error' : ''}` },
             reasoning ? thinkingBlock(reasoning).details : null,
-            text ? el('div', { class: 'message__bubble', translate: 'no' }, ...markdown(text)) : null,
+            text ? el('div', { class: 'message__bubble', translate: panel || error ? 'yes' : 'no' }, ...markdown(text)) : null,
             text ? sourceRow(sources) : null,
             text && rateable && id ? rateBar(id, rating, text) : null);
     }
@@ -770,7 +772,7 @@
     }
 
     // An answer of the assistant that can be rated (lib/agent rateable): its own text, not a tool step or an error
-    const rateable = (m) => m.role === 'assistant' && !m.hidden && !m.toolCalls?.length && !m.error && !m.stopped && Boolean(String(m.content ?? '').trim());
+    const rateable = (m) => m.role === 'assistant' && !m.hidden && !m.toolCalls?.length && !m.error && !m.stopped && !m.panel && Boolean(String(m.content ?? '').trim());
 
     const ICONS = {
         up: '<path d="M7 10v11H4.5A1.5 1.5 0 0 1 3 19.5v-8A1.5 1.5 0 0 1 4.5 10zm0 0 4-7a2.5 2.5 0 0 1 2.5 2.5V9h5.2a2 2 0 0 1 2 2.3l-1.2 8A2 2 0 0 1 17.5 21H7" stroke-linejoin="round"/>',
@@ -1334,7 +1336,7 @@
     }
 
     /** The agent asks (ask_user): options as buttons, or a free answer (also from the composer). */
-    function questionCard({ id, question, options }) {
+    function questionCard({ id, question, options, panel = false }) {
         const box = el('div', { class: 'question-card', 'data-question-card': id });
         const controls = [];
         const answer = async (text) => {
@@ -1363,7 +1365,7 @@
             }
         });
         controls.push(...buttons, free, go);
-        box.append(el('strong', { text: 'Question' }), el('div', { class: 'question-card__text', translate: 'no', text: question }),
+        box.append(el('strong', { text: 'Question' }), el('div', { class: 'question-card__text', translate: panel ? 'yes' : 'no', text: question }),
             buttons.length ? el('div', { class: 'question-card__options' }, ...buttons) : '',
             el('div', { class: 'question-card__free' }, free, go));
         return el('div', { class: 'message message--assistant' }, box);
@@ -1396,7 +1398,7 @@
                 const edit = m.extra?.edit;
                 if (edit && !m.error) turn.push(edit);
             } else if (m.role === 'assistant') {
-                if (m.content || m.reasoning) nodes.push(assistantMessage(m.content, { error: m.error, reasoning: m.reasoning, id: m.id, rating: m.rating ?? 0, rateable: rateable(m), sources: m.sources }));
+                if (m.content || m.reasoning) nodes.push(assistantMessage(m.content, { error: m.error, panel: m.panel, reasoning: m.reasoning, id: m.id, rating: m.rating ?? 0, rateable: rateable(m), sources: m.sources }));
                 for (const c of m.toolCalls ?? []) nodes.push(toolCard(c));
             } else if (m.role === 'note' && m.kind === 'compact') nodes.push(compactNote(m.content));
             else if (m.role === 'note' && m.kind === 'left-out') nodes.push(leftOutNote(m.content));
@@ -2730,7 +2732,7 @@
             } else if (e.type === 'text') {
                 c.messageCount = (c.messageCount ?? 0) + 1;
                 // final: the answer of the turn, rated with the thumbs under it
-                const answer = { id: e.id ?? null, rateable: Boolean(e.final), sources: e.sources ?? null };
+                const answer = { id: e.id ?? null, rateable: Boolean(e.final) && !e.panel, panel: Boolean(e.panel), sources: e.sources ?? null };
                 if (e.final && e.id) lastFinal = e.id;
                 if (!liveText(e.text, answer)) append(assistantMessage(e.text, { reasoning: e.reasoning, ...answer }));
             } else if (e.type === 'rating') {
@@ -2785,7 +2787,7 @@
                 setStatus(c);
             } else if (e.type === 'question') {
                 c.status = 'question';
-                c.question = { id: e.id, question: e.question, options: e.options };
+                c.question = { id: e.id, question: e.question, options: e.options, panel: Boolean(e.panel) };
                 liveEnd();
                 append(questionCard(c.question), { force: true });
                 setStatus(c);
@@ -2809,7 +2811,7 @@
                 c.status = 'idle';
                 c.error = e.error ?? null;
                 setStatus(c);
-                if (!e.response && !e.error && !e.compact) append(assistantMessage('(stopped)'));
+                if (!e.response && !e.error && !e.compact) append(assistantMessage('(stopped)', { panel: true }));
                 flushEdits();
                 updateRegenerate();
                 if (lastFinal && e.response && !e.error) requestFollowUps(id, lastFinal);

@@ -4,7 +4,7 @@
  * prompt is used as written.
  */
 import { CancelError } from './errors.mjs';
-import { runText, setTextModel, hasText } from './text-model.mjs';
+import { runText, setTextModel, hasText, readsImages } from './text-model.mjs';
 
 export { setTextModel };
 
@@ -59,6 +59,40 @@ export async function makePromptEnglish(text, { type = 'video', signal = null } 
   } catch (e) {
     if (e instanceof CancelError) throw e; // the job was cancelled or paused: it does not go on with the fallback
     return { prompt: text, translated: false, error: e.message };
+  }
+}
+
+/**
+ * The body sentence for Wan 2.2 A14B (4 steps, cfg 1: no negative prompt). User 10.10.2026: "tilkiye örümcek bacağı
+ * eklenmiş gibi". Measured on the same frame and the failing seed: "anatomically correct fox with exactly four legs,
+ * natural four-legged gait" kept four clean legs; a general sentence without the animal and its leg count did not.
+ */
+const ANATOMY_SYSTEM = [
+  'You help an image-to-video model draw bodies correctly.',
+  'Input: a video prompt and maybe its first frame. Name each kind of animal or person that appears in the video, with its exact number of legs.',
+  'Answer with ONE English phrase in this form and nothing else: anatomically correct red fox with exactly four legs, natural four-legged gait',
+  'Several kinds are joined: anatomically correct woman with two arms and two legs and dog with exactly four legs, natural movement',
+  'A person has two arms and two legs; a bird two legs and two wings; a snake or a fish no legs.',
+  'If no animal or person appears, answer NONE.',
+].join('\n');
+
+/** Returns { phrase } ('' when no animal or person appears) or { phrase: null, error } (no text model, odd answer). */
+export async function anatomyPhrase(text, { image = null, signal = null } = {}) {
+  if (!hasText()) return { phrase: null, error: 'no text model' };
+  try {
+    const phrase = await runText({
+      system: ANATOMY_SYSTEM, prompt: `Video prompt: ${text}`, image: image && readsImages() ? image : null, temperature: 0, maxToken: 120, signal, name: 'Anatomy',
+      parse: (m) => {
+        const s = String(m).replace(/\s+/g, ' ').trim().replace(/^["'“]+|["'”.]+$/g, '');
+        if (/^none\b/i.test(s)) return '';
+        if (!/^anatomically correct\b/i.test(s) || s.length > 300) throw new Error(`unexpected answer: ${s.slice(0, 80)}`);
+        return s;
+      },
+    });
+    return { phrase };
+  } catch (e) {
+    if (e instanceof CancelError) throw e;
+    return { phrase: null, error: e.message };
   }
 }
 

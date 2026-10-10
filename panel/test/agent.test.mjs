@@ -25,6 +25,7 @@ import { githubRepo } from '../lib/agent/plugins.mjs';
 import { makePng } from '../lib/media.mjs';
 import { loadSettings } from '../lib/settings.mjs';
 import { createPanel } from './env.mjs';
+import { translate } from '../lib/language.mjs';
 
 const FAKE_LLM = fileURLToPath(new URL('./fake-llm.mjs', import.meta.url));
 const FAKE_MCP = fileURLToPath(new URL('./fake-mcp.mjs', import.meta.url));
@@ -2227,6 +2228,18 @@ test('a tool the agent wrote but did not install: it is sent back once to instal
     const results = o.agent.get(s3.id).messages.filter((m) => m.role === 'tool');
     assert.equal(results.length, 4);
     assert.match(results[1].content, /You made exactly this call before and got the same result/);
+    // the panel's own texts (not the model's) are marked so the Turkish page translates them (user 10.10.2026: "Step
+    // limit reached (40)" stayed English in a Turkish chat); the dictionary has them
+    assert.equal(o.agent.get(s3.id).messages.at(-1).panel, true);
+    assert.match(translate(r3.response, 'tr'), /^Durdum: aynı load_tools çağrısı hep aynı sonucu verdi \(/);
+    const s4 = await o.chat({ approvalMode: 'auto', stepLimit: 2 });
+    const r4 = await o.send(s4.id, 'repeat load');
+    assert.equal(r4.response, 'Step limit reached (2). Write if you want me to continue.');
+    assert.equal(o.agent.get(s4.id).messages.at(-1).panel, true);
+    assert.equal(translate(r4.response, 'tr'), 'Adım sınırına ulaşıldı (2). Devam etmemi istiyorsanız yazın.');
+    assert.equal(translate('I could not do this: run_command failed again the same way ("exit code 1"). I tried other ways too. How should I go on?', 'tr'), 'Bunu yapamadım: run_command yine aynı şekilde başarısız oldu ("çıkış kodu 1"). Başka yolları da denedim. Nasıl devam edeyim?');
+    const chatPage = readFileSync(fileURLToPath(new URL('../web/chat.js', import.meta.url)), 'utf8');
+    assert.match(chatPage, /translate: panel \|\| error \? 'yes' : 'no'/, 'a panel text or an error bubble is translated, the model answer is not');
     // a SKILL.md written here without a description is refused with what to add
     const bare = join(o.p.root, 'bare-skill');
     mkdirSync(bare, { recursive: true });

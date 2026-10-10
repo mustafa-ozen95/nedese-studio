@@ -585,7 +585,7 @@ export class AgentManager {
     const rated = { good: 0, bad: 0 };
     for (const m of AgentManager.storedMessages(s)) if (m.rating === 1) rated.good += 1;
     else if (m.rating === -1) rated.bad += 1;
-    return { id: s.id, title: s.title, creation: s.creation, update: s.update, status: s.status, full: s.full, pinned: Boolean(s.pinned), archived: Boolean(s.archived), temporary: Boolean(s.temporary), rated, preset: s.preset ? { id: s.preset.id, name: s.preset.name } : null, approvalMode: s.approvalMode, model: s.model ?? null, thinking: s.thinking ?? 'low', autoCompact: s.autoCompact !== false, context: { used: s.conversationTokens ?? this.estimateContext(s), size: this.conversationRoom(s) }, cwd: s.cwd ?? null, knowledge: s.knowledge ?? null, allow: s.allow ?? [], parent: s.parent, step: s.step, messageCount: s.messages.length, lastResponse: s.lastResponse, error: s.error, approval: s.work?.approval ? { id: s.work.approval.id, tool: s.work.approval.tool, input: s.work.approval.input, risk: s.work.approval.risk, allow: s.work.approval.allow ?? null } : null, question: s.work?.question ? { id: s.work.question.id, question: s.work.question.question, options: s.work.question.options } : null, progress: s.work?.progress ?? null, usage: s.usage ?? null, runUsage: s.work?.usage ?? null };
+    return { id: s.id, title: s.title, creation: s.creation, update: s.update, status: s.status, full: s.full, pinned: Boolean(s.pinned), archived: Boolean(s.archived), temporary: Boolean(s.temporary), rated, preset: s.preset ? { id: s.preset.id, name: s.preset.name } : null, approvalMode: s.approvalMode, model: s.model ?? null, thinking: s.thinking ?? 'low', autoCompact: s.autoCompact !== false, context: { used: s.conversationTokens ?? this.estimateContext(s), size: this.conversationRoom(s) }, cwd: s.cwd ?? null, knowledge: s.knowledge ?? null, allow: s.allow ?? [], parent: s.parent, step: s.step, messageCount: s.messages.length, lastResponse: s.lastResponse, error: s.error, approval: s.work?.approval ? { id: s.work.approval.id, tool: s.work.approval.tool, input: s.work.approval.input, risk: s.work.approval.risk, allow: s.work.approval.allow ?? null } : null, question: s.work?.question ? { id: s.work.question.id, question: s.work.question.question, options: s.work.question.options, panel: Boolean(s.work.question.panel) } : null, progress: s.work?.progress ?? null, usage: s.usage ?? null, runUsage: s.work?.usage ?? null };
   }
 
   /**
@@ -1642,11 +1642,11 @@ export class AgentManager {
     } catch (e) {
       if (control.signal.aborted || e instanceof CancelError) {
         response = '';
-        s.messages.push({ id: id(), role: 'assistant', content: '(stopped)', time: new Date().toISOString(), stopped: true });
+        s.messages.push({ id: id(), role: 'assistant', content: '(stopped)', time: new Date().toISOString(), stopped: true, panel: true });
       } else {
         s.error = e.message;
         this.log(`[agent ${s.id}] error: ${e.message}`);
-        s.messages.push({ id: id(), role: 'assistant', content: `Error: ${e.message}`, time: new Date().toISOString(), error: true });
+        s.messages.push({ id: id(), role: 'assistant', content: `Error: ${e.message}`, time: new Date().toISOString(), error: true, panel: true });
         this.emit(s, 'error', { error: e.message });
       }
     } finally {
@@ -1791,9 +1791,9 @@ export class AgentManager {
    * ask_user: the chat waits in the "question" state until the user answers (a card in the chat, the CLI, POST
    * /chat/{id}/answer), stops it, or an hour passes. { answered, answer }
    */
-  askUser(s, question, options, signal) {
+  askUser(s, question, options, signal, { panel = false } = {}) {
     return new Promise((ok) => {
-      const q = { id: id(), question, options, ok: null };
+      const q = { id: id(), question, options, ok: null, ...(panel ? { panel: true } : {}) };
       let done = false;
       const timer = setTimeout(() => finish({ answered: false }), APPROVAL_WAIT_MS);
       const cancel = () => finish({ answered: false, stopped: true });
@@ -1813,7 +1813,7 @@ export class AgentManager {
       signal?.addEventListener('abort', cancel, { once: true });
       s.work.question = q;
       s.status = 'question';
-      this.emit(s, 'question', { id: q.id, question, options });
+      this.emit(s, 'question', { id: q.id, question, options, panel });
     });
   }
 
@@ -1834,8 +1834,8 @@ export class AgentManager {
       if (signal.aborted) throw new CancelError();
       if (s.step >= limit) {
         const m = `Step limit reached (${limit}). Write if you want me to continue.`;
-        s.messages.push({ id: id(), role: 'assistant', content: m, time: new Date().toISOString() });
-        this.emit(s, 'text', { text: m, id: s.messages.at(-1).id, final: true });
+        s.messages.push({ id: id(), role: 'assistant', content: m, panel: true, time: new Date().toISOString() });
+        this.emit(s, 'text', { text: m, id: s.messages.at(-1).id, final: true, panel: true });
         return m;
       }
       this.takeInbox(s);
@@ -1938,7 +1938,7 @@ export class AgentManager {
           else if (seen === 2) result.text += `\n[This failed three times the same way. Do not try it again. ${s.canAsk !== false ? 'Ask the user with ask_user: say in two sentences what you tried and what failed, and ask for an idea; then follow the answer.' : 'Explain what you tried and what failed, and stop.'}]`;
           else if (seen >= 3 && s.canAsk !== false) {
             const first = result.text.split('\n')[0].slice(0, 300);
-            const a = await this.askUser(s, `I could not do this: ${c.name} failed again the same way ("${first}"). I tried other ways too. How should I go on?`, [], signal);
+            const a = await this.askUser(s, `I could not do this: ${c.name} failed again the same way ("${first}"). I tried other ways too. How should I go on?`, [], signal, { panel: true });
             s.work.failures.delete(key);
             result.text += a.answered ? `\n[The user answered: ${a.answer} — follow this.]` : '\n[No answer from the user: stop and explain what failed.]';
           } else if (seen >= 3) stopRepeating = true;
@@ -1957,8 +1957,8 @@ export class AgentManager {
         this.save(s);
         if (stopRepeating) {
           const m = `Stopped: the same ${c.name} call kept ${result.error ? 'failing the same way' : 'giving the same result'} (${result.text.split('\n')[0].slice(0, 200)}). Tell me how to go on, or ask differently.`;
-          s.messages.push({ id: id(), role: 'assistant', content: m, time: new Date().toISOString() });
-          this.emit(s, 'text', { text: m, id: s.messages.at(-1).id, final: true });
+          s.messages.push({ id: id(), role: 'assistant', content: m, panel: true, time: new Date().toISOString() });
+          this.emit(s, 'text', { text: m, id: s.messages.at(-1).id, final: true, panel: true });
           this.save(s);
           return m;
         }

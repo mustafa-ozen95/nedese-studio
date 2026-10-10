@@ -148,14 +148,14 @@ export const JOB_TYPES = {
   },
   model3d: {
     name: '3D model',
-    description: 'Generates a textured 3D model from an image (or a frame picked from a video) (Pixal3D / TRELLIS.2, GLB, PBR textures). Only what the image shows is modeled; a chest-up portrait becomes a bust. With complete=true, Qwen-Image-Edit first draws the person or object full body with the same look. If Blender is installed, a turntable video (MP4) and FBX / OBJ (ZIP) / STL are also produced; the STL is a solid, watertight print copy cut flat at the bottom, printHeight millimetres tall.',
+    description: 'Generates a textured 3D model from an image (or a frame picked from a video) (Pixal3D / TRELLIS.2, GLB, PBR textures). Only what the image shows is modeled; a chest-up portrait becomes a bust. With complete=true, Qwen-Image-Edit first draws the person or object full body with the same look. If Blender is installed, FBX / OBJ (ZIP) / STL are also produced (a turntable video (MP4) only with intro=true); the STL is a solid, watertight print copy cut flat at the bottom, printHeight millimetres tall.',
     fields: [
       { name: 'source', type: 'string', required: true, description: 'Image ("upload/…" POST /uploads/image, "job/<id>/<file>") or video ("upload/…" POST /uploads/record, "job/<id>/<file>.mp4").' },
       { name: 'time', type: 'number', required: false, defaultValue: 0, description: 'If the source is a video, the second of the frame to use.' },
       { name: 'complete', type: 'boolean', required: false, defaultValue: false, description: 'Complete to full body first (for a head-to-toe model from a cropped image).' },
       { name: 'quality', type: 'string', required: false, defaultValue: 'high', options: ['fast', 'high'], description: 'high: Pixal3D, 2048 detail, 1 million triangles, 4K texture (~3 min, fits a 12 GB card; best face and fine detail); fast: TRELLIS.2, 1536, 500k, 4K (~2 min).' },
       { name: 'deleteBackPlan', type: 'boolean', required: false, defaultValue: true, description: 'Separate the subject from the background (BiRefNet). Can be turned off if the image is already transparent / on a clean background.' },
-      { name: 'intro', type: 'boolean', required: false, description: '4 s turntable video with Blender; on by default when Blender is present.' },
+      { name: 'intro', type: 'boolean', required: false, description: '4 s turntable video with Blender; off by default.' },
       { name: 'formats', type: 'array', required: false, description: 'Export: "fbx", "obj", "stl"; all three by default when Blender is present. GLB is always produced.' },
       { name: 'printHeight', type: 'number', required: false, defaultValue: 100, description: 'Height of the STL print copy in millimetres (10-1000). The STL output carries print: { height, size, volume (cm³), watertight, solid }.' },
       { name: 'title', type: 'string', required: false, description: 'Name shown in the gallery.' },

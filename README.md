@@ -15,7 +15,7 @@ A local AI media studio for Windows: image, video, voice, music, 3D model and si
 - **Video:** image-to-video with Wan 2.2 (A14B / 5B); unlimited length (5-second parts continue from the previous part's last frame); 480p, 720p and 1080p; frame interpolation with RIFE.
 - **Voice:** narration (VoxCPM2, Chatterbox, EMA Lightning), voice cloning from your own recordings, voice design from a description (Qwen3-TTS), per-character voices in films.
 - **Music:** songs with or without lyrics using ACE-Step 1.5; a trained LoRA can set the style.
-- **3D:** image-to-model with TRELLIS.2 and Pixal3D; turntable video and FBX/OBJ/STL export with Blender.
+- **3D:** image-to-model with TRELLIS.2 and Pixal3D; FBX/OBJ/STL export and an optional turntable video with Blender.
 - **Film:** scenes, character consistency, narration, dialogue, music, subtitles and optional lip sync (InfiniteTalk + LatentSync) combined into one video.
 - **Model training:** text model (QLoRA or from scratch), image LoRA, video LoRA, music LoRA and a general image + text model.
 - **Data collection:** text, images, video and audio from websites and Wikimedia Commons, ready for training; images are described by the local text model.
@@ -57,7 +57,7 @@ The interface is in English (the main language) with a Turkish translation: pick
 | Voice | Text → narration; voice from the library, your own recording (clone), or a new voice from a description; quality modes with Whisper checking and naturalness scoring |
 | Music | Lyrics or instrumental → ACE-Step 1.5; lyric writer; style LoRAs |
 | Film | Scene list (narration, image prompt, motion prompt, dialogue) → one MP4 with subtitles, music and optional lip sync; scene writer from a topic |
-| 3D | Image or video frame → textured GLB; "Complete to full body"; Blender turntable and FBX/OBJ/STL |
+| 3D | Image or video frame → textured GLB; "Complete to full body"; Blender FBX/OBJ/STL and optional turntable |
 | Gallery | All outputs: preview, download, send to video, retry, delete |
 | Training | Text model, image/video/music LoRA, general model; data collection; collected collections |
 | Chat | Chat and agent sessions with the local text model |

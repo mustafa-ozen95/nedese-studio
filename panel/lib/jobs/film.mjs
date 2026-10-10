@@ -25,7 +25,7 @@ import { GENDERS, AGES, nameKey, findCharacter, validateCharacters, splitSpeech,
 import { runWan } from './wan.mjs';
 import { upscaleModelRequired, upscaleFrames } from './upscale.mjs';
 import { fineSetting } from '../fine-settings.mjs';
-import { partPrompts, directorNote } from '../prompt-translate.mjs';
+import { partPrompts, directorNote, anatomyPhrase } from '../prompt-translate.mjs';
 import { hasText } from '../text-model.mjs';
 import { MUSIC_LONGEST, musicRequired, generateMusic } from './music.mjs';
 import { SECTION_TRANSITION, musicSections, musicStyles } from '../music-plan.mjs';
@@ -427,6 +427,17 @@ export async function run(ctx) {
     if (c.translated) ctx.log(`Scene ${i + 1} motion prompt: ${c.prompts.join(' | ')}`);
     else if (c.error && plans[i].part > 1) ctx.log(`Scene ${i + 1}: prompt could not be translated (${c.error}); continuation parts proceed with calm motion.`);
   }
+  // A14B has no negative prompt: per scene the animals and people with their leg count, in the same text model session
+  // (user 10.10.2026: a fox grew a spider-like extra leg; wan.mjs ANATOMY)
+  if (g.videoModel === 'wan14') {
+    ctx.job.sceneAnatomy ??= {};
+    for (const i of plans.map((_, i) => i).filter((i) => !existsSync(join(k, `scene${no2(i)}.mp4`)) && ctx.job.sceneAnatomy[i] === undefined)) {
+      const a = await anatomyPhrase(`${g.scenes[i].image ?? ''} ${(ctx.job.scenePrompts[i] ?? [g.scenes[i].motion]).join(' ')}`.trim(), { signal: ctx.signal });
+      ctx.job.sceneAnatomy[i] = a.phrase;
+      if (a.phrase) ctx.log(`Scene ${i + 1} body: ${a.phrase}`);
+    }
+    ctx.save();
+  }
   if (musicToGenerate && (!ctx.job.musicPlan || ctx.job.musicPlan.sections.length !== sections.length)) {
     ctx.progress({ percent: 8, stage: '2/5 Preparation', detail: 'music plan' });
     ctx.job.musicPlan = await musicStyles({ style: g.musicStyle, sections, log: ctx.log, signal: ctx.signal });
@@ -659,6 +670,7 @@ export async function run(ctx) {
           stage: `3/5 Video: scene ${i + 1}/${n}${p.part > 1 ? ` · part ${part + 1}/${p.part}` : ''}`,
           range: [rangeStart, rangeLast],
           prefixExtra: `s${no2(i)}p${part + 1}`,
+          anatomy: ctx.job.sceneAnatomy?.[i],
         });
         status.part = part + 1;
         status.frame = generated.lastNo;

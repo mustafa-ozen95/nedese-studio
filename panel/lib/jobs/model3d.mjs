@@ -44,8 +44,9 @@ export function validate(g, { mod, setting }) {
   const video = VIDEO_EXTENSION.test(source);
   if (video) recordPath(setting.outputRoot, source);
   else sourcePath(setting.outputRoot, source);
-  // Without Blender the turntable and the exports are off by default; asked for explicitly, an error.
-  const intro = g.intro === undefined ? Boolean(setting.blender) : yes(g.intro);
+  // The turntable video is off unless asked for (user 10.10.2026: "3d için video üretmeye gerek olduğunu düşünmüyorum");
+  // without Blender the exports are off by default too; asked for explicitly, an error.
+  const intro = yes(g.intro);
   const formats = g.formats === undefined ? (setting.blender ? [...FORMATS] : []) : (Array.isArray(g.formats) ? g.formats : String(g.formats).split(',')).map((b) => String(b).trim().toLowerCase()).filter(Boolean);
   for (const b of formats) if (!FORMATS.includes(b)) throw new UserError(`Invalid export format: ${b} (fbx, obj, stl).`);
   if ((intro || formats.length) && !setting.blender) throw new UserError('Blender is required for the showcase video and FBX/OBJ/STL; not found on this machine (install it from blender.org or give its path with AI_PANEL_BLENDER).');
