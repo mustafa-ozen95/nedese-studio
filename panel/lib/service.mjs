@@ -933,19 +933,21 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       throw new UserError('Chat requires the local text model (<ai>\\llm\\bin\\llama-server.exe and llm\\models\\*.gguf).');
     },
     /** One page of chats (newest first), optionally searched; text models to choose from (remote: Settings › Remote model). */
-    chatList({ q = '', after = null, limit = null, sort = null, archived = false } = {}) {
+    chatList({ q = '', after = null, limit = null, sort = null, archived = false, project = null } = {}) {
       if (!h.agent) return { chats: [], total: 0, next: null, textModel: false, models: [], defaultModel: null, remote: null };
       const status = llm?.status?.() ?? {};
       const remote = h.agent.remoteConfig();
-      return { ...h.agent.list({ query: q ?? '', after, limit: limit ?? undefined, sort: sort || 'recent', archived: archived === true || archived === '1' || archived === 'true' }), textModel: true, models: (status.models ?? []).map((m) => ({ file: m.file, name: m.name, gib: m.gib, image: Boolean(m.image) })), defaultModel: status.file ?? null, remote: remote ? { model: remote.model, whenBusy: remote.whenBusy } : null, translatePrompt: settingFile ? settingFile.translatePrompt : null };
+      return { ...h.agent.list({ query: q ?? '', after, limit: limit ?? undefined, sort: sort || 'recent', archived: archived === true || archived === '1' || archived === 'true', project: project || null }), textModel: true, models: (status.models ?? []).map((m) => ({ file: m.file, name: m.name, gib: m.gib, image: Boolean(m.image) })), defaultModel: status.file ?? null, remote: remote ? { model: remote.model, whenBusy: remote.whenBusy } : null, translatePrompt: settingFile ? settingFile.translatePrompt : null };
     },
     createChat(g = {}, authority = {}) {
       if (!h.agent) h.noAgent();
       // An assistant preset gives the settings the request leaves out (user request 08.10.2026)
       const preset = g.preset ? h.agent.preset(g.preset) : null;
       // a preset's model that was removed since (a model file, or the remote model of Settings): the default model
+      // a chat opened in a project starts in its working folder (user request 10.10.2026)
+      const project = g.project ? h.agent.project(g.project) : null;
       const presetModel = preset?.model && (preset.model === REMOTE_MODEL ? h.agent.remoteConfig() : llm?.modelInfo?.(preset.model)) ? preset.model : null;
-      const s = h.agent.create({ title: g.title ?? '', full: Boolean(authority.full), approvalMode: g.approvalMode ?? (g.unattended === undefined ? preset?.approvalMode ?? undefined : undefined), unattended: g.unattended, model: g.model ?? presetModel, cwd: g.cwd ?? preset?.cwd ?? null, thinking: g.thinking ?? preset?.thinking ?? undefined, stepLimit: g.stepLimit, canAsk: g.canAsk !== false, preset, temporary: g.temporary === true });
+      const s = h.agent.create({ title: g.title ?? '', full: Boolean(authority.full), approvalMode: g.approvalMode ?? (g.unattended === undefined ? preset?.approvalMode ?? undefined : undefined), unattended: g.unattended, model: g.model ?? presetModel, cwd: g.cwd ?? preset?.cwd ?? project?.cwd ?? null, thinking: g.thinking ?? preset?.thinking ?? undefined, stepLimit: g.stepLimit, canAsk: g.canAsk !== false, preset, temporary: g.temporary === true, project: project?.id ?? null });
       return { message: 'Chat opened.', chat: h.agent.summary(s) };
     },
     chatPresets() {
@@ -958,6 +960,22 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
     deleteChatPreset(presetId) {
       if (!h.agent) h.noAgent();
       return h.agent.deletePreset(presetId);
+    },
+    /* Projects (user request 10.10.2026) */
+    chatProjects() {
+      return { projects: h.agent ? h.agent.projectList() : [] };
+    },
+    saveChatProject(g = {}, projectId = null) {
+      if (!h.agent) h.noAgent();
+      return h.agent.saveProject(g, projectId);
+    },
+    deleteChatProject(projectId) {
+      if (!h.agent) h.noAgent();
+      return h.agent.deleteProject(projectId);
+    },
+    /** The lasting notes of a project (project: its id) or of the panel. */
+    memoryFile(project) {
+      return project ? h.agent.projectMemoryFile(h.agent.project(project).id) : h.agent.memoryFile;
     },
     /* Settings › Assistant (user request 08.10.2026): scheduled tasks, lasting notes, skills, MCP servers */
     needsFull(authority) {
@@ -981,23 +999,26 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       if (!h.agent.schedules().some((z) => z.id === String(id))) throw new UserError('No such schedule.', 'notFound');
       return { message: h.agent.deleteSchedule(id) };
     },
-    chatMemory({ q = '' } = {}) {
-      return h.agent ? h.agent.memoryNotes(q ?? '') : { notes: [], total: 0 };
+    chatMemory({ q = '', project = null } = {}) {
+      return h.agent ? h.agent.memoryNotes(q ?? '', h.memoryFile(project)) : { notes: [], total: 0 };
     },
-    addChatMemory(g = {}) {
+    addChatMemory(g = {}, project = null) {
       if (!h.agent) h.noAgent();
-      return { message: AgentManager.userError(() => h.agent.addMemory(g.text)) };
+      const file = h.memoryFile(project);
+      return { message: AgentManager.userError(() => h.agent.addMemory(g.text, file)) };
     },
-    updateChatMemory(noteId, g = {}) {
+    updateChatMemory(noteId, g = {}, project = null) {
       if (!h.agent) h.noAgent();
-      if (!h.agent.notes().some((n) => n.id === noteId)) throw new UserError('No such note.', 'notFound');
-      return { message: AgentManager.userError(() => h.agent.updateMemory(noteId, g.text)) };
+      const file = h.memoryFile(project);
+      if (!h.agent.notes(file).some((n) => n.id === noteId)) throw new UserError('No such note.', 'notFound');
+      return { message: AgentManager.userError(() => h.agent.updateMemory(noteId, g.text, file)) };
     },
-    deleteChatMemory(noteId) {
+    deleteChatMemory(noteId, project = null) {
       if (!h.agent) h.noAgent();
+      const file = h.memoryFile(project);
       // by id only (the tool also deletes by text)
-      if (!h.agent.notes().some((n) => n.id === noteId)) throw new UserError('No such note.', 'notFound');
-      return { message: AgentManager.userError(() => h.agent.deleteMemory(noteId)) };
+      if (!h.agent.notes(file).some((n) => n.id === noteId)) throw new UserError('No such note.', 'notFound');
+      return { message: AgentManager.userError(() => h.agent.deleteMemory(noteId, file)) };
     },
     chatSkills() {
       return { skills: h.agent ? h.agent.skillList() : [] };
@@ -1102,6 +1123,12 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       }
       p.catch(() => {});
       return { message: 'Message sent; the reply is in the event stream.', chat: h.agent.summary(s) };
+    },
+    /** Plan mode: the chat goes back to its earlier mode (or g.mode) and the go-ahead goes in as a message. */
+    async approvePlan(id, g = {}, authority = null) {
+      if (!h.agent) h.noAgent();
+      h.agent.approvePlan(id, g.mode ?? null);
+      return h.chatMessage(id, { text: 'The plan is approved: carry it out.' }, authority);
     },
     answerChat(id, g = {}) {
       if (!h.agent) h.noAgent();

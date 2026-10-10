@@ -25,8 +25,8 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { hostname, tmpdir } from 'node:os';
 import { CancelError, UserError } from '../errors.mjs';
 import { LlmError, TEMPERATURE_CAP, THINKING_BUDGET } from '../llm.mjs';
-import { REMOTE_MODEL, remoteRequest } from '../remote-llm.mjs';
-import { APPROVAL_MODES, TOOLS, Processes, WebBrowser, allowRules, allowedBy, cleanRule, fileStream, mcpInstructions, mcpTool, messageLanguage, needsApproval, parsePath, sameRule, searchFold, searchWords, sourcePath, terminalText, truncate } from './tools.mjs';
+import { REMOTE_MODEL, remoteContext, remoteReadsImages, remoteRequest } from '../remote-llm.mjs';
+import { APPROVAL_MODES, TOOLS, Processes, WebBrowser, allowRules, allowedBy, cleanRule, planAllows, fileStream, mcpInstructions, mcpTool, messageLanguage, needsApproval, parsePath, sameRule, searchFold, searchWords, sourcePath, terminalText, truncate } from './tools.mjs';
 import { McpManager, nativeMcpTools } from './mcp.mjs';
 import { Watchers, durationText, shortTime, tail, watchText } from './background.mjs';
 import { Database } from '../database.mjs';
@@ -43,6 +43,8 @@ const RULES_LIMIT = 20000;
 // Assistant presets: the instructions one adds, how many there can be
 const PRESET_PROMPT_LIMIT = 8000;
 const PRESET_LIMIT = 100;
+const PROJECT_LIMIT = 200;
+const PROJECT_INSTRUCTIONS_LIMIT = 16000;
 // Prompt templates: their text, how many there can be, the names the composer's own commands use
 const TEMPLATE_TEXT_LIMIT = 8000;
 const TEMPLATE_LIMIT = 200;
@@ -71,6 +73,9 @@ const MEMORY_FILE_LIMIT = 40000;
 const NOTE_LIMIT = 500;
 const RESPONSE_TOKEN = 4096;
 const ANSWER_TOKEN_CAP = 14336;
+// Plan mode (user request 10.10.2026): what a call that would change something gets back, and the instructions
+const PLAN_REFUSED = 'Plan mode: this would change something, so it did not run. Use only tools that read (files, searches, the web, GET calls of the panel API, read-only commands) and present the plan with present_plan; it runs after the user approves.';
+const PLAN_PROMPT = 'PLAN MODE (chosen by the user): do not change anything yet. Research with the tools that only read (read and search files, read-only commands, the web, GET calls of the panel API), ask with ask_user only what you cannot find out, then call present_plan with a concrete plan: the steps in order and the files, commands or panel jobs each uses. Calls that change something are refused until the user approves the plan. Once you have presented the plan, end your turn with one short line.';
 // Files with text that ride on a user message: each of the last two user messages may fill this share of the context
 // with them (split between its files, at least ATTACHMENT_MIN characters each); an older message keeps the start of
 // each file (ATTACHMENT_OLD characters) and the read_file call that reads on
@@ -541,7 +546,7 @@ export class AgentManager {
   }
 
   /** temporary: never saved (memory only, gone when deleted or when the panel restarts; user request 08.10.2026). */
-  create({ title = '', agent = false, full = false, approvalMode, unattended, model = null, autoCompact = true, canAsk = true, cwd = null, parent = null, thinking = 'low', stepLimit = null, preset = null, temporary = false } = {}) {
+  create({ title = '', agent = false, full = false, approvalMode, unattended, model = null, autoCompact = true, canAsk = true, cwd = null, parent = null, thinking = 'low', stepLimit = null, preset = null, temporary = false, project = null } = {}) {
     const s = {
       ...(temporary ? { temporary: true } : {}),
       id: id(),
@@ -569,6 +574,7 @@ export class AgentManager {
       lastResponse: null,
       error: null,
     };
+    if (project) s.project = this.project(project).id;
     this.chats.set(s.id, s);
     this.save(s, true);
     return s;
@@ -585,7 +591,7 @@ export class AgentManager {
     const rated = { good: 0, bad: 0 };
     for (const m of AgentManager.storedMessages(s)) if (m.rating === 1) rated.good += 1;
     else if (m.rating === -1) rated.bad += 1;
-    return { id: s.id, title: s.title, creation: s.creation, update: s.update, status: s.status, full: s.full, pinned: Boolean(s.pinned), archived: Boolean(s.archived), temporary: Boolean(s.temporary), rated, preset: s.preset ? { id: s.preset.id, name: s.preset.name } : null, approvalMode: s.approvalMode, model: s.model ?? null, thinking: s.thinking ?? 'low', autoCompact: s.autoCompact !== false, context: { used: s.conversationTokens ?? this.estimateContext(s), size: this.conversationRoom(s) }, cwd: s.cwd ?? null, knowledge: s.knowledge ?? null, allow: s.allow ?? [], parent: s.parent, step: s.step, messageCount: s.messages.length, lastResponse: s.lastResponse, error: s.error, approval: s.work?.approval ? { id: s.work.approval.id, tool: s.work.approval.tool, input: s.work.approval.input, risk: s.work.approval.risk, allow: s.work.approval.allow ?? null } : null, question: s.work?.question ? { id: s.work.question.id, question: s.work.question.question, options: s.work.question.options, panel: Boolean(s.work.question.panel) } : null, progress: s.work?.progress ?? null, usage: s.usage ?? null, runUsage: s.work?.usage ?? null };
+    return { id: s.id, title: s.title, creation: s.creation, update: s.update, status: s.status, full: s.full, pinned: Boolean(s.pinned), archived: Boolean(s.archived), temporary: Boolean(s.temporary), rated, preset: s.preset ? { id: s.preset.id, name: s.preset.name } : null, project: s.project ?? null, approvalMode: s.approvalMode, model: s.model ?? null, thinking: s.thinking ?? 'low', autoCompact: s.autoCompact !== false, context: { used: s.conversationTokens ?? this.estimateContext(s), size: this.conversationRoom(s) }, cwd: s.cwd ?? null, knowledge: s.knowledge ?? null, allow: s.allow ?? [], parent: s.parent, step: s.step, messageCount: s.messages.length, lastResponse: s.lastResponse, error: s.error, approval: s.work?.approval ? { id: s.work.approval.id, tool: s.work.approval.tool, input: s.work.approval.input, risk: s.work.approval.risk, allow: s.work.approval.allow ?? null } : null, question: s.work?.question ? { id: s.work.question.id, question: s.work.question.question, options: s.work.question.options, panel: Boolean(s.work.question.panel) } : null, progress: s.work?.progress ?? null, usage: s.usage ?? null, runUsage: s.work?.usage ?? null };
   }
 
   /**
@@ -598,7 +604,7 @@ export class AgentManager {
    * page brings the pinned ones apart (pinned, newest first) and every page the number of archived ones (archivedCount);
    * archived: true pages through the archived chats instead. A search looks through every chat.
    */
-  list({ query = '', after = null, limit = CHAT_PAGE, sort = 'recent', exclude = null, archived = false } = {}) {
+  list({ query = '', after = null, limit = CHAT_PAGE, sort = 'recent', exclude = null, archived = false, project = null } = {}) {
     if (sort && !CHAT_SORTS.includes(sort)) throw new UserError(`sort must be ${CHAT_SORTS.join(' or ')}.`);
     const match = String(query ?? '').trim() ? searchQuery(query) : null;
     if (String(query ?? '').trim() && !match) return { chats: [], total: 0, next: null };
@@ -606,7 +612,7 @@ export class AgentManager {
     const cut = after ? String(after).lastIndexOf('|') : -1;
     const cursor = relevance ? (/^@\d+$/.test(String(after ?? '')) ? { offset: Number(String(after).slice(1)) } : null) : cut > 0 ? { updated: String(after).slice(0, cut), id: String(after).slice(cut + 1) } : null;
     const shelf = match ? null : archived ? 'archived' : 'main';
-    const page = this.db.chatPage({ match, after: cursor, limit: Math.max(1, Math.min(100, Number(limit) || CHAT_PAGE)), sort: relevance ? 'relevance' : 'recent', exclude, shelf });
+    const page = this.db.chatPage({ match, after: cursor, limit: Math.max(1, Math.min(100, Number(limit) || CHAT_PAGE)), sort: relevance ? 'relevance' : 'recent', exclude, shelf, project });
     const words = match ? searchWords(query) : [];
     const fresh = (stored) => {
       const live = this.chats.get(stored.id);
@@ -618,7 +624,7 @@ export class AgentManager {
     });
     const next = !page.next ? null : page.next.offset !== undefined ? `@${page.next.offset}` : `${page.next.updated}|${page.next.id}`;
     if (match) return { chats, total: page.total, next };
-    const pinned = shelf === 'main' && !cursor ? this.db.chatPage({ limit: 100, shelf: 'pinned', exclude }).summaries.map(fresh) : undefined;
+    const pinned = shelf === 'main' && !cursor ? this.db.chatPage({ limit: 100, shelf: 'pinned', exclude, project }).summaries.map(fresh) : undefined;
     return { chats, total: page.total, next, ...(pinned ? { pinned } : {}), archivedCount: this.db.archivedChatCount() };
   }
 
@@ -991,7 +997,7 @@ export class AgentManager {
     // "Title (2)", a fork of that "Title (3)"
     const numbered = /^(.*) \((\d+)\)$/.exec(s.title ?? '');
     const title = numbered ? `${numbered[1]} (${Number(numbered[2]) + 1})` : `${(s.title || 'Chat').slice(0, 74)} (2)`;
-    const t = this.create({ title, full: full && s.full, approvalMode: s.approvalMode, model: s.model && (s.model === REMOTE_MODEL ? this.remoteConfig() : this.llm?.modelInfo?.(s.model)) ? s.model : null, autoCompact: s.autoCompact, cwd: s.cwd, thinking: s.thinking, stepLimit: s.stepLimit, preset: s.preset });
+    const t = this.create({ title, full: full && s.full, approvalMode: s.approvalMode, model: s.model && (s.model === REMOTE_MODEL ? this.remoteConfig() : this.llm?.modelInfo?.(s.model)) ? s.model : null, autoCompact: s.autoCompact, cwd: s.cwd, thinking: s.thinking, stepLimit: s.stepLimit, preset: s.preset, project: this.projectOf(s)?.id ?? null });
     const copy = JSON.parse(JSON.stringify(s.messages.slice(0, end)));
     const checkpoints = [];
     for (const m of copy) {
@@ -1211,6 +1217,119 @@ export class AgentManager {
     if (clean) writeFileSync(this.rulesFile, `${clean}\n`, 'utf8');
     else rmSync(this.rulesFile, { force: true });
     return { message: clean ? 'Rules saved; they apply from the next message of every chat.' : 'Rules cleared.', text: clean, path: this.rulesFile };
+  }
+
+  /* ── Plan mode (user request 10.10.2026, like Claude Code's): present_plan shows the plan; approving it puts the chat
+   * back in the mode it came from and sends the go-ahead as a message ── */
+
+  presentPlan(s, plan) {
+    s.plan = { text: plan, time: new Date().toISOString() };
+    this.emit(s, 'plan', { text: plan });
+  }
+
+  /** mode: the approval mode the work runs in (default: the one the chat had before plan mode, else edits). */
+  approvePlan(id, mode = null) {
+    const s = this.get(id);
+    if (s.approvalMode !== 'plan') throw new UserError('This chat is not in plan mode.');
+    if (mode === 'plan') throw new UserError('Choose the mode the plan runs in: manual, edits or auto.');
+    if (s.work) throw new UserError('The chat is still working; approve the plan when it has finished.');
+    const next = mode ? AgentManager.approvalMode(mode) : s.planReturn ?? 'edits';
+    delete s.plan;
+    return this.applyUpdate(id, { approvalMode: next });
+  }
+
+  /* ── Projects (user request 10.10.2026, like Claude's): chats grouped under a project that gives them its instructions,
+   * its Knowledge documents, its working folder and lasting notes of its own; panel-data/projects.json, the notes in
+   * panel-data/projects/<id>/memory.md ── */
+
+  get projectFile() {
+    return join(this.setting.dataRoot, DATA_FILES.projects);
+  }
+
+  projects() {
+    try {
+      const list = JSON.parse(readFileSync(this.projectFile, 'utf8'))?.projects;
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  project(projectId) {
+    const p = this.projects().find((x) => x.id === String(projectId ?? ''));
+    if (!p) throw new UserError('No such project.', 'notFound');
+    return p;
+  }
+
+  /** The project of a chat (null: none, or one deleted since). */
+  projectOf(s) {
+    return s?.project ? this.projects().find((p) => p.id === s.project) ?? null : null;
+  }
+
+  /** The projects with how many chats and notes each has. */
+  projectList() {
+    const counts = this.db.projectChatCounts();
+    return this.projects().map((p) => ({ ...p, chatCount: counts[p.id] ?? 0, noteCount: this.notes(this.projectMemoryFile(p.id)).length }));
+  }
+
+  /** Adds a project, or with projectId changes the given fields of one (null or '' clears a field). */
+  saveProject(g = {}, projectId = null) {
+    const list = this.projects();
+    const old = projectId ? this.project(projectId) : null;
+    if (!old && list.length >= PROJECT_LIMIT) throw new UserError(`At most ${PROJECT_LIMIT} projects.`);
+    const pick = (key) => (g[key] !== undefined ? g[key] : old?.[key] ?? null);
+    const name = String(pick('name') ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!name) throw new UserError('Give the project a name.');
+    if (list.some((x) => x.id !== old?.id && x.name.toLowerCase() === name.toLowerCase())) throw new UserError(`A project named "${name}" already exists.`);
+    const description = String(pick('description') ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const instructions = String(pick('instructions') ?? '').replace(/\r\n/g, '\n').trim();
+    if (instructions.length > PROJECT_INSTRUCTIONS_LIMIT) throw new UserError(`The instructions are too long (at most ${PROJECT_INSTRUCTIONS_LIMIT} characters).`);
+    const cwd = String(pick('cwd') ?? '').trim() || null;
+    if (cwd && !existsSync(cwd)) throw new UserError('Working folder does not exist.');
+    const wanted = pick('knowledge');
+    const documents = Array.isArray(wanted) ? wanted : wanted ? [wanted] : [];
+    const knowledge = documents.length && this.knowledge ? this.knowledge.match(documents) : [];
+    if (documents.length && !knowledge.length) throw new UserError('None of these documents is in Knowledge.');
+    const now = new Date().toISOString();
+    const project = { id: old?.id ?? id(), name, description, instructions, cwd, knowledge, creation: old?.creation ?? now, update: now };
+    const next = old ? list.map((x) => (x.id === old.id ? project : x)) : [...list, project];
+    next.sort((a, b) => a.name.localeCompare(b.name));
+    writeFileSync(this.projectFile, JSON.stringify({ projects: next }, null, 2));
+    return { message: old ? 'Project saved.' : 'Project added.', project };
+  }
+
+  /** The project and its notes go; its chats stay, outside any project. */
+  deleteProject(projectId) {
+    const p = this.project(projectId);
+    writeFileSync(this.projectFile, JSON.stringify({ projects: this.projects().filter((x) => x.id !== p.id) }, null, 2));
+    rmSync(join(this.setting.dataRoot, DATA_FILES.projectFolder, p.id), { recursive: true, force: true });
+    let n = 0;
+    for (const chatId of this.db.projectChats(p.id)) {
+      const s = this.find(chatId);
+      if (!s) continue;
+      delete s.project;
+      this.save(s, true);
+      n += 1;
+    }
+    for (const s of this.chats.values()) if (s.project === p.id) delete s.project;
+    return { message: n ? `Project deleted; its ${n} chat${n === 1 ? '' : 's'} stay${n === 1 ? 's' : ''} in the list.` : 'Project deleted.' };
+  }
+
+  projectMemoryFile(projectId) {
+    return join(this.setting.dataRoot, DATA_FILES.projectFolder, projectId, 'memory.md');
+  }
+
+  /** Where a chat's lasting notes are: its project's own notes, or the panel's. */
+  memoryOf(s) {
+    const p = this.projectOf(s);
+    return p ? this.projectMemoryFile(p.id) : this.memoryFile;
+  }
+
+  /** The Knowledge documents a chat searches: its own choice, else its project's (null: all of them). */
+  chatKnowledge(s) {
+    if (s.knowledge?.length) return s.knowledge;
+    const p = this.projectOf(s);
+    return p?.knowledge?.length ? p.knowledge : null;
   }
 
   /* ── Assistant presets (user request 08.10.2026): a name, instructions added to the system prompt, text model,
@@ -1474,8 +1593,13 @@ export class AgentManager {
    * Chat settings, also while it runs (they apply from the next model call or tool). A pending approval that the new
    * approval mode no longer needs is accepted right away.
    */
-  applyUpdate(id, { title, approvalMode, unattended, model, autoCompact, thinking, stepLimit, cwd, pinned, archived, temporary, knowledge, allow } = {}) {
+  applyUpdate(id, { title, approvalMode, unattended, model, autoCompact, thinking, stepLimit, cwd, pinned, archived, temporary, knowledge, allow, project } = {}) {
     const s = this.get(id);
+    // the project the chat belongs to (user request 10.10.2026): a project id, or null / '' for none
+    if (project !== undefined) {
+      if (project) s.project = this.project(project).id;
+      else delete s.project;
+    }
     // the Always allow rules (chat Options lists them to remove one): the whole list, checked before anything changes
     if (allow !== undefined) {
       if (allow !== null && !Array.isArray(allow)) throw new UserError('allow must be a list of rules.');
@@ -1511,7 +1635,13 @@ export class AgentManager {
       if (s.archived) s.pinned = false;
     }
     if (title !== undefined) s.title = String(title).slice(0, 80);
-    if (approvalMode !== undefined || unattended !== undefined) s.approvalMode = AgentManager.approvalMode(approvalMode, unattended, s.approvalMode);
+    if (approvalMode !== undefined || unattended !== undefined) {
+      const before = s.approvalMode;
+      s.approvalMode = AgentManager.approvalMode(approvalMode, unattended, s.approvalMode);
+      // plan mode remembers the mode it came from: approving the plan goes back to it
+      if (s.approvalMode === 'plan' && before !== 'plan') s.planReturn = before;
+      if (s.approvalMode !== 'plan') delete s.planReturn;
+    }
     if (model !== undefined) s.model = this.checkModel(model);
     if (autoCompact !== undefined) s.autoCompact = Boolean(autoCompact);
     if (thinking !== undefined && THINKING_BUDGET[thinking] !== undefined) s.thinking = thinking;
@@ -1521,9 +1651,11 @@ export class AgentManager {
       s.cwd = String(cwd);
     }
     const pending = s.work?.approval;
-    if (pending && (!needsApproval(s.approvalMode, pending.risk) || allowedBy(this.allowOf(s), pending.tool, pending.input, this.routes, pending.risk))) pending.ok({ yes: true, auto: true });
+    // switched to plan mode while a change waited for approval: it does not run
+    if (pending && s.approvalMode === 'plan') pending.ok({ yes: false, plan: true });
+    else if (pending && (!needsApproval(s.approvalMode, pending.risk) || allowedBy(this.allowOf(s), pending.tool, pending.input, this.routes, pending.risk))) pending.ok({ yes: true, auto: true });
     // pinned and archived move the chat in the list (panel.db) at once
-    this.save(s, pinned !== undefined || archived !== undefined);
+    this.save(s, pinned !== undefined || archived !== undefined || project !== undefined);
     // "chat" is the event's own chat id field: the new settings travel as summary
     this.emit(s, 'update', { summary: this.summary(s) });
     return this.summary(s);
@@ -1720,14 +1852,16 @@ export class AgentManager {
   tools(s) {
     // search_knowledge only while Knowledge has documents (it is not offered for an empty list)
     const knowledge = Boolean(this.knowledge?.count());
-    return [...TOOLS.filter((a) => (!a.full || s.full) && (!a.ask || s.canAsk !== false) && (a.group !== 'knowledge' || knowledge)), ...this.mcpTools(s)];
+    // present_plan only in plan mode
+    return [...TOOLS.filter((a) => (!a.full || s.full) && (!a.ask || s.canAsk !== false) && (a.group !== 'knowledge' || knowledge) && (!a.plan || s.approvalMode === 'plan')), ...this.mcpTools(s)];
   }
 
   /** "12 documents", or "2 of 12 documents chosen for this chat" (chat Options › Knowledge). */
   knowledgeLabel(s) {
     const n = this.knowledge?.count() ?? 0;
-    const chosen = s.knowledge?.length ? this.knowledge.match(s.knowledge).length : 0;
-    return chosen ? `${chosen} of ${n} documents chosen for this chat` : `${n} document${n === 1 ? '' : 's'}`;
+    const own = this.chatKnowledge(s);
+    const chosen = own ? this.knowledge.match(own).length : 0;
+    return chosen ? `${chosen} of ${n} documents chosen for this ${s.knowledge?.length ? 'chat' : 'project'}` : `${n} document${n === 1 ? '' : 's'}`;
   }
 
   /**
@@ -2019,9 +2153,11 @@ export class AgentManager {
     // A tool from the More tools list used without load_tools: it stays in the chat's tool list from now on
     if (!tool.core && !tool.mcp && !(s.loadedTools ?? []).includes(tool.name)) s.loadedTools = [...(s.loadedTools ?? []), tool.name];
     const risk = tool.risk?.(input) ?? null;
+    if (s.approvalMode === 'plan' && !planAllows(tool.name, input, risk)) return { text: PLAN_REFUSED, error: true };
     // a call the chat's Always allow rules cover runs without asking (never an irreversible one)
     if (needsApproval(s.approvalMode, risk) && !allowedBy(this.allowOf(s), tool.name, input, this.routes, risk)) {
       const o = await this.waitApproval(s, c, risk, signal, allowRules(tool.name, input, this.routes, risk));
+      if (o.plan) return { text: PLAN_REFUSED, error: true };
       if (!o.yes) return { text: o.stopped ? 'Stopped.' : 'The user rejected this action; suggest another way or stop.', error: true };
     }
     const b = this.toolContext(s, signal);
@@ -2094,7 +2230,7 @@ export class AgentManager {
       webSearch: this.webSearch?.() ?? null,
       web: this.web,
       knowledge: this.knowledge,
-      knowledgeOnly: s.knowledge?.length ? s.knowledge : null,
+      knowledgeOnly: this.chatKnowledge(s),
       recordEdit: (path, before, after) => this.recordEdit(s, path, before, after),
       // a background command wakes this chat when it ends
       notifyWhenDone: (kid, record) => this.notifyWhenDone(s, kid, record),
@@ -2130,12 +2266,12 @@ export class AgentManager {
 
   /**
    * The chat's text model (llm\models file), or the panel default when it is empty or the file is gone. The remote model
-   * (Settings › Remote model) has its own entry: its tool-call support is learned apart (native), it gets no images.
+   * (Settings › Remote model) has its own entry: its tool-call support is learned apart (native), only Claude gets images.
    */
   modelInfo(s) {
     if (s.model === REMOTE_MODEL) {
       const r = this.remoteConfig();
-      if (r) return { file: `${REMOTE_MODEL}:${r.model}`, name: `${r.model} (remote)`, remote: true, image: false };
+      if (r) return { file: `${REMOTE_MODEL}:${r.model}`, name: `${r.model} (remote)`, remote: true, image: remoteReadsImages(r) };
     }
     return this.localInfo(s);
   }
@@ -2197,20 +2333,20 @@ export class AgentManager {
     return this.skillCache.list;
   }
 
-  readMemory() {
+  readMemory(file = this.memoryFile) {
     try {
-      return readFileSync(this.memoryFile, 'utf8');
+      return readFileSync(file, 'utf8');
     } catch {
       return '';
     }
   }
 
   /** The lasting notes, oldest first ({ id, date, text }); an older file gets its ids written in at the first read. */
-  notes() {
-    const { notes, migrated } = parseNotes(this.readMemory());
+  notes(file = this.memoryFile) {
+    const { notes, migrated } = parseNotes(this.readMemory(file));
     if (migrated) {
       try {
-        this.writeNotes(notes);
+        this.writeNotes(notes, file);
       } catch (e) {
         this.log(`[agent] could not give the notes ids: ${e.message}`);
       }
@@ -2218,31 +2354,32 @@ export class AgentManager {
     return notes;
   }
 
-  writeNotes(notes) {
-    writeFileSync(this.memoryFile, notes.length ? `${notes.map(noteLine).join('\n')}\n` : '', 'utf8');
+  writeNotes(notes, file = this.memoryFile) {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, notes.length ? `${notes.map(noteLine).join('\n')}\n` : '', 'utf8');
   }
 
-  addMemory(note) {
+  addMemory(note, file = this.memoryFile) {
     const text = noteText(note);
     if (!text) throw new Error('The note is empty.');
-    const notes = this.notes();
+    const notes = this.notes(file);
     const n = { id: `n${noteNumber(notes)}`, date: new Date().toISOString().slice(0, 10), text };
     notes.push(n);
     if (notes.map(noteLine).join('\n').length > MEMORY_FILE_LIMIT) throw new Error(`Memory is full (${MEMORY_FILE_LIMIT} characters): update or delete old notes (search_memory finds them).`);
-    this.writeNotes(notes);
+    this.writeNotes(notes, file);
     return `Note saved as ${n.id} (${notes.length} note${notes.length === 1 ? '' : 's'}).`;
   }
 
   /** A note gets new text; it counts as the newest (the prompt keeps the newest notes when they do not all fit). */
-  updateMemory(id, note) {
+  updateMemory(id, note, file = this.memoryFile) {
     const text = noteText(note);
     if (!text) throw new Error('The note is empty; delete it with delete_memory instead.');
-    const notes = this.notes();
+    const notes = this.notes(file);
     const at = notes.findIndex((n) => n.id === String(id ?? '').trim());
     if (at < 0) throw new Error(`No note ${id}. ${notes.length ? 'search_memory lists the notes with their ids.' : 'There are no notes.'}`);
     const [n] = notes.splice(at, 1);
     notes.push({ ...n, date: new Date().toISOString().slice(0, 10), text });
-    this.writeNotes(notes);
+    this.writeNotes(notes, file);
     return `Note ${n.id} updated.`;
   }
 
@@ -2250,8 +2387,8 @@ export class AgentManager {
    * Notes by id, or those that contain every searched word (case, accents and Turkish i do not matter); none: all of
    * them. Notes that hold only some of the words follow, most matches first.
    */
-  searchMemory({ query = '', id = '' } = {}) {
-    const notes = this.notes();
+  searchMemory({ query = '', id = '' } = {}, file = this.memoryFile) {
+    const notes = this.notes(file);
     if (!notes.length) return 'There are no notes.';
     let found = notes;
     if (String(id ?? '').trim()) found = notes.filter((n) => n.id === String(id).trim());
@@ -2266,8 +2403,8 @@ export class AgentManager {
   }
 
   /** Deletes one note by id; a text instead of an id deletes only the one note that contains it. */
-  deleteMemory(key) {
-    const notes = this.notes();
+  deleteMemory(key, file = this.memoryFile) {
+    const notes = this.notes(file);
     const k = String(key ?? '').trim();
     let found = notes.filter((n) => n.id === k);
     if (!found.length && k) {
@@ -2276,7 +2413,7 @@ export class AgentManager {
     }
     if (!found.length) throw new Error(`No note ${k || '(no id given)'}. search_memory lists the notes with their ids.`);
     const remaining = notes.filter((n) => n !== found[0]);
-    this.writeNotes(remaining);
+    this.writeNotes(remaining, file);
     return `Note ${found[0].id} deleted (${remaining.length} left).`;
   }
 
@@ -2284,8 +2421,8 @@ export class AgentManager {
    * The notes for the system prompt: whole notes, the newest that fit in MEMORY_LIMIT characters, oldest first with
    * their ids; when older ones are left out, how many, and that search_memory finds them.
    */
-  memoryPrompt() {
-    const notes = this.notes();
+  memoryPrompt(file = this.memoryFile) {
+    const notes = this.notes(file);
     if (!notes.length) return '';
     const shown = [];
     let size = 0;
@@ -2304,7 +2441,8 @@ export class AgentManager {
     // again (measured 08.10.2026: with the minute in it, 11k tokens took 11 s instead of ~1 s whenever the minute
     // changed). The time rides on each user message instead (translateMessages), where it does not change.
     const hour = new Date().toLocaleString('en-GB', { timeZone: 'Europe/Istanbul', dateStyle: 'full' });
-    const memory = this.memoryPrompt();
+    const project = this.projectOf(s);
+    const memory = this.memoryPrompt(this.memoryOf(s));
     // Only what every request needs (user 08.10.2026: "Araç skil kural vs. istenmediği sürece dahil etmemelisin"): the
     // panel guide comes with panel_api, skills with load_skill, other tools by name until load_tools adds them
     const parts = [
@@ -2326,10 +2464,15 @@ export class AgentManager {
     ];
     const more = this.moreTools(s, tools);
     if (more) parts.push(more);
-    if (memory) parts.push(memory);
+    // a project's chats keep notes of their own (write_memory saves there)
+    if (memory) parts.push(project ? memory.replace(/^Your persistent notes/, `Your persistent notes for the project "${project.name}"`) : memory);
     if (s.parent) parts.push('This is a sub-agent session: do only the given task, and finish with a clear report of the result (the parent agent will read it).');
     // The assistant preset the user started the chat with (user request 08.10.2026); the user's rules still come last
     if (s.preset?.prompt) parts.push(`ASSISTANT PRESET "${s.preset.name}", chosen by the user for this chat. Follow these instructions:\n${s.preset.prompt}`);
+    // The project the chat belongs to (user request 10.10.2026): its instructions, as in Claude's projects
+    if (project) parts.push(`PROJECT "${project.name}": this chat belongs to this project of the user${project.description ? ` (${project.description})` : ''}; your notes are the project's own.${project.instructions ? ` Follow the project's instructions:
+${project.instructions}` : ''}`);
+    if (s.approvalMode === 'plan') parts.push(PLAN_PROMPT);
     // The user's rules last, so they weigh most: they win over the general rules above when the two disagree
     const rules = this.rules(s);
     if (rules.length) parts.push(`RULES FROM THE USER. Follow every one of them in every answer and action; when one disagrees with the general rules above, the user's rule wins. If the user asks you to remember a rule for this project, add it to NEDESE.md in the working folder (create the file if needed).\n${rules.map((r) => `### ${r.source} (${r.path})\n${r.text}`).join('\n\n')}`);
@@ -2501,7 +2644,7 @@ export class AgentManager {
       const st = statSync(path);
       return { e, path, state: `${st.size}:${st.mtimeMs}` };
     });
-    const budget = this.contextBudget();
+    const budget = this.contextBudget(s);
     const key = `${m.id ?? m.time}|${recent ? budget : 'old'}|${s.full ? 1 : 0}|${files.map((f) => f.state ?? '-').join(',')}`;
     if (this.attachmentCache.has(key)) return this.attachmentCache.get(key);
     const readable = files.filter((f) => f.path && readableKind(f.path));
@@ -2525,8 +2668,9 @@ export class AgentManager {
 
   /** Session messages -> OpenAI chat messages (native tool mode or text blocks). */
   async translateMessages(s, signal) {
-    // the remote model gets attachments by name only (whether it reads images is not known)
-    const withImage = !this.remoteFor(s) && AgentManager.readsImages(this.modelInfo(s));
+    // the remote model gets attachments by name only (whether it reads images is not known), except Claude
+    const remote = this.remoteFor(s);
+    const withImage = remote ? remoteReadsImages(remote) : AgentManager.readsImages(this.modelInfo(s));
     const result = [];
     // messages left out to fit the context (leaveOut) do not go
     const messages = s.messages.slice(s.trimmed).filter((m) => !m.dropped);
@@ -2596,9 +2740,13 @@ export class AgentManager {
     return recent.reduce((t, m) => t + token(m.truncated ? '.'.repeat(300) : modelText(m)) + (m.role === 'user' ? token(this.attachmentPart(s, m, whole.has(m))) : 0) + (m.toolCalls ? token(JSON.stringify(m.toolCalls)) : 0) + 8, 0);
   }
 
-  /** Context window of the text model (the loaded setting, else the configured one). */
-  contextSize() {
-    return this.llm?.lastSetting?.context ?? this.llm?.context ?? 32768;
+  /**
+   * Context window of the text model (the loaded setting, else the configured one). A chat answered by a remote model
+   * whose window is known (Claude: 200k) gets that one.
+   */
+  contextSize(s = null) {
+    const remote = s ? remoteContext(this.remoteFor(s)) : null;
+    return remote ?? this.llm?.lastSetting?.context ?? this.llm?.context ?? 32768;
   }
 
   /**
@@ -2606,17 +2754,16 @@ export class AgentManager {
    * answer's reserve and the fixed part: instructions, tools, summary). The gauge shows the conversation against it.
    */
   conversationRoom(s) {
-    return Math.max(1024, this.contextBudget() - (s.fixedTokens ?? this.baseTokens ?? 2000));
+    return Math.max(1024, this.contextBudget(s) - (s.fixedTokens ?? this.baseTokens ?? 2000));
   }
 
-  contextBudget() {
-    const b = this.llm.lastSetting?.context ?? this.llm.context ?? 32768;
-    return Math.max(4096, b - RESPONSE_TOKEN - THINKING_BUDGET.medium);
+  contextBudget(s = null) {
+    return Math.max(4096, this.contextSize(s) - RESPONSE_TOKEN - THINKING_BUDGET.medium);
   }
 
   /** When the context does not fit the budget: old tool outputs are trimmed first, then old messages are summarized by the model. */
   async contextFit(s, signal) {
-    const budget = this.contextBudget();
+    const budget = this.contextBudget(s);
     const active = this.activeTools(s);
     const fixed = token(this.systemPrompt(s, active)) + (this.native(s) === false ? 0 : token(JSON.stringify(this.toolSchemas(active))));
     const measure = () => {
@@ -2708,7 +2855,7 @@ export class AgentManager {
     const label = (m) => `${m.role === 'user' ? 'USER' : m.role === 'tool' ? `TOOL ${m.toolName}` : 'ASSISTANT'}: `;
     const calls = (m) => (m.toolCalls ? ` [tool calls: ${m.toolCalls.map((c) => c.name).join(', ')}]` : '');
     // the summarizer's room in characters: its context less its answer, its instructions, the previous summary, labels
-    const room = Math.max(4000, (this.contextSize() - SUMMARY_ANSWER - 300 - token(s.summary)) * 3 - list.reduce((t, m) => t + label(m).length + calls(m).length + 2, 0));
+    const room = Math.max(4000, (this.contextSize(s) - SUMMARY_ANSWER - 300 - token(s.summary)) * 3 - list.reduce((t, m) => t + label(m).length + calls(m).length + 2, 0));
     const most = summaryCut(list.map((m) => String(m.content ?? '').length), room);
     const old = list.map((m) => {
       const text = String(m.content ?? '');
@@ -2894,7 +3041,7 @@ export class AgentManager {
     this.baseTokens = token(messages[0].content) + (this.native(s) === false ? 0 : token(JSON.stringify(this.toolSchemas(tools))));
     const budget = THINKING_BUDGET[s.thinking] ?? 0;
     const promptGuess = token(JSON.stringify(messages)) + (this.native(s) === false ? 0 : token(JSON.stringify(this.toolSchemas(tools))));
-    const room = this.contextSize() - promptGuess - 256;
+    const room = this.contextSize(s) - promptGuess - 256;
     // The answer stops with room to spare (user 08.10.2026: "16k ise 14k'da kesmeli, sonra kalanı"): at most 14k, and
     // 2k of the context (after instructions, tools and messages) stays free for the next step; a cut write_file keeps
     // its whole lines (salvageWrite) and the model writes the rest
@@ -3443,8 +3590,8 @@ export class AgentManager {
   }
 
   /** The lasting notes, newest first; query: those with all the words (case, accents and Turkish i do not matter). */
-  memoryNotes(query = '') {
-    const notes = this.notes();
+  memoryNotes(query = '', file = this.memoryFile) {
+    const notes = this.notes(file);
     const words = searchWords(query);
     const found = words.length ? notes.filter((n) => words.every((w) => searchFold(`${n.date} ${n.text}`).includes(w))) : notes;
     return { notes: [...found].reverse(), total: notes.length };

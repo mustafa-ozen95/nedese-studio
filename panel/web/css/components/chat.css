@@ -130,6 +130,56 @@
     align-self: flex-start;
 }
 
+/* Projects (user request 10.10.2026): the project whose chats the list shows */
+.chat__project {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.chat__project-select {
+    flex: 1;
+    min-width: 0;
+}
+
+.chat__project-info {
+    flex: none;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.chat__project-info[hidden] {
+    display: none;
+}
+
+.project-notes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.project-notes__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+.project-notes__item > span {
+    flex: 1;
+    min-width: 0;
+}
+
+.project-documents {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 180px;
+    overflow-y: auto;
+}
+
 /* Infinite scroll: the next page loads when this comes into view */
 .chat__sentinel {
     height: 1px;
@@ -1078,6 +1128,46 @@
 
 .artifact__title {
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.artifact__head {
+    flex-wrap: wrap;
+}
+
+.artifact__name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    flex: 1 1 10rem;
+}
+
+.artifact__kind {
+    flex: none;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+}
+
+.artifact__versions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.artifact__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    justify-content: flex-end;
 }
 
 .artifact__frame {
@@ -1088,12 +1178,60 @@
     background: #fff;
 }
 
+.artifact__source {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: var(--space-3);
+    overflow: auto;
+    font-size: var(--text-sm);
+    background: var(--color-sunken);
+}
+
+/* Full screen: the artifact covers the chat */
+.artifact--full {
+    left: 0;
+    width: 100%;
+    border-left: 0;
+}
+
 @media (max-width: 900px) {
     .artifact {
         left: 0;
         width: 100%;
         border-left: 0;
     }
+
+    /* the panel already fills a phone */
+    .artifact [data-artifact-full] {
+        display: none;
+    }
+}
+
+/* A page the agent wrote, under its tool call: Open shows it in the panel */
+.artifact-card {
+    display: flex;
+    flex: 1 1 100%;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    min-width: 0;
+}
+
+.artifact-card__name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.artifact-card__kind {
+    flex: 1;
+    white-space: nowrap;
 }
 
 .message__bubble ul,
@@ -1308,6 +1446,29 @@ a.file-chip:focus-visible {
     font-size: var(--text-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Plan mode: the plan the agent presented, with Approve and run */
+.plan {
+    border: 1px solid var(--color-line);
+    border-left: 3px solid var(--color-accent, var(--color-line));
+    border-radius: var(--radius-sm);
+    background: var(--color-sunken);
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.plan__title {
+    font-weight: 600;
+}
+
+.plan .plan__body {
+    background: none;
+    padding: 0;
+    max-width: none;
 }
 
 /* Tool call card */
@@ -1937,6 +2098,8 @@ a.file-chip:focus-visible {
     .chat__list:not(.open) .chat__items,
     .chat__list:not(.open) .chat__search,
     .chat__list:not(.open) .chat__search-sort,
+    .chat__list:not(.open) .chat__project,
+    .chat__list:not(.open) .chat__project-info,
     .chat__list:not(.open) .chat__more {
         display: none;
     }

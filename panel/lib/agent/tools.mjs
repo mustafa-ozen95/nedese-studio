@@ -129,8 +129,37 @@ export function isDestructiveApi(method, path) {
  * manual asks before every action that changes something, edits asks only before irreversible ones (deleting,
  * destructive commands, settings changes), auto never asks. A tool's risk(input) is 'danger', 'change' or null.
  */
-export const APPROVAL_MODES = ['manual', 'edits', 'auto'];
-export const needsApproval = (mode, risk) => Boolean(risk) && mode !== 'auto' && (mode === 'manual' || risk === 'danger');
+export const APPROVAL_MODES = ['manual', 'edits', 'auto', 'plan'];
+export const needsApproval = (mode, risk) => Boolean(risk) && mode !== 'auto' && mode !== 'plan' && (mode === 'manual' || risk === 'danger');
+
+/*
+ * Plan mode (user request 10.10.2026, like Claude Code's): the agent only reads and researches, then shows its plan with
+ * present_plan; nothing that changes something runs until the user approves it (the chat then goes back to the mode it
+ * came from). Tools with no risk that still change something are named here; a panel API call only reads with GET.
+ */
+const PLAN_BLOCKED = new Set(['add_upload', 'stop_command', 'write_memory', 'update_memory', 'delete_memory', 'background']);
+export function planAllows(tool, input, risk) {
+  if (risk || PLAN_BLOCKED.has(tool)) return false;
+  return tool !== 'panel_api' || String(input?.method ?? 'GET').toUpperCase() === 'GET';
+}
+
+/*
+ * Artifacts (user request 10.10.2026, like Claude's): an HTML or SVG file the agent writes or edits goes with its result
+ * whole, so the chat shows it running in the preview panel, one version per write or edit (up to 512 KB each).
+ */
+const ARTIFACT_LIMIT = 512 * 1024;
+export function artifactOf(path, content) {
+  const ext = extname(String(path)).toLowerCase();
+  const kind = ext === '.svg' ? 'svg' : ['.html', '.htm'].includes(ext) ? 'html' : null;
+  if (!kind || Buffer.byteLength(content) > ARTIFACT_LIMIT) return null;
+  return { path, kind, content };
+}
+
+/** A written file's result extra: its diff (edit) and, for HTML and SVG, the artifact. */
+function fileExtra(path, content, edit) {
+  const artifact = artifactOf(path, content);
+  return edit || artifact ? { ...(edit ? { edit } : {}), ...(artifact ? { artifact } : {}) } : undefined;
+}
 
 // Commands that only read (Manual mode runs them without asking). Script blocks, subexpressions and redirections into
 // files are never read-only; every part of a chain or pipe must start with one of these.
@@ -940,7 +969,7 @@ export const TOOLS = [
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, content, 'utf8');
       const edit = b.recordEdit?.(path, before, content) ?? null;
-      return { text: `${existed ? (g.append ? 'Appended' : 'Overwritten') : 'Created'}: ${path} (${Buffer.byteLength(content)} B${edit ? `, +${edit.added} -${edit.removed} lines` : ''})`, extra: edit ? { edit } : undefined };
+      return { text: `${existed ? (g.append ? 'Appended' : 'Overwritten') : 'Created'}: ${path} (${Buffer.byteLength(content)} B${edit ? `, +${edit.added} -${edit.removed} lines` : ''})`, extra: fileExtra(path, content, edit) };
     },
   },
   {
@@ -970,7 +999,7 @@ export const TOOLS = [
       const after = g.all ? s.split(e).join(fresh) : s.replace(e, () => fresh);
       writeFileSync(path, after, 'utf8');
       const edit = b.recordEdit?.(path, bytes, after) ?? null;
-      return { text: `Edited: ${path} (${g.all ? number : 1} places${edit ? `, +${edit.added} -${edit.removed} lines` : ''})`, extra: edit ? { edit } : undefined };
+      return { text: `Edited: ${path} (${g.all ? number : 1} places${edit ? `, +${edit.added} -${edit.removed} lines` : ''})`, extra: fileExtra(path, after, edit) };
     },
   },
   {
@@ -1360,6 +1389,20 @@ export const TOOLS = [
     },
   },
   {
+    name: 'present_plan',
+    core: true,
+    // offered only in plan mode (AgentManager.tools)
+    plan: true,
+    description: 'Plan mode: shows the user your plan with Approve and Keep planning buttons. Call it once you have researched enough with the tools that only read. Write the plan in Markdown: the goal, the steps in order (the files, commands or panel jobs each one uses), and what you will check at the end. Then end your turn with one short line; the work starts only after the user approves.',
+    params: object({ plan: text('The plan in Markdown') }, ['plan']),
+    async run(g, b) {
+      const plan = String(g.plan ?? '').trim();
+      if (!plan) throw new Error('The plan is empty.');
+      b.manager.presentPlan(b.chat, plan);
+      return { text: 'The plan is shown to the user with Approve and Keep planning buttons. End your turn now with one short line; do not start the work until the user approves.', extra: { plan: true } };
+    },
+  },
+  {
     name: 'sub_agent',
     group: 'agents',
     description: 'Starts a separate agent with a sub-task (with its own context). wait: true returns the result; false returns an id immediately (for parallel work) and this chat is woken with its result when it finishes (no need to poll agent_status).',
@@ -1386,10 +1429,10 @@ export const TOOLS = [
   {
     name: 'write_memory',
     group: 'memory',
-    description: 'Saves a new persistent note (also in the system prompt of later chats): user preferences, learned paths, unfinished work. Keep it short. To change a note that exists, use update_memory with its id.',
+    description: 'Saves a new persistent note (also in the system prompt of later chats; in the chat of a project, of the chats of that project): user preferences, learned paths, unfinished work. Keep it short. To change a note that exists, use update_memory with its id.',
     params: object({ note: text('One-line note') }, ['note']),
     async run(g, b) {
-      return b.manager.addMemory(String(g.note));
+      return b.manager.addMemory(String(g.note), b.manager.memoryOf(b.chat));
     },
   },
   {
@@ -1399,7 +1442,7 @@ export const TOOLS = [
     params: object({ id: text('Note id, e.g. n3'), note: text('The new one-line text') }, ['id', 'note']),
     aliases: { text: 'note' },
     async run(g, b) {
-      return b.manager.updateMemory(String(g.id), String(g.note));
+      return b.manager.updateMemory(String(g.id), String(g.note), b.manager.memoryOf(b.chat));
     },
   },
   {
@@ -1432,7 +1475,7 @@ export const TOOLS = [
     description: 'Searches the persistent notes (the older ones are not in your instructions): notes with the given words, or one note by id; neither: all notes, with their ids.',
     params: object({ query: text('Words to look for'), id: text('A note id, e.g. n3') }),
     async run(g, b) {
-      return b.manager.searchMemory({ query: g.query ?? '', id: g.id ?? '' });
+      return b.manager.searchMemory({ query: g.query ?? '', id: g.id ?? '' }, b.manager.memoryOf(b.chat));
     },
   },
   {
@@ -1442,7 +1485,7 @@ export const TOOLS = [
     params: object({ id: text('Note id, e.g. n3') }, ['id']),
     aliases: { text: 'id' },
     async run(g, b) {
-      return b.manager.deleteMemory(String(g.id));
+      return b.manager.deleteMemory(String(g.id), b.manager.memoryOf(b.chat));
     },
   },
   {

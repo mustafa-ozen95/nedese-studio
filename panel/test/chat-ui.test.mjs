@@ -181,6 +181,77 @@ test('UI chat presets (phone 402 px): added in their window from Options, chosen
   }
 });
 
+test('UI projects (phone 402 px, user request 10.10.2026): made in the Projects window from the chat list, which then shows that project and puts the next chat in it (its instructions reach the model); All chats tags the chat with its project; Options moves it out; the window keeps the project\'s notes; deleting asks first and keeps the chat; Turkish labels (headless browser)', SKIP, async () => {
+  const o = await chatPage({ width: 402, height: 860 });
+  const { t, until } = o;
+  try {
+    await t.evaluate("document.querySelector('[data-chat-list-toggle]').click(), true");
+    assert.ok(await until("document.querySelector('[data-chat-project]')?.offsetParent !== null", 5000), 'the project bar shows in the open list');
+    assert.deepEqual(await t.evaluate("[...document.querySelector('[data-chat-project]').options].map((x) => x.textContent)"), ['All chats']);
+    await t.evaluate("document.querySelector('[data-projects-manage]').click(), true");
+    const modal = "document.getElementById('modal-chat-projects')";
+    assert.ok(await until(`${modal} && !${modal}.hidden`, 5000), 'the window opens');
+    assert.match(await t.evaluate("document.querySelector('[data-project-list]').textContent"), /No projects yet/);
+    assert.equal(await t.evaluate("document.querySelector('[data-project-notes-field]').hidden"), true, 'notes only for a saved project');
+    const fillForm = (values) => t.evaluate(`(() => { const f = document.querySelector('[data-project-form]'); for (const [k, v] of Object.entries(${JSON.stringify(values)})) f.elements[k].value = v; f.requestSubmit(); return true; })()`);
+    await fillForm({ name: 'Website', description: 'The shop site', instructions: 'Use plain HTML only.' });
+    assert.ok(await until("[...document.querySelectorAll('[data-project-list] .preset-list__name')].map((x) => x.textContent).join() === 'Website'", 5000));
+    assert.equal(await t.evaluate("document.querySelector('[data-project-form-title]').textContent"), 'Edit project');
+    assert.equal(await t.evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'the window fits the phone');
+    const p = o.agent.projects()[0];
+    assert.deepEqual([p.name, p.description, p.instructions], ['Website', 'The shop site', 'Use plain HTML only.']);
+    // its notes, kept in the window
+    await t.evaluate("(() => { document.querySelector('[data-project-form]').elements.note.value = 'the shop sells tea'; document.querySelector('[data-project-note-add]').click(); return true; })()");
+    assert.ok(await until("[...document.querySelectorAll('[data-project-note]')].map((x) => x.textContent).join() === 'the shop sells tea×'", 5000));
+    assert.deepEqual(o.agent.notes(o.agent.projectMemoryFile(p.id)).map((n) => n.text), ['the shop sells tea']);
+    assert.deepEqual(o.agent.notes(), [], 'not a panel note');
+    await t.evaluate(`${modal}.querySelector('[data-modal-close]').click(), true`);
+    // the list now shows the new project, and the next chat goes into it
+    assert.equal(await t.evaluate("document.querySelector('[data-chat-project]').value"), p.id);
+    assert.equal(await t.evaluate("localStorage.getItem('chat.project')"), p.id);
+    assert.equal(await t.evaluate("document.querySelector('[data-chat-project-info]').textContent"), 'The shop site');
+    assert.match(await t.evaluate("document.querySelector('[data-chat-items]').textContent"), /No chats in this project yet/);
+    await o.send('which project');
+    assert.ok(await until(`${o.answers}.includes('Project Website: Use plain HTML only.')`), await t.evaluate(`${o.answers}.join('|')`));
+    assert.equal(o.chat('which project').project, p.id);
+    assert.equal(await t.evaluate("document.querySelector('[data-chat-options-label]').textContent.startsWith('Website · ')"), true, 'the options label names the project');
+    await t.evaluate("document.querySelector('[data-chat-list-toggle]').click(), true");
+    assert.ok(await until("[...document.querySelectorAll('[data-chat-item] .chat__item-name')].map((x) => x.textContent).join() === 'which project'", 5000));
+    assert.ok(await until(`[...document.querySelector('[data-chat-project]').options].map((x) => x.textContent).join('|') === 'All chats|Website (1)'`, 5000), 'the count');
+    // All chats: the chat carries its project's name
+    await t.evaluate("(() => { const s = document.querySelector('[data-chat-project]'); s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+    assert.ok(await until("document.querySelector('[data-chat-item] .chat__item-project')?.textContent === 'Website'", 5000), 'tagged in All chats');
+    // Options › Project: out of the project
+    await t.evaluate("document.querySelector('[data-chat-options]').click(), true");
+    assert.ok(await until(`Boolean(document.querySelector('input[name="chat-project"][value="${p.id}"]')?.checked)`, 5000));
+    await t.evaluate("(() => { const r = document.querySelector('input[name=\"chat-project\"][value=\"\"]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+    for (let i = 0; i < 50 && o.chat('which project').project; i++) await wait(100);
+    assert.equal(o.chat('which project').project, undefined);
+    assert.ok(await until("!document.querySelector('[data-chat-item] .chat__item-project')", 5000), 'no tag any more');
+    await t.evaluate("document.querySelector('[data-chat-options]').click(), true");
+    // delete: asks first; the chat stays
+    await t.evaluate("document.querySelector('[data-chat-list-toggle]').click(), true");
+    await t.evaluate("document.querySelector('[data-projects-manage]').click(), true");
+    assert.ok(await until(`!${modal}.hidden`, 5000));
+    await t.evaluate("document.querySelector('[data-project-id]').click(), true");
+    await t.evaluate("document.querySelector('[data-project-delete]').click(), true");
+    assert.ok(await until("!document.querySelector('[data-confirm-dialog]').hidden", 5000), 'asks first');
+    assert.match(await t.evaluate("document.querySelector('[data-confirm-message]').textContent"), /^Delete the project "Website"\?/);
+    await t.evaluate("document.querySelector('[data-confirm-accept]').click(), true");
+    for (let i = 0; i < 50 && o.agent.projects().length; i++) await wait(100);
+    assert.deepEqual(o.agent.projects(), []);
+    assert.ok(o.chat('which project'), 'the chat stays');
+    assert.ok(await until("document.querySelector('[data-project-list]').textContent.includes('No projects yet')", 5000));
+    // Turkish
+    await t.evaluate("document.querySelector('[data-language-select=\"tr\"]').click(), true");
+    assert.ok(await until(`${modal}.querySelector('.modal__title').textContent === 'Projeler' && document.querySelector('[data-project-save]').textContent === 'Projeyi kaydet'`, 5000));
+    assert.equal(await t.evaluate("document.querySelector('[data-chat-project]').options[0].textContent"), 'Tüm sohbetler');
+    assert.deepEqual(o.errors, []);
+  } finally {
+    await o.close();
+  }
+});
+
 test('UI prompt templates: managed in the /templates window, offered under "/" after the commands; picking one asks for its variables (Enter goes on, Escape cancels) and puts the filled text in the box without sending; one without variables fills the box at once; typed in full it works too (headless browser)', SKIP, async () => {
   const o = await chatPage();
   const { t, until } = o;
@@ -423,7 +494,79 @@ test('UI chat previews: an HTML or SVG code block in an answer runs in a sandbox
     assert.ok(await t.evaluate(`${o.answers}.some((a) => a.includes('A page:'))`), 'the answer itself stays as written');
     await t.evaluate("document.querySelector('[data-code-preview=\"html\"]').click(), true");
     assert.ok(await until("document.querySelector('[data-code-preview-close]')?.getAttribute('aria-label') === 'Önizlemeyi kapat'", 5000));
-    assert.equal(await t.evaluate("document.querySelector('.artifact__title').textContent"), 'HTML önizlemesi');
+    // the page's own title (untranslated), its kind beside it
+    assert.deepEqual(await t.evaluate("[document.querySelector('.artifact__title').textContent, document.querySelector('.artifact__kind').textContent, document.querySelector('[data-artifact-code]').textContent]"), ['Sample', 'HTML', 'Kod']);
+    assert.deepEqual(o.errors, []);
+  } finally {
+    await o.close();
+  }
+});
+
+test('UI artifacts (user request 10.10.2026, like Claude): an HTML page the agent writes opens beside the chat by itself, without taking the focus, and gets a card with Open; an edit is version 2 (previous and next); Code shows the source, Download saves the version shown, Full screen covers the chat; reopened from the saved chat; code blocks with one page title are versions of one; a phone keeps the card and opens it full screen; Turkish labels (headless browser)', SKIP, async () => {
+  const o = await chatPage();
+  const { t, until } = o;
+  try {
+    const idle = "document.querySelector('[data-chat-stop]').hidden";
+    const panel = "document.querySelector('[data-code-preview-panel]')";
+    const view = `(() => { const p = ${panel}; if (!p) return null; const f = p.querySelector('iframe'); return { title: p.querySelector('.artifact__title').textContent, version: p.querySelector('[data-artifact-version]')?.textContent ?? null, page: f ? (/<h1>(\\w+)<\\/h1>/.exec(f.srcdoc)?.[1] ?? '') : null, source: p.querySelector('[data-artifact-source]')?.textContent ?? null }; })()`;
+    const page = (h) => `<!doctype html><html><head><title>Shop</title></head><body><h1>${h}</h1></body></html>`;
+    await o.send(`call tool write_file ${JSON.stringify({ path: 'site.html', text: page('First') })}`);
+    assert.ok(await until(`Boolean(${panel}) && ${idle}`), 'opens by itself');
+    assert.deepEqual(await t.evaluate(view), { title: 'site.html', version: null, page: 'First', source: null });
+    assert.equal(await t.evaluate("document.activeElement?.dataset.codePreviewClose"), undefined, 'the composer keeps the focus');
+    assert.deepEqual(await t.evaluate("[...document.querySelectorAll('.artifact-card')].map((c) => [c.querySelector('.artifact-card__name').textContent, c.querySelector('.artifact-card__kind').textContent])"), [['site.html', 'Web page']]);
+    // an edit: version 2 of 2 shown at once; the previous one is still there
+    await o.send(`call tool edit_file ${JSON.stringify({ path: 'site.html', search: 'First', replace: 'Second' })}`);
+    assert.ok(await until(`(${view})?.version === 'Version 2 of 2' && ${idle}`));
+    assert.equal((await t.evaluate(view)).page, 'Second');
+    assert.equal(await t.evaluate("document.querySelector('[data-artifact-next]').disabled"), true);
+    await t.evaluate("document.querySelector('[data-artifact-previous]').click(), true");
+    assert.deepEqual(await t.evaluate(view), { title: 'site.html', version: 'Version 1 of 2', page: 'First', source: null });
+    assert.equal(await t.evaluate("document.querySelector('[data-artifact-previous]').disabled"), true);
+    // Code: the source of the version shown
+    await t.evaluate("document.querySelector('[data-artifact-code]').click(), true");
+    assert.deepEqual(await t.evaluate(`[(${view}).source, (${view}).page, document.querySelector('[data-artifact-code]').textContent, document.querySelector('[data-artifact-code]').getAttribute('aria-pressed')]`), [page('First'), null, 'Preview', 'true']);
+    // Download: the version shown, under the file's name
+    await t.evaluate("window.__download = null; HTMLAnchorElement.prototype.click = function () { window.__download = { name: this.download, href: this.href }; }; document.querySelector('[data-artifact-download]').click(); true");
+    assert.deepEqual(await t.evaluate("fetch(window.__download.href).then((r) => r.text()).then((text) => [window.__download.name, text])"), ['site.html', page('First')]);
+    // Full screen covers the chat; again gives it back
+    await t.evaluate("document.querySelector('[data-artifact-full]').click(), true");
+    assert.deepEqual(await t.evaluate(`(() => { const r = ${panel}.getBoundingClientRect(); return [r.left, Math.round(r.width), document.querySelector('[data-artifact-full]').textContent]; })()`), [0, 1366, 'Exit full screen']);
+    await t.evaluate("document.querySelector('[data-artifact-full]').click(), true");
+    assert.equal(await t.evaluate(`Math.round(${panel}.getBoundingClientRect().width)`), 683);
+    // the saved chat keeps every version
+    const s = o.chat(`call tool write_file ${JSON.stringify({ path: 'site.html', text: page('First') })}`.slice(0, 60));
+    assert.deepEqual(s.messages.filter((m) => m.role === 'tool').map((m) => [m.extra?.artifact?.kind, /<h1>(\w+)/.exec(m.extra?.artifact?.content)?.[1]]), [['html', 'First'], ['html', 'Second']]);
+    await t.evaluate(`localStorage.setItem('chat.current', ${JSON.stringify(s.id)}); true`);
+    await t.goto(`${o.p.address}/?reopen=1#chat`);
+    assert.ok(await until("document.querySelectorAll('[data-artifact-open]').length === 2"), 'a card per version');
+    assert.equal(await t.evaluate(`Boolean(${panel})`), false, 'a reopened chat does not open it by itself');
+    await t.evaluate("document.querySelectorAll('[data-artifact-open]')[0].click(), true");
+    assert.deepEqual(await t.evaluate(view), { title: 'site.html', version: 'Version 1 of 2', page: 'First', source: null });
+    // code blocks with one page title: versions of one (the last one first when opened from the panel's own card)
+    await t.evaluate("document.querySelector('[data-code-preview-close]').click(), true");
+    for (let i = 1; i <= 2; i++) {
+      await o.send('preview sample');
+      assert.ok(await until(`document.querySelectorAll('.message--assistant:not(.message--live) [data-code-preview="html"]').length === ${i} && ${idle}`));
+    }
+    await t.evaluate("document.querySelectorAll('[data-code-preview=\"html\"]')[0].click(), true");
+    assert.deepEqual(await t.evaluate(`[(${view}).title, (${view}).version]`), ['Sample', 'Version 1 of 2']);
+    await t.evaluate("document.querySelector('[data-artifact-next]').click(), true");
+    assert.equal(await t.evaluate(`(${view}).version`), 'Version 2 of 2');
+    await t.evaluate("document.querySelector('[data-code-preview-close]').click(), true");
+    // a phone: the card only; Open shows it on the whole screen
+    await t.send('Emulation.setDeviceMetricsOverride', { width: 402, height: 860, deviceScaleFactor: 1, mobile: true });
+    await o.send(`call tool write_file ${JSON.stringify({ path: 'logo.svg', text: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>' })}`);
+    assert.ok(await until(`document.querySelectorAll('[data-artifact-open]').length === 3 && ${idle}`));
+    assert.equal(await t.evaluate(`Boolean(${panel})`), false);
+    assert.equal(await t.evaluate("document.querySelectorAll('.artifact-card__kind')[2].textContent"), 'SVG image');
+    await t.evaluate("document.querySelectorAll('[data-artifact-open]')[2].click(), true");
+    assert.deepEqual(await t.evaluate(`(() => { const p = ${panel}; const r = p.getBoundingClientRect(); return [r.left, Math.round(r.width), p.querySelector('.artifact__title').textContent, p.querySelector('.artifact__kind').textContent, p.querySelector('iframe').srcdoc.includes('<circle'), document.documentElement.scrollWidth > innerWidth]; })()`), [0, 402, 'logo.svg', 'SVG', true, false]);
+    await o.shots('artifact');
+    // Turkish
+    await t.evaluate("document.querySelector('[data-language-select=\"tr\"]').click(), true");
+    assert.ok(await until("document.querySelector('[data-artifact-download]').textContent === 'İndir'", 5000));
+    assert.deepEqual(await t.evaluate("[document.querySelector('[data-artifact-code]').textContent, document.querySelector('[data-artifact-full]').textContent, document.querySelectorAll('[data-artifact-open]')[2].textContent, document.querySelectorAll('.artifact-card__kind')[0].textContent]"), ['Kod', 'Tam ekran', 'Aç', 'Web sayfası']);
     assert.deepEqual(o.errors, []);
   } finally {
     await o.close();
@@ -442,6 +585,10 @@ test('UI Settings › Remote model (phone 402 px): address, key (shown masked, n
     assert.equal(await t.evaluate(`${box}.querySelector('[data-remote-key-hint]').textContent`), 'Not set (a server without a key needs none)');
     assert.equal(await t.evaluate(`${box}.querySelector('[data-remote-check]').disabled`), true, 'nothing to test yet');
     assert.equal(await t.evaluate("document.querySelector('[data-remote-remove-form]').hidden"), true);
+    // Quick fill (user request 10.10.2026): Claude and DeepSeek fill the address and model, the key is left to the user
+    const filled = (name) => t.evaluate(`(() => { document.querySelector('[data-remote-preset="${name}"]').click(); const f = document.querySelector('[data-remote-form]').elements; return [f.url.value, f.model.value, document.activeElement === f.key]; })()`);
+    assert.deepEqual(await filled('claude'), ['https://api.anthropic.com/v1', 'claude-sonnet-5-5', true]);
+    assert.deepEqual(await filled('deepseek'), ['https://api.deepseek.com', 'deepseek-flash', true]);
     await t.evaluate(`(() => { const f = document.querySelector('[data-remote-form]'); f.elements.url.value = ${JSON.stringify(`${remote.address}/v1`)}; f.elements.key.value = ${JSON.stringify(KEY)}; f.elements.model.value = 'gpt-test-mini'; f.requestSubmit(); return true; })()`);
     for (let i = 0; i < 50 && o.p.settingFile.remoteModel.model !== 'gpt-test-mini'; i++) await wait(100);
     assert.deepEqual(o.p.settingFile.remoteModel, { url: `${remote.address}/v1`, key: KEY, model: 'gpt-test-mini', whenBusy: false });
@@ -762,6 +909,47 @@ test('UI follow-up suggestions (phone 402 px): three next messages appear under 
     await t.evaluate('location.reload(), true');
     assert.ok(await until(`${o.answers}.includes('EN: no more')`), 'after reopening');
     assert.equal(await t.evaluate(`${rows}.length`), 0);
+    assert.deepEqual(o.errors, []);
+  } finally {
+    await o.close();
+  }
+});
+
+test('UI plan mode (phone 402 px, user request 10.10.2026): Plan in Options; the plan the model presents shows as a card with Approve and run and Keep planning; approving goes back to the earlier mode, sends the go-ahead and hides the buttons; after reopening the card stays without buttons; Turkish labels (headless browser)', SKIP, async () => {
+  const o = await chatPage({ width: 402, height: 860 });
+  const { t, until } = o;
+  try {
+    await o.send('hello plan');
+    assert.ok(await until(`${o.answers}.includes('EN: hello plan')`), 'answered');
+    const chat = () => o.chat('hello plan');
+    const before = chat().approvalMode;
+    await t.evaluate("document.querySelector('[data-chat-options]').click(), true");
+    assert.ok(await until("Boolean(document.querySelector('input[name=\"chat-mode\"][value=\"plan\"]'))", 5000), 'Plan is a mode');
+    await t.evaluate("(() => { const r = document.querySelector('input[name=\"chat-mode\"][value=\"plan\"]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+    for (let i = 0; i < 50 && chat().approvalMode !== 'plan'; i++) await wait(100);
+    assert.equal(chat().approvalMode, 'plan');
+    assert.equal(await t.evaluate("localStorage.getItem('chat.newApprovalMode')") === 'plan', false, 'new chats do not start in plan mode');
+    await t.evaluate("document.querySelector('[data-chat-options]').click(), true");
+    await o.send('call tool present_plan {"plan":"1. **Write** the page\\n2. Check it"}');
+    const card = "document.querySelector('[data-plan]')";
+    assert.ok(await until(`Boolean(${card}) && !${card}.querySelector('[data-plan-actions]').hidden`, 10000), 'the plan card with its buttons');
+    assert.deepEqual(await t.evaluate(`[${card}.querySelector('.plan__title').textContent, ${card}.querySelector('strong')?.textContent, [...${card}.querySelectorAll('[data-plan-actions] button')].map((b) => b.textContent)]`),
+      ['Plan', 'Write', ['Approve and run', 'Keep planning']]);
+    assert.equal(await t.evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'no sideways scroll');
+    // Keep planning: the box gets the focus, nothing is sent
+    await t.evaluate(`${card}.querySelector('[data-plan-keep]').click(), true`);
+    assert.equal(await t.evaluate("document.activeElement === document.querySelector('[data-chat-input]')"), true);
+    // Approve and run
+    await t.evaluate(`${card}.querySelector('[data-plan-approve]').click(), true`);
+    for (let i = 0; i < 50 && chat().approvalMode === 'plan'; i++) await wait(100);
+    assert.equal(chat().approvalMode, before, 'back to the mode before');
+    assert.ok(await until(`${o.answers}.includes('EN: The plan is approved: carry it out.')`, 10000), 'the go-ahead is sent and answered');
+    assert.ok(await until(`${card}.querySelector('[data-plan-actions]').hidden`, 5000), 'no buttons once approved');
+    await t.evaluate('location.reload(), true');
+    assert.ok(await until(`Boolean(${card}) && ${card}.querySelector('[data-plan-actions]').hidden`, 10000), 'after reopening: the card, no buttons');
+    // Turkish
+    await t.evaluate("document.querySelector('[data-language-select=\"tr\"]').click(), true");
+    assert.ok(await until(`[...${card}.querySelectorAll('[data-plan-actions] button')].map((b) => b.textContent).join('|') === 'Onayla ve uygula|Planlamaya devam'`, 5000));
     assert.deepEqual(o.errors, []);
   } finally {
     await o.close();

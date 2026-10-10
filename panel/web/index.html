@@ -1229,6 +1229,13 @@
                             <option value="recent">Newest first</option>
                             <option value="relevance">Best match first</option>
                         </select>
+                        <div class="chat__project" data-chat-project-bar>
+                            <select class="select chat__project-select" data-chat-project aria-label="Project">
+                                <option value="">All chats</option>
+                            </select>
+                            <button type="button" class="btn btn--ghost btn--sm" data-projects-manage title="Projects: chats that share instructions, documents and notes">Projects…</button>
+                        </div>
+                        <p class="chat__project-info text-sm text-muted" data-chat-project-info translate="no" hidden></p>
                         <div class="chat__items" data-chat-items></div>
                         <button type="button" class="btn btn--ghost btn--sm chat__more" data-chat-more hidden>See all</button>
                         <button type="button" class="btn btn--ghost btn--sm chat__more chat__archived-button" data-chat-archived hidden>Archived</button>
@@ -1914,15 +1921,20 @@
                             <header class="panel__head">
                                 <div>
                                     <h2 class="panel__title">Remote model</h2>
-                                    <p class="text-sm text-muted">An OpenAI-compatible text model served elsewhere: OpenAI, OpenRouter, DeepSeek, Groq, or vLLM, Ollama and LM Studio on another computer. A chat can choose it as its text model in Options.</p>
+                                    <p class="text-sm text-muted">A text model served elsewhere: Claude, DeepSeek, OpenAI, OpenRouter, Groq, or vLLM, Ollama and LM Studio on another computer. A chat can choose it as its text model in Options.</p>
                                 </div>
                             </header>
                             <div class="panel__body stack">
                                 <form class="stack" data-remote-form autocomplete="off">
+                                    <div class="row row--wrap" data-remote-presets>
+                                        <span class="field__label">Fill in for</span>
+                                        <button type="button" class="btn btn--sm" data-remote-preset="claude" translate="no">Claude</button>
+                                        <button type="button" class="btn btn--sm" data-remote-preset="deepseek" translate="no">DeepSeek</button>
+                                    </div>
                                     <div class="field">
                                         <label class="field__label" for="remote-url">Address</label>
                                         <input class="input input--mono" id="remote-url" name="url" type="text" spellcheck="false" placeholder="https://api.openai.com/v1">
-                                        <span class="field__hint">The base address; the panel sends to it + /chat/completions.</span>
+                                        <span class="field__hint">The base address; the panel sends to it + /chat/completions (Claude: + /messages).</span>
                                     </div>
                                     <div class="field">
                                         <label class="field__label" for="remote-key">API key</label>
@@ -1932,7 +1944,7 @@
                                     <div class="field">
                                         <label class="field__label" for="remote-model">Model name</label>
                                         <input class="input input--mono" id="remote-model" name="model" type="text" spellcheck="false" placeholder="gpt-4o-mini">
-                                        <span class="field__hint">As the server lists it, e.g. gpt-4o-mini, deepseek-chat, qwen2.5:14b.</span>
+                                        <span class="field__hint">As the server lists it, e.g. claude-sonnet-5-5, deepseek-flash, gpt-4o-mini, qwen2.5:14b.</span>
                                     </div>
                                     <label class="checkbox"><input type="checkbox" name="whenBusy"> <span>Use it while the GPU is busy</span></label>
                                     <span class="field__hint">Chats on the local model answer with the remote model while an image or video job holds the GPU, instead of waiting for it.</span>
@@ -1944,7 +1956,7 @@
                                 <form class="row" data-remote-remove-form hidden>
                                     <button type="submit" class="btn btn--sm btn--ghost" data-remote-remove data-confirm="The address, key and model name are removed; chats on the remote model go back to the local one." data-confirm-title="Remove the remote model" data-confirm-variant="danger">Remove the remote model</button>
                                 </form>
-                                <span class="field__hint">The key stays on this computer (panel-data) and the page shows only its last 4 characters. Images in a chat are not sent to the remote model.</span>
+                                <span class="field__hint">The key stays on this computer (panel-data) and the page shows only its last 4 characters. Images in a chat go only to Claude.</span>
                             </div>
                         </section>
                         <section class="panel" data-setting-fine hidden>

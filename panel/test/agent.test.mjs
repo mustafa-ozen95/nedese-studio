@@ -13,11 +13,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLlm } from '../lib/llm.mjs';
 import { toolBlocks, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, uninstalledTools, cleanSources, followUpList } from '../lib/agent/agent.mjs';
-import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, messageLanguage, sourceTrust, mcpCommand, localPaths, terminalText, TOOLS } from '../lib/agent/tools.mjs';
+import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, messageLanguage, sourceTrust, mcpCommand, localPaths, terminalText, artifactOf, TOOLS } from '../lib/agent/tools.mjs';
 import { McpClient, McpManager, expandVariables, functionSchema, mcpFunctionName, mcpServers, nativeMcpTools, progressText } from '../lib/agent/mcp.mjs';
 import { startFakeMcpHttp } from './fake-mcp-http.mjs';
 import { startFakeRemote } from './fake-remote-llm.mjs';
-import { checkRemoteAddress, remoteRequest } from '../lib/remote-llm.mjs';
+import { anthropicApi, checkRemoteAddress, claudeBody, remoteReadsImages, remoteRequest } from '../lib/remote-llm.mjs';
+import { startFakeAnthropic } from './fake-anthropic.mjs';
 import { checkServiceValue, maskAddress, maskKey } from '../lib/agent/web-search.mjs';
 import { unifiedDiff } from '../lib/agent/diff.mjs';
 import { findSkills, frontMatter, githubSource } from '../lib/agent/skills.mjs';
@@ -712,7 +713,7 @@ test('agent resources: MCP server, skill, memory, scheduling, sub-agent, image v
   try {
     const info = (await o.call('/api/v1/chat/tools')).json;
     assert.ok(info.tools.some((a) => a.name === 'panel_api' && !a.full) && info.tools.some((a) => a.name === 'run_command' && a.full && a.approval));
-    assert.deepEqual(info.approvalModes, ['manual', 'edits', 'auto']);
+    assert.deepEqual(info.approvalModes, ['manual', 'edits', 'auto', 'plan']);
     assert.deepEqual(info.mcp.map((m) => m.name), ['fake']);
     assert.deepEqual(info.skills.map((b) => b.name), ['deneme-beceri']);
     assert.equal(info.readsImages, true);
@@ -1647,6 +1648,226 @@ test('Settings › Remote model:a chat that chose an OpenAI-compatible server (f
   }
 });
 
+test('Settings › Remote model with Claude (user request 10.10.2026): the Messages API (fake, strict like the real one) streams answers and tool calls, gets the key as x-api-key, the system prompt, tools and last turn marked for the cache, images, a 200k context; an overloaded stream is an error', async () => {
+  const KEY = 'sk-ant-fakeClaudeKey-9876';
+  const claude = await startFakeAnthropic({ key: KEY });
+  const o = await agentEnv();
+  const patch = (remoteModel) => o.call('/api/v1/settings', { method: 'PATCH', body: { remoteModel } });
+  try {
+    // a pasted .../messages keeps its base
+    const saved = await patch({ url: `${claude.address}/messages`, key: KEY, model: 'claude-test-5' });
+    assert.equal(saved.code, 200, JSON.stringify(saved.json));
+    assert.equal(saved.json.remoteModel.url, claude.address);
+    const check = await o.call('/api/v1/settings/remote-model/check', { method: 'POST' });
+    assert.equal(check.code, 200, JSON.stringify(check.json));
+    assert.equal(check.json.text, 'OK');
+
+    const t = await o.chat({ model: 'remote' });
+    assert.ok(t.context.size > 100000, `Claude's context window, not the local 32k (${t.context.size})`);
+    const ev = o.events(t.id);
+    await ev.ready;
+    const r = await o.send(t.id, 'hello there');
+    assert.equal(r.response, 'Claude answer from claude-test-5');
+    assert.equal((await ev.list).filter((e) => e.type === 'delta').map((e) => e.text).join(''), 'Claude answer from claude-test-5', 'streamed in pieces');
+    const sent = claude.requests.at(-1);
+    assert.equal(sent.path, '/anthropic/messages');
+    assert.deepEqual([sent.apiKey, sent.authorization, sent.version], [KEY, null, '2023-06-01'], 'the key as x-api-key, never as a bearer token');
+    assert.equal(sent.body.stream, true);
+    assert.equal(sent.body.system[0].cache_control.type, 'ephemeral');
+    assert.ok(sent.body.tools.some((x) => x.name === 'list_file' && x.input_schema), 'tools with input_schema');
+    assert.equal(sent.body.tools.at(-1).cache_control.type, 'ephemeral');
+    assert.equal(sent.body.messages.at(-1).content.at(-1).cache_control.type, 'ephemeral');
+    assert.deepEqual(r.chat.usage, { input: 1030, output: 9 }, 'the cached prompt counts in the input');
+    assert.equal(o.llm.proc, null, 'the local model was not started');
+
+    // a tool call streamed as input_json_delta pieces runs here; its result goes back as a tool_result block
+    const r2 = await o.send(t.id, 'remote tool please');
+    assert.match(r2.response, /^Claude saw the tool result: /);
+    const [assistant, user] = claude.requests.at(-1).body.messages.slice(-2);
+    assert.deepEqual(assistant.content.find((b) => b.type === 'tool_use'), { type: 'tool_use', id: 'toolu_01', name: 'list_file', input: { path: '.' } });
+    assert.equal(user.content[0].tool_use_id, 'toolu_01');
+    const toolMessage = o.agent.get(t.id).messages.find((m) => m.role === 'tool');
+    assert.equal(toolMessage.toolName, 'list_file');
+
+    // an image goes to Claude
+    const png = makePng(32, 32);
+    const y = await o.call('/api/v1/uploads/image?name=photo.png', { method: 'POST', raw: png, type: 'image/png' });
+    assert.equal((await o.send(t.id, 'what is this', { attachments: [y.json.image.source] })).response, 'Claude saw an image (image/jpeg)', 'the panel sends images as JPEG');
+
+    // overloaded in the middle of the stream: an error, not half an answer
+    claude.state.overloaded = true;
+    const bad = await o.send(t.id, 'hello');
+    assert.equal(bad.response, '');
+    assert.match(bad.chat.error, /The remote model answered HTTP 529: Overloaded/);
+    claude.state.overloaded = false;
+    // a wrong key: what the server said, never the key
+    await patch({ key: 'sk-ant-wrongKey-0000' });
+    const refused = await o.send(t.id, 'hello');
+    assert.match(refused.chat.error, /HTTP 401: invalid x-api-key/);
+    assert.equal(refused.chat.error.includes('wrongKey'), false);
+  } finally {
+    await claude.close();
+    await o.close();
+  }
+});
+
+test('Plan mode (user request 10.10.2026, like Claude Code): only reading tools run, a change and a panel job are refused, present_plan shows the plan, approving goes back to the earlier mode and carries it out', async () => {
+  const o = await agentEnv();
+  try {
+    const t = await o.chat({ full: true, approvalMode: 'edits' });
+    const s = () => o.agent.get(t.id);
+    const toolText = () => s().messages.filter((m) => m.role === 'tool').at(-1).content;
+    const tools = async () => (await o.send(t.id, 'which tools')).response;
+    assert.doesNotMatch(await tools(), /present_plan/, 'only offered in plan mode');
+    const patched = await o.call(`/api/v1/chat/${t.id}`, { method: 'PATCH', body: { approvalMode: 'plan' } });
+    assert.equal(patched.json.chat.approvalMode, 'plan');
+    assert.match(await tools(), /present_plan/);
+    assert.match(o.agent.systemPrompt(s(), o.agent.tools(s())), /PLAN MODE \(chosen by the user\)/);
+    // a file write, a panel job and a note do not run
+    await o.send(t.id, 'write hello');
+    assert.match(toolText(), /^Plan mode: this would change something, so it did not run/);
+    assert.equal(existsSync(join(s().cwd, 'yazilan.txt')), false);
+    const jobs = (await o.call('/api/v1/jobs')).json.jobs.length;
+    await o.send(t.id, 'generate a cat image');
+    assert.match(toolText(), /^Plan mode/);
+    assert.equal((await o.call('/api/v1/jobs')).json.jobs.length, jobs, 'no job was started');
+    await o.send(t.id, 'call tool write_memory {"note":"x"}');
+    assert.match(toolText(), /^Plan mode/, 'a note is a change too');
+    // reading runs: a read-only command, a GET of the panel API
+    assert.match((await o.send(t.id, 'run command')).response, /^Output: .*hello/s);
+    await o.send(t.id, 'call tool panel_api {"method":"GET","path":"/jobs"}');
+    assert.doesNotMatch(toolText(), /Plan mode/);
+    // the plan
+    const ev = o.events(t.id);
+    await ev.ready;
+    const shown = await o.send(t.id, 'call tool present_plan {"plan":"1. Write yazilan.txt\\n2. Check it"}');
+    assert.match(shown.response, /^Result \(present_plan\): The plan is shown to the user/);
+    assert.equal(s().plan.text, '1. Write yazilan.txt\n2. Check it');
+    assert.ok((await ev.list).some((e) => e.type === 'plan' && /Write yazilan\.txt/.test(e.text)));
+    // approved: back to Allow edits (the mode before plan mode), the go-ahead goes in as a message and the chat runs
+    const approved = await o.call(`/api/v1/chat/${t.id}/plan/approve`, { method: 'POST', body: {} });
+    assert.equal(approved.code, 200, JSON.stringify(approved.json));
+    assert.equal(s().approvalMode, 'edits');
+    for (let i = 0; i < 200 && s().work; i++) await new Promise((ok) => setTimeout(ok, 50));
+    assert.equal(s().messages.filter((m) => m.role === 'user').at(-1).content, 'The plan is approved: carry it out.');
+    assert.equal(s().plan, undefined);
+    await o.send(t.id, 'write hello');
+    assert.doesNotMatch(toolText(), /Plan mode/, 'changes run again');
+    assert.ok(existsSync(join(s().cwd, 'yazilan.txt')));
+    // not in plan mode any more; plan cannot be the mode the plan runs in; a chosen mode
+    const again = await o.call(`/api/v1/chat/${t.id}/plan/approve`, { method: 'POST', body: {} });
+    assert.equal(again.code, 400);
+    await o.call(`/api/v1/chat/${t.id}`, { method: 'PATCH', body: { approvalMode: 'plan' } });
+    assert.equal((await o.call(`/api/v1/chat/${t.id}/plan/approve`, { method: 'POST', body: { mode: 'plan' } })).code, 400);
+    assert.equal((await o.call(`/api/v1/chat/${t.id}/plan/approve`, { method: 'POST', body: { mode: 'auto' } })).code, 200);
+    assert.equal(s().approvalMode, 'auto');
+    for (let i = 0; i < 200 && s().work; i++) await new Promise((ok) => setTimeout(ok, 50));
+  } finally {
+    await o.close();
+  }
+});
+
+test('Projects (user request 10.10.2026, like Claude): a project gives its chats its instructions and working folder, notes of their own (not the panel\'s, and the panel\'s not theirs), its own chat list; a chat moves in and out; a fork stays in it; deleting it keeps the chats', async () => {
+  const o = await agentEnv();
+  try {
+    const folder = mkdtempSync(join(tmpdir(), 'project-'));
+    const add = (body) => o.call('/api/v1/chat/projects', { method: 'POST', body });
+    const made = await add({ name: '  Web   site ', description: 'The new site', instructions: 'Always use plain HTML.', cwd: folder });
+    assert.equal(made.code, 200, JSON.stringify(made.json));
+    const p = made.json.project;
+    assert.deepEqual([p.name, p.description, p.instructions, p.cwd, p.knowledge], ['Web site', 'The new site', 'Always use plain HTML.', folder, []]);
+    assert.equal((await add({ name: 'web SITE' })).code, 400, 'names are unique');
+    assert.equal((await add({ name: '' })).code, 400);
+    assert.equal((await add({ name: 'x', cwd: join(folder, 'missing') })).code, 400);
+    assert.equal((await o.call('/api/v1/chat', { method: 'POST', body: { project: 'nope' } })).code, 404);
+    // a chat in the project: its folder, its instructions in the system prompt
+    const c = await o.chat({ project: p.id });
+    assert.equal(c.project, p.id);
+    assert.equal(c.cwd, folder);
+    const prompt = (id) => o.agent.systemPrompt(o.agent.get(id), o.agent.tools(o.agent.get(id)));
+    assert.match(prompt(c.id), /PROJECT "Web site": this chat belongs to this project of the user \(The new site\); your notes are the project's own\. Follow the project's instructions:\nAlways use plain HTML\./);
+    // notes: the project's chat writes to the project, a plain chat to the panel; neither sees the other's
+    const plain = await o.chat({});
+    await o.send(c.id, 'memory');
+    assert.match(prompt(c.id), /Your persistent notes for the project "Web site" \(update_memory[^\n]*\n- \[n1\] [\d-]+: the user likes cats/);
+    assert.doesNotMatch(prompt(plain.id), /likes cats/);
+    assert.equal((await o.call('/api/v1/chat/memory')).json.total, 0);
+    const notes = await o.call(`/api/v1/chat/memory?project=${p.id}`);
+    assert.deepEqual(notes.json.notes.map((n) => n.text), ['the user likes cats']);
+    assert.equal((await o.call(`/api/v1/chat/memory?project=${p.id}`, { method: 'POST', body: { text: 'the site is blue' } })).code, 200);
+    assert.equal((await o.call(`/api/v1/chat/memory/n2?project=${p.id}`, { method: 'PATCH', body: { text: 'the site is green' } })).code, 200);
+    assert.equal((await o.call('/api/v1/chat/memory/n2', { method: 'DELETE' })).code, 404, 'not a panel note');
+    await o.call('/api/v1/chat/memory', { method: 'POST', body: { text: 'panel wide note' } });
+    assert.match(prompt(plain.id), /panel wide note/);
+    assert.doesNotMatch(prompt(c.id), /panel wide note/);
+    assert.match(prompt(c.id), /the site is green/);
+    assert.equal((await o.call(`/api/v1/chat/memory/n2?project=${p.id}`, { method: 'DELETE' })).code, 200);
+    // the list: chatCount and noteCount; GET /chat?project= only its chats
+    const listed = (await o.call('/api/v1/chat/projects')).json.projects.find((x) => x.id === p.id);
+    assert.deepEqual([listed.chatCount, listed.noteCount], [1, 1]);
+    const ids = async (q) => (await o.call(`/api/v1/chat${q}`)).json.chats.map((x) => x.id);
+    assert.deepEqual(await ids(`?project=${p.id}`), [c.id]);
+    assert.ok((await ids('')).includes(c.id), 'the main list keeps every chat');
+    // moved in and out
+    assert.equal((await o.call(`/api/v1/chat/${plain.id}`, { method: 'PATCH', body: { project: p.id } })).json.chat.project, p.id);
+    assert.deepEqual((await ids(`?project=${p.id}`)).sort(), [c.id, plain.id].sort());
+    assert.equal((await o.call(`/api/v1/chat/${plain.id}`, { method: 'PATCH', body: { project: null } })).json.chat.project, null);
+    assert.equal((await o.call(`/api/v1/chat/${plain.id}`, { method: 'PATCH', body: { project: 'nope' } })).code, 404);
+    // a fork stays in the project
+    const answer = o.agent.get(c.id).messages.find((m) => m.role === 'assistant');
+    const fork = await o.call(`/api/v1/chat/${c.id}/fork`, { method: 'POST', body: { message: answer.id } });
+    assert.equal(fork.json.chat?.project, p.id, JSON.stringify(fork.json));
+    // changed: from the next message
+    await o.call(`/api/v1/chat/projects/${p.id}`, { method: 'PATCH', body: { instructions: 'Answer in haiku.' } });
+    assert.match(prompt(c.id), /Follow the project's instructions:\nAnswer in haiku\./);
+    // deleted: its chats stay, outside any project; its notes go
+    const gone = await o.call(`/api/v1/chat/projects/${p.id}`, { method: 'DELETE' });
+    assert.equal(gone.json.message, 'Proje silindi; 2 sohbeti listede kalıyor.');
+    assert.equal(o.agent.get(c.id).project, undefined);
+    assert.equal((await o.call(`/api/v1/chat/${c.id}`)).json.chat.project, null);
+    assert.doesNotMatch(prompt(c.id), /PROJECT|likes cats/);
+    assert.equal(existsSync(join(o.p.setting.dataRoot, 'projects', p.id)), false);
+    assert.deepEqual((await o.call('/api/v1/chat/projects')).json.projects, []);
+    assert.equal((await o.call(`/api/v1/chat/projects/${p.id}`, { method: 'DELETE' })).code, 404);
+  } finally {
+    await o.close();
+  }
+});
+
+test('Claude request body: tool results of one step in one user turn, a chat that starts with the model, image parts, the address that picks the Messages API', () => {
+  const body = claudeBody({
+    messages: [
+      { role: 'system', content: 'rules' },
+      { role: 'assistant', content: 'summary left this first' },
+      { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAAA' } }] },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'a', type: 'function', function: { name: 'read_file', arguments: '{"path":"x"}' } }, { id: 'b', type: 'function', function: { name: 'list_file', arguments: 'not json' } }] },
+      { role: 'tool', tool_call_id: 'a', content: 'file text' },
+      { role: 'tool', tool_call_id: 'b', content: '' },
+      { role: 'user', content: 'and then?' },
+    ],
+    temperature: 1.3,
+    max_tokens: 500,
+    tools: [{ type: 'function', function: { name: 'read_file', description: 'Read', parameters: { type: 'object', properties: { path: { type: 'string' } } } } }],
+    tool_choice: 'auto',
+  }, 'claude-x');
+  assert.deepEqual(body.messages.map((m) => m.role), ['user', 'assistant', 'user', 'assistant', 'user']);
+  assert.equal(body.messages[0].content[0].text, '(continue)');
+  assert.deepEqual(body.messages[2].content[1], { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } });
+  assert.deepEqual(body.messages[3].content.map((b) => [b.type, b.id, b.input]), [['tool_use', 'a', { path: 'x' }], ['tool_use', 'b', {}]], 'an empty text is left out; broken arguments are an empty input');
+  assert.deepEqual(body.messages[4].content.map((b) => b.type), ['tool_result', 'tool_result', 'text'], 'both results and the next question in one user turn');
+  assert.equal(body.messages[4].content[1].content[0].text, '(no output)');
+  assert.equal(body.temperature, 1, 'at most 1');
+  assert.equal('tool_choice' in body, false, 'auto is the default');
+  assert.deepEqual(body.system, [{ type: 'text', text: 'rules', cache_control: { type: 'ephemeral' } }]);
+  assert.equal(anthropicApi('https://api.anthropic.com/v1'), true);
+  assert.equal(anthropicApi('https://api.deepseek.com/anthropic'), true);
+  assert.equal(anthropicApi('https://api.deepseek.com'), false);
+  assert.equal(anthropicApi('https://openrouter.ai/api/v1'), false);
+  assert.equal(remoteReadsImages({ url: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5' }), true);
+  assert.equal(remoteReadsImages({ url: 'https://api.deepseek.com/anthropic', model: 'deepseek-flash' }), false);
+  assert.equal(checkRemoteAddress('https://api.anthropic.com/v1/messages'), 'https://api.anthropic.com/v1');
+});
+
 test('remote model requests: an address that cannot be reached, a stream that the server does not send, an error that is not JSON', async () => {
   // a server that ignores stream: true (whole answer at once) still shows in the chat as text
   const plain = createServer((i, y) => {
@@ -2560,4 +2781,14 @@ test('ask_user: the chat waits in the question state, the answer goes to the mod
   } finally {
     await o.close();
   }
+});
+
+test('Artifacts (user request 10.10.2026, like Claude): an HTML or SVG file the agent writes goes with its result whole (up to 512 KB), other files and larger pages do not', () => {
+  assert.deepEqual(artifactOf('C:\site\Index.HTML', '<h1>x</h1>'), { path: 'C:\site\Index.HTML', kind: 'html', content: '<h1>x</h1>' });
+  assert.equal(artifactOf('/a/logo.svg', '<svg/>').kind, 'svg');
+  assert.equal(artifactOf('/a/page.htm', '').kind, 'html');
+  assert.equal(artifactOf('/a/app.js', 'x'), null);
+  assert.equal(artifactOf('/a/notes.txt', '<html>'), null);
+  assert.equal(artifactOf('/a/big.html', 'x'.repeat(512 * 1024)).kind, 'html');
+  assert.equal(artifactOf('/a/big.html', 'x'.repeat(512 * 1024 + 1)), null);
 });

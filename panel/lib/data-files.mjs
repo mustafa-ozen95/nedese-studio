@@ -15,6 +15,8 @@ export const DATA_FILES = {
   rules: 'rules.md',
   presets: 'chat-presets.json',
   templates: 'prompt-templates.json',
+  projects: 'projects.json',
+  projectFolder: 'projects',
   migration: 'migration.json',
 };
 

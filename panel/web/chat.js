@@ -68,6 +68,9 @@
         archivedView: false,
         newTemporary: false, // a new chat starts temporary (not saved) while this is on
         knowledge: { documents: [], status: null }, // Knowledge: the documents the assistant searches (GET /knowledge)
+        // Projects (user request 10.10.2026): the list shows the chosen project's chats and a new chat goes into it
+        projects: [],
+        project: '',
     };
     try {
         const m = localStorage.getItem('chat.newApprovalMode');
@@ -75,6 +78,7 @@
         const t = localStorage.getItem('chat.thinking');
         if (['none', 'low', 'medium', 'high'].includes(t)) state.newThinking = t;
         state.newPreset = localStorage.getItem('chat.preset') ?? '';
+        state.project = localStorage.getItem('chat.project') ?? '';
     } catch {
         /* private mode */
     }
@@ -111,6 +115,8 @@
     const archivedButton = $('[data-chat-archived]', section);
     const importButton = $('[data-chat-import]', section);
     const importFile = $('[data-chat-import-file]', section);
+    const projectSelect = $('[data-chat-project]', section);
+    const projectInfo = $('[data-chat-project-info]', section);
     // The line above the composer (user request 09.10.2026): what the chat does now, its tokens and what it runs in the
     // background ("2 sub-agents (1 running) · 1 watcher"); with background items it is a button that opens their list
     // right under it. Its parts stay between renders, so the button keeps its focus while events redraw the line.
@@ -211,8 +217,11 @@
         copy.addEventListener('click', () => copyText(b.text, copy));
         const buttons = [copy];
         if (kind) {
-            const button = el('button', { type: 'button', class: 'message__action message__preview-button', 'data-code-preview': kind, text: 'Preview' });
-            button.addEventListener('click', () => openPreview(b.text, kind, button));
+            // code blocks with the same page title (or none, of the same kind) are versions of one artifact
+            const key = `block:${kind}:${pageTitle(b.text)}`;
+            const button = el('button', { type: 'button', class: 'message__action message__preview-button', 'data-code-preview': kind, 'data-artifact-key': key, text: 'Preview' });
+            button.artifact = { code: b.text, kind, title: pageTitle(b.text), name: '' };
+            button.addEventListener('click', () => openArtifact(key, button));
             buttons.push(button);
         }
         const label = kind ? (kind === 'svg' ? 'SVG' : 'HTML') : String(b.lang ?? '');
@@ -288,27 +297,127 @@
         return meta + code;
     }
 
-    let preview = null; // { box, opener }
-    function openPreview(code, kind, opener) {
-        closePreview();
-        const frame = el('iframe', { class: 'artifact__frame', sandbox: 'allow-scripts', title: 'Preview', referrerpolicy: 'no-referrer', 'data-code-preview-frame': true });
-        frame.srcdoc = previewDocument(code, kind);
+    /*
+     * ── Artifacts (user request 10.10.2026, like Claude's): the preview panel shows one artifact with its versions. An
+     * HTML or SVG file the agent writes or edits is one artifact, a version per write; code blocks in answers with the
+     * same page title are versions of one. Every source in the chat carries data-artifact-key and its content
+     * (element.artifact), so the versions are the chat's sources of that key in order. When the agent writes one, the
+     * panel opens by itself on a wide screen (a card in the chat opens it on a phone). Code shows the source, Download
+     * saves the version shown, Full screen covers the chat.
+     */
+
+    const pageTitle = (code) => decodeEntities(/<title[^>]*>([^<]{1,120})<\/title>/i.exec(code)?.[1] ?? '').replace(/\s+/g, ' ').trim();
+    function decodeEntities(s) {
+        const t = document.createElement('textarea');
+        t.innerHTML = s;
+        return t.value;
+    }
+    const artifactSources = (key) => [...messagesBox.querySelectorAll('[data-artifact-key]')].filter((n) => n.dataset.artifactKey === key && n.artifact && !n.closest('.message--live'));
+
+    let preview = null; // { box, opener, key, index, code: showing the source, full }
+    function openArtifact(key, opener = null, { focus = true } = {}) {
+        const sources = artifactSources(key);
+        if (!sources.length) return;
+        const index = opener && sources.includes(opener) ? sources.indexOf(opener) : sources.length - 1;
+        if (preview?.key === key) {
+            preview.index = index;
+            preview.opener = opener ?? preview.opener;
+            return renderArtifact();
+        }
+        closePreview({ focus: false });
         const close = el('button', { type: 'button', class: 'btn btn--sm btn--ghost', 'data-code-preview-close': true, 'aria-label': 'Close preview', title: 'Close preview', text: 'Close' });
-        close.addEventListener('click', closePreview);
-        const box = el('div', { class: 'artifact', role: 'dialog', 'aria-label': 'Preview', 'data-code-preview-panel': true },
-            el('div', { class: 'artifact__head' }, el('span', { class: 'artifact__title', text: kind === 'svg' ? 'SVG preview' : 'HTML preview' }), close),
-            frame);
+        close.addEventListener('click', () => closePreview());
+        const box = el('div', { class: 'artifact', role: 'dialog', 'aria-label': 'Preview', 'data-code-preview-panel': true });
         document.body.append(box);
-        preview = { box, opener };
-        close.focus();
+        preview = { box, opener, key, index, code: false, full: false, close, chat: state.current?.id ?? null };
+        renderArtifact();
+        if (focus) close.focus();
     }
 
-    function closePreview() {
+    function renderArtifact() {
+        if (!preview) return;
+        const p = preview;
+        const sources = artifactSources(p.key);
+        if (!sources.length) return closePreview({ focus: false });
+        p.index = Math.min(Math.max(0, p.index), sources.length - 1);
+        const a = sources[p.index].artifact;
+        const kindName = a.kind === 'svg' ? 'SVG' : 'HTML';
+        const button = (attrs, text, onClick) => {
+            const b = el('button', { type: 'button', class: 'btn btn--sm btn--ghost', ...attrs, text });
+            b.addEventListener('click', onClick);
+            return b;
+        };
+        const step = (by) => () => {
+            p.index += by;
+            renderArtifact();
+        };
+        const versions = sources.length > 1 ? el('span', { class: 'artifact__versions', 'data-artifact-versions': true },
+            button({ 'data-artifact-previous': true, 'aria-label': 'Previous version', title: 'Previous version', disabled: p.index === 0 }, '‹', step(-1)),
+            el('span', { class: 'artifact__version', 'data-artifact-version': true, text: `Version ${p.index + 1} of ${sources.length}` }),
+            button({ 'data-artifact-next': true, 'aria-label': 'Next version', title: 'Next version', disabled: p.index === sources.length - 1 }, '›', step(1))) : null;
+        const code = button({ 'data-artifact-code': true, 'aria-pressed': String(p.code) }, p.code ? 'Preview' : 'Code', () => {
+            p.code = !p.code;
+            renderArtifact();
+        });
+        const download = button({ 'data-artifact-download': true }, 'Download', () => downloadArtifact(a));
+        const full = button({ 'data-artifact-full': true, 'aria-pressed': String(p.full) }, p.full ? 'Exit full screen' : 'Full screen', () => {
+            p.full = !p.full;
+            renderArtifact();
+        });
+        let body;
+        if (p.code) {
+            const source = el('code', { 'data-lang': a.kind });
+            if (window.NedeseHighlight?.language(a.kind === 'svg' ? 'xml' : 'html')) source.innerHTML = window.NedeseHighlight.highlight(a.code, a.kind === 'svg' ? 'xml' : 'html');
+            else source.textContent = a.code;
+            body = el('pre', { class: 'artifact__source', translate: 'no', 'data-artifact-source': true }, source);
+        } else {
+            body = el('iframe', { class: 'artifact__frame', sandbox: 'allow-scripts', title: 'Preview', referrerpolicy: 'no-referrer', 'data-code-preview-frame': true });
+            body.srcdoc = previewDocument(a.code, a.kind);
+        }
+        p.box.classList.toggle('artifact--full', p.full);
+        p.box.replaceChildren(
+            el('div', { class: 'artifact__head' },
+                el('span', { class: 'artifact__name' },
+                    el('span', { class: 'artifact__title', translate: a.title || a.name ? 'no' : null, title: a.path ?? null, text: a.name || a.title || `${kindName} preview` }),
+                    el('span', { class: 'artifact__kind', translate: 'no', text: kindName })),
+                versions,
+                el('span', { class: 'artifact__buttons' }, code, download, full, p.close)),
+            body);
+    }
+
+    /** The version shown, saved as a file: the file's own name, else the page title (or page / image). */
+    function downloadArtifact(a) {
+        const ext = a.kind === 'svg' ? 'svg' : 'html';
+        const name = a.name || `${(a.title || (a.kind === 'svg' ? 'image' : 'page')).replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'page'}.${ext}`;
+        const url = URL.createObjectURL(new Blob([a.code], { type: a.kind === 'svg' ? 'image/svg+xml' : 'text/html' }));
+        const link = el('a', { href: url, download: name, hidden: true });
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+
+    /** A file the agent wrote, as a card under its tool call: its name and Open. */
+    function artifactCard(artifact) {
+        const key = `file:${artifact.path}`;
+        const name = fileName(artifact.path);
+        const open = el('button', { type: 'button', class: 'btn btn--sm', 'data-artifact-open': true, text: 'Open' });
+        const card = el('div', { class: 'artifact-card', 'data-artifact-key': key },
+            fileMark(artifact.path),
+            el('span', { class: 'artifact-card__name', translate: 'no', title: artifact.path, text: name }),
+            el('span', { class: 'artifact-card__kind text-sm text-muted', text: artifact.kind === 'svg' ? 'SVG image' : 'Web page' }),
+            open);
+        card.artifact = { code: String(artifact.content ?? ''), kind: artifact.kind, title: pageTitle(String(artifact.content ?? '')), name, path: artifact.path };
+        open.addEventListener('click', () => openArtifact(key, card));
+        return card;
+    }
+
+    function closePreview({ focus = true } = {}) {
         if (!preview) return;
         const { box, opener } = preview;
         preview = null;
         box.remove();
-        if (opener?.isConnected) opener.focus();
+        if (focus && opener?.isConnected) (opener.querySelector?.('[data-artifact-open]') ?? opener).focus();
     }
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && preview) closePreview();
@@ -1100,6 +1209,7 @@
         mcp_tools: 'MCP tools',
         call_mcp: 'MCP call',
         ask_user: 'Question',
+        present_plan: 'Plan',
     };
     // An MCP tool the chat calls as its own function (mcp__<server>__<tool>) shows as "server · tool", untranslated
     const mcpName = (name) => /^mcp__(.+?)__(.+)$/.exec(String(name ?? ''));
@@ -1129,7 +1239,48 @@
     // a job the chat made: panel_api POST /jobs, or a picture show_image fetched from the web into the gallery
     const isJobCreation = (call) => call?.name === 'show_image' || call?.name === 'panel_api' &&String(call.input?.method ?? '').toUpperCase() === 'POST' && /^(\/api\/v1)?\/jobs\/?$/.test(String(call.input?.path ?? '').split('?')[0]);
 
+    /*
+     * ── Plan mode (user request 10.10.2026, like Claude Code's): the plan the agent presented, with Approve and run and
+     * Keep planning; only the chat's latest plan, while the chat is still in plan mode and idle, can be approved ──
+     */
+    function planCard(call) {
+        const approve = el('button', { type: 'button', class: 'btn btn--primary btn--sm', 'data-plan-approve': true, text: 'Approve and run' });
+        const keep = el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-plan-keep': true, text: 'Keep planning' });
+        const actions = el('div', { class: 'row row--wrap plan__actions', 'data-plan-actions': true }, approve, keep);
+        approve.addEventListener('click', async () => {
+            if (!state.current) return;
+            approve.disabled = true;
+            try {
+                const r = await api(`/api/v1/chat/${state.current.id}/plan/approve`, { method: 'POST', body: {} });
+                Object.assign(state.current, r.chat);
+                setStatus(state.current);
+            } catch (e) {
+                notify(e.message, 'warning');
+            } finally {
+                approve.disabled = false;
+            }
+        });
+        // what to change in the plan is written as a normal message; the chat stays in plan mode
+        keep.addEventListener('click', () => input.focus());
+        state.toolCalls.set(call.id, { name: call.name, input: call.input });
+        return el('div', { class: 'message message--assistant', 'data-plan': true },
+            el('div', { class: 'plan' },
+                el('div', { class: 'plan__title', text: 'Plan' }),
+                el('div', { class: 'message__bubble plan__body' }, ...markdown(String(call.input?.plan ?? ''))),
+                actions));
+    }
+
+    function renderPlans() {
+        const cards = [...section.querySelectorAll('[data-plan]')];
+        const open = state.current?.approvalMode === 'plan' && !state.running;
+        cards.forEach((c, i) => {
+            const actions = $('[data-plan-actions]', c);
+            if (actions) actions.hidden = !(open && i === cards.length - 1);
+        });
+    }
+
     function toolCard(call) {
+        if (call.name === 'present_plan') return planCard(call);
         const status = el('span', { class: 'badge badge--blue', text: 'Running' });
         const body = el('div', { class: 'tool__body' }, el('div', { class: 'text-sm text-muted', text: 'Input' }), el('pre', { translate: 'no', text: JSON.stringify(call.input ?? {}, null, 2) }));
         const outputs = el('div', { class: 'tool__outputs', hidden: true });
@@ -1273,9 +1424,9 @@
         status.className = `badge ${error ? 'badge--red' : 'badge--green'}`;
         status.textContent = error ? 'Error' : duration ? `Done · ${duration} s` : 'Done';
         body.append(el('div', { class: 'text-sm text-muted', text: 'Result' }), el('pre', { translate: 'no', text: String(text ?? '') }));
-        if (extra?.edit) {
+        if (extra?.edit || extra?.artifact) {
             outputs.hidden = false;
-            outputs.replaceChildren(diffView(extra.edit));
+            outputs.replaceChildren(...[extra.edit ? diffView(extra.edit) : null, !error && extra.artifact ? artifactCard(extra.artifact) : null].filter(Boolean));
             scrollToBottom();
         }
         const files = extra?.outputs ?? [];
@@ -1416,6 +1567,11 @@
         // the last answer's suggestions, as they were kept with it
         const last = (chat.messages ?? []).filter((m) => !m.hidden).at(-1);
         if (followUpChoice && chat.status === 'idle' && last && rateable(last) && last.followUps?.length) attachFollowUps(last.id, last.followUps);
+        // an open artifact follows its chat (its versions as they are now) and closes with another chat
+        if (preview) {
+            if (preview.chat === chat.id) renderArtifact();
+            else closePreview({ focus: false });
+        }
         updateDeleteConfirm();
         scrollToBottom(true);
     }
@@ -1464,6 +1620,8 @@
                 el('span', { class: 'chat__item-name', translate: 'no', text: c.title || 'New chat' }),
                 c.match ? el('span', { class: 'chat__item-match', translate: 'no', text: c.match }) : null),
             c.pinned ? pinMark() : null,
+            // in All chats, the project a chat belongs to
+            c.project && !state.project && projectById(c.project) ? el('span', { class: 'chat__item-tag chat__item-project', translate: 'no', text: projectById(c.project).name }) : null,
             c.temporary ? el('span', { class: 'chat__item-tag', text: 'Temporary' }) : c.archived && !state.archivedView ? el('span', { class: 'chat__item-tag', text: 'Archived' }) : null);
         b.addEventListener('click', () => {
             listBox.classList.remove('open');
@@ -1484,8 +1642,8 @@
         }
         // pinned chats come first, apart (not in a search or the archive)
         const pinned = searching || archive ? [] : state.pinned;
-        const line = (c) => [c.id, c.title, c.status, c.parent, c.error ? 1 : 0, c.match ?? '', c.pinned ? 1 : 0, c.archived ? 1 : 0, c.temporary ? 1 : 0];
-        const signature = JSON.stringify([shown.map(line), pinned.map(line), state.current?.id ?? '', all, archive, state.archivedCount, state.total, Boolean(state.next), phone()]);
+        const line = (c) => [c.id, c.title, c.status, c.parent, c.error ? 1 : 0, c.match ?? '', c.pinned ? 1 : 0, c.archived ? 1 : 0, c.temporary ? 1 : 0, c.project ?? ''];
+        const signature = JSON.stringify([shown.map(line), pinned.map(line), state.current?.id ?? '', all, archive, state.archivedCount, state.total, Boolean(state.next), phone(), state.project, state.projects.map((p) => p.id + p.name)]);
         if (signature === state.listSignature) return;
         state.listSignature = signature;
         const items = [];
@@ -1496,7 +1654,7 @@
         }
         if (pinned.length) items.push(el('div', { class: 'chat__group-title', text: 'Pinned' }), ...pinned.map(chatItem), ...(shown.length ? [el('div', { class: 'chat__group-title', text: 'Chats' })] : []));
         items.push(...shown.map(chatItem));
-        if (!shown.length && !pinned.length) items.push(el('p', { class: 'text-sm text-muted', text: archive ? 'No archived chats.' : searching ? 'No chats found.' : 'No chats yet.' }));
+        if (!shown.length && !pinned.length) items.push(el('p', { class: 'text-sm text-muted', text: archive ? 'No archived chats.' : searching ? 'No chats found.' : state.project ? 'No chats in this project yet.' : 'No chats yet.' }));
         listItems.replaceChildren(...items, ...(all && state.next ? [sentinel] : []));
         moreButton.hidden = searching || archive || state.total <= visibleCount();
         moreButton.textContent = state.expanded ? 'Show less' : `See all (${state.total})`;
@@ -1519,6 +1677,7 @@
         ['manual', 'Manual', 'Asks before every change (files, commands, downloads)'],
         ['edits', 'Allow edits', 'Asks only before deleting, destructive commands and settings changes'],
         ['auto', 'Automatic', 'Never asks'],
+        ['plan', 'Plan', 'Only reads and researches, then shows a plan to approve'],
     ];
     // How much the model thinks before it answers (the thinking budget; user request 08.10.2026); low is the default
     const THINKING_LEVELS = [
@@ -1554,9 +1713,253 @@
 
     function option(group, value, name, note, checked) {
         const radio = el('input', { type: 'radio', name: `chat-${group}`, value, checked });
-        radio.addEventListener('change', () => (group === 'mode' ? chooseMode(value) : group === 'thinking' ? chooseThinking(value) : group === 'preset' ? choosePreset(value) : chooseModel(value)));
+        radio.addEventListener('change', () => (group === 'mode' ? chooseMode(value) : group === 'thinking' ? chooseThinking(value) : group === 'preset' ? choosePreset(value) : group === 'project' ? chooseProject(value) : chooseModel(value)));
         // a model file or a preset (names the user gave) stays as written; "<name> (remote)" is translated as a pattern
-        return el('label', { class: 'chat__option' }, radio, el('span', { class: 'chat__option-text' }, el('span', { class: 'chat__option-name', translate: (group === 'model' || group === 'preset') && value && value !== REMOTE ? 'no' : null, text: name }), note ? el('span', { class: 'chat__option-note', translate: group === 'preset' && value ? 'no' : null, text: note }) : null));
+        return el('label', { class: 'chat__option' }, radio, el('span', { class: 'chat__option-text' }, el('span', { class: 'chat__option-name', translate: (group === 'model' || group === 'preset' || group === 'project') && value && value !== REMOTE ? 'no' : null, text: name }), note ? el('span', { class: 'chat__option-note', translate: (group === 'preset' || group === 'project') && value ? 'no' : null, text: note }) : null));
+    }
+
+    /*
+     * ── Projects (user request 10.10.2026, like Claude's): chats grouped under a project that gives them its instructions,
+     * Knowledge documents, working folder and notes of their own. The list shows one project's chats (or all of them) and
+     * a new chat goes into the one shown; Options moves an open chat in or out; the Projects window manages them.
+     */
+
+    const projectById = (id) => (id ? state.projects.find((p) => p.id === id) ?? null : null);
+
+    async function loadProjects() {
+        try {
+            state.projects = (await api('/api/v1/chat/projects')).projects ?? [];
+        } catch {
+            state.projects = [];
+        }
+        // a remembered project that was deleted (here or elsewhere): all chats
+        if (state.project && !projectById(state.project)) showProject('');
+        renderProjectBar();
+        renderOptions();
+        state.listSignature = '';
+        renderList();
+        projectWindow?.render();
+    }
+
+    function renderProjectBar() {
+        projectSelect.replaceChildren(el('option', { value: '', text: 'All chats' }), ...state.projects.map((p) => el('option', { value: p.id, translate: 'no', text: `${p.name} (${p.chatCount})` })));
+        projectSelect.value = state.project;
+        const p = projectById(state.project);
+        projectInfo.hidden = !p?.description;
+        projectInfo.textContent = p?.description ?? '';
+    }
+
+    /** The list shows this project's chats ('' all of them); a new chat goes into it. */
+    function showProject(id) {
+        state.project = id;
+        try {
+            if (id) localStorage.setItem('chat.project', id);
+            else localStorage.removeItem('chat.project');
+        } catch {
+            /* private mode */
+        }
+        renderProjectBar();
+        renderOptions();
+        state.chats = [];
+        state.next = null;
+        state.listSignature = '';
+        loadList();
+    }
+
+    projectSelect.addEventListener('change', () => showProject(projectSelect.value));
+
+    /** Options › Project: an open chat moves in or out; before the first message it is the project of the new chat. */
+    function chooseProject(id) {
+        if (!state.current) {
+            showProject(id);
+            return;
+        }
+        patch({ project: id || null }).then(() => loadProjects());
+    }
+
+    function projectGroup() {
+        const manage = el('button', { type: 'button', class: 'btn btn--ghost btn--sm chat__options-manage', 'data-projects-options-manage': true, text: 'Manage projects…' });
+        manage.addEventListener('click', () => {
+            openOptions(false);
+            openProjects(state.current?.project ?? state.project);
+        });
+        const title = el('div', { class: 'chat__options-title', text: 'Project' });
+        if (!state.projects.length) return el('div', { class: 'chat__options-group' }, title, el('div', { class: 'chat__options-note', text: 'No projects yet' }), manage);
+        const chosen = state.current ? state.current.project ?? '' : state.project;
+        return el('div', { class: 'chat__options-group', role: 'radiogroup', 'aria-label': 'Project' }, title,
+            option('project', '', 'No project', null, !chosen),
+            ...state.projects.map((p) => option('project', p.id, p.name, p.description || null, p.id === chosen)),
+            manage);
+    }
+
+    let projectWindow = null;
+    function openProjects(id = '') {
+        if (!projectWindow) projectWindow = buildProjectWindow();
+        projectWindow.show(id);
+        window.openNdsWindow?.(projectWindow.modal);
+    }
+
+    $('[data-projects-manage]', section).addEventListener('click', () => openProjects(state.project));
+
+    function buildProjectWindow() {
+        const list = el('div', { class: 'preset-list', 'data-project-list': true });
+        const field = (label, control, hint = null) => el('label', { class: 'field' }, el('span', { class: 'field__label', text: label }), control, hint ? el('span', { class: 'field__hint', text: hint }) : null);
+        const name = el('input', { class: 'input', name: 'name', maxlength: 60, required: true, autocomplete: 'off' });
+        const description = el('input', { class: 'input', name: 'description', maxlength: 200, autocomplete: 'off' });
+        const instructions = el('textarea', { class: 'textarea', name: 'instructions', rows: 6, maxlength: 16000, placeholder: 'e.g. This is our shop\'s website. Use plain HTML and CSS, and write the texts in a friendly tone.' });
+        const cwd = el('input', { class: 'input', name: 'cwd', autocomplete: 'off', placeholder: 'Default: the panel folder', translate: 'no' });
+        const documents = el('div', { class: 'project-documents', 'data-project-documents': true });
+        const notesBox = el('div', { class: 'project-notes', 'data-project-notes': true });
+        const noteInput = el('input', { class: 'input', name: 'note', maxlength: 500, autocomplete: 'off', placeholder: 'A note the chats of this project keep in mind' });
+        const noteAdd = el('button', { type: 'button', class: 'btn btn--sm', 'data-project-note-add': true, text: 'Add note' });
+        const notesField = el('div', { class: 'field', 'data-project-notes-field': true }, el('span', { class: 'field__label', text: 'Notes of this project' }), notesBox, el('div', { class: 'row' }, noteInput, noteAdd), el('span', { class: 'field__hint', text: 'What the assistant remembers in this project\'s chats (write_memory saves here); separate from the panel\'s notes.' }));
+        const save = el('button', { type: 'submit', class: 'btn btn--primary btn--sm', 'data-project-save': true, text: 'Save project' });
+        const fresh = el('button', { type: 'button', class: 'btn btn--sm', 'data-project-new': true, text: 'New project' });
+        const openChats = el('button', { type: 'button', class: 'btn btn--sm', 'data-project-open': true, text: 'Show its chats' });
+        const remove = el('button', { type: 'submit', class: 'btn btn--sm btn--ghost', 'data-project-delete': true, 'data-confirm-title': 'Delete project', 'data-confirm-variant': 'danger', text: 'Delete project' });
+        const removeForm = el('form', { class: 'row', hidden: true }, remove);
+        const heading = el('h3', { class: 'preset-form__title', 'data-project-form-title': true, text: 'New project' });
+        const formBox = el('form', { class: 'stack', 'data-project-form': true }, heading,
+            field('Name', name),
+            field('Description', description, 'One line, shown under the project in the chat list.'),
+            field('Instructions', instructions, 'Added to the system prompt of every chat in this project.'),
+            field('Working folder', cwd, 'New chats of the project start here (full access).'),
+            el('div', { class: 'field' }, el('span', { class: 'field__label', text: 'Knowledge documents' }), documents, el('span', { class: 'field__hint', text: 'The chats of the project search only these (none chosen: every document).' })),
+            el('div', { class: 'row row--wrap' }, save, fresh, openChats));
+        let editing = null;
+        let notes = [];
+        const renderDocuments = (chosen) => {
+            const docs = state.knowledge.documents ?? [];
+            documents.replaceChildren(...(docs.length ? docs.map((d) => el('label', { class: 'chat__option' }, el('input', { type: 'checkbox', value: d.id, checked: chosen.includes(d.id) }), el('span', { translate: 'no', text: d.name }))) : [el('span', { class: 'text-sm text-muted', text: 'No documents in Knowledge yet.' })]));
+        };
+        const noteQuery = () => `?project=${encodeURIComponent(editing.id)}`;
+        const renderNotes = () => {
+            notesBox.replaceChildren(...(notes.length ? notes.map((n) => {
+                const del = el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-project-note-delete': n.id, 'aria-label': 'Delete note', title: 'Delete note', text: '×' });
+                del.addEventListener('click', async () => {
+                    try {
+                        await api(`/api/v1/chat/memory/${encodeURIComponent(n.id)}${noteQuery()}`, { method: 'DELETE' });
+                        await loadNotes();
+                    } catch (err) {
+                        notify(err.message, 'danger');
+                    }
+                });
+                return el('div', { class: 'project-notes__item', 'data-project-note': n.id }, el('span', { class: 'text-sm', translate: 'no', text: n.text }), del);
+            }) : [el('span', { class: 'text-sm text-muted', text: 'No notes yet.' })]));
+        };
+        const loadNotes = async () => {
+            if (!editing) return;
+            try {
+                notes = (await api(`/api/v1/chat/memory${noteQuery()}`)).notes ?? [];
+            } catch {
+                notes = [];
+            }
+            renderNotes();
+        };
+        noteAdd.addEventListener('click', async () => {
+            if (!editing || !noteInput.value.trim()) return;
+            try {
+                await api(`/api/v1/chat/memory${noteQuery()}`, { method: 'POST', body: { text: noteInput.value } });
+                noteInput.value = '';
+                await loadNotes();
+            } catch (err) {
+                notify(err.message, 'danger');
+            }
+        });
+        const fill = (p) => {
+            editing = p;
+            heading.textContent = p ? 'Edit project' : 'New project';
+            name.value = p?.name ?? '';
+            description.value = p?.description ?? '';
+            instructions.value = p?.instructions ?? '';
+            cwd.value = p?.cwd ?? '';
+            renderDocuments(p?.knowledge ?? []);
+            removeForm.hidden = !p;
+            openChats.hidden = !p;
+            notesField.hidden = !p;
+            if (notesField.parentElement !== formBox) formBox.insertBefore(notesField, formBox.lastElementChild);
+            notes = [];
+            renderNotes();
+            if (p) {
+                remove.dataset.confirm = `Delete the project "${p.name}"? Its chats stay in the list; its notes are deleted.`;
+                loadNotes();
+            }
+            for (const row of list.querySelectorAll('[data-project-id]')) row.classList.toggle('preset-list__item--current', row.dataset.projectId === p?.id);
+        };
+        const renderProjectList = () => {
+            list.replaceChildren(...(state.projects.length ? state.projects.map((p) => {
+                const row = el('button', { type: 'button', class: 'preset-list__item', 'data-project-id': p.id },
+                    el('span', { class: 'preset-list__name', translate: 'no', text: p.name }),
+                    el('span', { class: 'preset-list__note', text: `Chats: ${p.chatCount} · Notes: ${p.noteCount}` }));
+                row.addEventListener('click', () => fill(p));
+                return row;
+            }) : [el('p', { class: 'text-sm text-muted', text: 'No projects yet. Fill in the form to add the first one.' })]));
+            if (editing) for (const row of list.querySelectorAll('[data-project-id]')) row.classList.toggle('preset-list__item--current', row.dataset.projectId === editing.id);
+        };
+        fresh.addEventListener('click', () => {
+            fill(null);
+            name.focus();
+        });
+        openChats.addEventListener('click', () => {
+            if (!editing) return;
+            showProject(editing.id);
+            modal.querySelector('[data-modal-close]')?.click();
+            listBox.classList.add('open');
+        });
+        formBox.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            save.disabled = true;
+            try {
+                const knowledge = [...documents.querySelectorAll('input:checked')].map((x) => x.value);
+                const body = { name: name.value, description: description.value, instructions: instructions.value, cwd: cwd.value.trim() || null, knowledge };
+                const added = !editing;
+                const r = await api(editing ? `/api/v1/chat/projects/${encodeURIComponent(editing.id)}` : '/api/v1/chat/projects', { method: editing ? 'PATCH' : 'POST', body });
+                notify(r.message, 'success');
+                // a new project is where the next chats go
+                if (added) showProject(r.project.id);
+                await loadProjects();
+                fill(projectById(r.project.id));
+            } catch (err) {
+                notify(err.message, 'danger');
+            } finally {
+                save.disabled = false;
+            }
+        });
+        removeForm.addEventListener('submit', (e) => e.preventDefault());
+        removeForm.submit = async () => {
+            if (!editing) return;
+            try {
+                const r = await api(`/api/v1/chat/projects/${encodeURIComponent(editing.id)}`, { method: 'DELETE' });
+                notify(r.message, 'success');
+                if (state.project === editing.id) showProject('');
+                if (state.current?.project === editing.id) state.current.project = null;
+                await loadProjects();
+                fill(null);
+            } catch (err) {
+                notify(err.message, 'danger');
+            }
+        };
+        const modal = el('div', { class: 'modal', 'data-modal': true, id: 'modal-chat-projects', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'chat-projects-title' },
+            el('div', { class: 'modal__box modal__box--wide' },
+                el('header', { class: 'modal__header' },
+                    el('div', {}, el('h2', { class: 'modal__title', id: 'chat-projects-title', text: 'Projects' }),
+                        el('p', { class: 'text-sm text-muted', text: 'A project keeps chats together: its instructions, Knowledge documents and notes apply to every chat in it.' })),
+                    el('button', { type: 'button', class: 'modal__close', 'data-modal-close': true, 'aria-label': 'Close', text: '×' })),
+                el('div', { class: 'modal__body stack' }, list, formBox, removeForm)));
+        document.body.append(modal);
+        return {
+            modal,
+            show(id) {
+                renderProjectList();
+                fill(projectById(id));
+                loadKnowledge();
+            },
+            render() {
+                renderProjectList();
+                // the documents can arrive after the window opened; the ticks the user made stay
+                if (!documents.querySelector('input')) renderDocuments(editing?.knowledge ?? []);
+            },
+        };
     }
 
     /*
@@ -1736,6 +2139,7 @@
         const note = optionsPanel.querySelector('[data-knowledge-note]');
         if (note) note.textContent = knowledgeNote();
         knowledgeWindow?.render();
+        projectWindow?.render();
     }
 
     function knowledgeNote() {
@@ -1884,6 +2288,7 @@
         const thinking = currentThinking();
         // replaceChildren writes a null as the text "null" (it showed under the list with only the default model)
         optionsPanel.replaceChildren(...[
+            projectGroup(),
             presetGroup(),
             knowledgeGroup(),
             el('div', { class: 'chat__options-group', role: 'radiogroup', 'aria-label': 'Approval mode' }, el('div', { class: 'chat__options-title', text: 'Approval mode' }), ...APPROVAL_MODES.map(([v, n, d]) => option('mode', v, n, d, v === mode))),
@@ -1897,6 +2302,8 @@
         renderContext();
         const parts = [];
         if (state.current ? state.current.temporary : state.newTemporary) parts.push(el('span', { text: 'Temporary' }));
+        const project = projectById(state.current ? state.current.project : state.project);
+        if (project) parts.push(el('span', { translate: 'no', text: project.name }));
         const preset = currentPresetName();
         if (preset) parts.push(el('span', { translate: 'no', text: preset }));
         // the mode always shows (user report 08.10.2026: "Otomatik yazısı gizleniyor": a chat in Allow edits showed nothing)
@@ -2063,7 +2470,8 @@
     function chooseMode(mode) {
         state.newApprovalMode = mode;
         try {
-            localStorage.setItem('chat.newApprovalMode', mode);
+            // plan mode is for one task: new chats do not start in it
+            if (mode !== 'plan') localStorage.setItem('chat.newApprovalMode', mode);
         } catch {
             /* private mode */
         }
@@ -2297,6 +2705,7 @@
         // a temporary chat says so above its messages (also a new chat that will be one)
         temporaryBox.hidden = !(chat ? chat.temporary : state.newTemporary);
         keepButton.hidden = !chat?.temporary;
+        renderPlans();
         renderStatus();
         updateRegenerate();
     }
@@ -2315,7 +2724,7 @@
     /* ── Data ─────────────────────────────────────────────────────────── */
 
     // A search's words and order (Best match first: sort=relevance; user request 08.10.2026); the archive's pages
-    const searchParams = () => (state.query ? `&q=${encodeURIComponent(state.query)}${searchSort?.value === 'relevance' ? '&sort=relevance' : ''}` : state.archivedView ? '&archived=1' : '');
+    const searchParams = () => (state.query ? `&q=${encodeURIComponent(state.query)}${searchSort?.value === 'relevance' ? '&sort=relevance' : ''}` : state.archivedView ? '&archived=1' : '') + (state.project ? `&project=${encodeURIComponent(state.project)}` : '');
 
     let loadSerial = 0;
     async function loadList() {
@@ -2749,6 +3158,8 @@
             } else if (e.type === 'tool_result') {
                 toolResult(e.id, { text: e.text, extra: e.extra, error: e.error, duration: e.duration });
                 if (e.extra?.edit && !e.error) state.turnEdits.push(e.extra.edit);
+                // the page the agent just wrote, shown as it is now (beside the chat; a phone keeps its card)
+                if (e.extra?.artifact && !e.error && (preview || matchMedia('(min-width: 901px)').matches)) openArtifact(`file:${e.extra.artifact.path}`, null, { focus: false });
             } else if (e.type === 'progress') {
                 toolProgress(e.text);
                 state.progress = e.text ?? '';
@@ -2875,8 +3286,10 @@
     async function ensureChat() {
         if (state.current) return state.current;
         // with a preset, '' (Default) must stay: null would take the preset's model
-        const r = await api('/api/v1/chat', { method: 'POST', body: { approvalMode: state.newApprovalMode, model: state.newModel || '', autoCompact: state.newAutoCompact, thinking: state.newThinking, preset: state.newPreset || undefined, temporary: state.newTemporary || undefined } });
+        const r = await api('/api/v1/chat', { method: 'POST', body: { approvalMode: state.newApprovalMode, model: state.newModel || '', autoCompact: state.newAutoCompact, thinking: state.newThinking, preset: state.newPreset || undefined, temporary: state.newTemporary || undefined, project: state.project || undefined } });
         await select(r.chat.id);
+        // the chat count beside the project
+        if (r.chat.project) loadProjects();
         return state.current;
     }
 
@@ -3626,6 +4039,7 @@
         }
         await loadList();
         loadPresets();
+        loadProjects();
         loadTemplates();
         loadKnowledge();
         streamList();

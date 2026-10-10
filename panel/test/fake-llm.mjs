@@ -174,6 +174,11 @@ function agentResponse(g) {
     const preset = /ASSISTANT PRESET "([^"]*)"[^\n]*\n([^\n]*)/.exec(system);
     return finish(preset ? `Preset ${preset[1]}: ${preset[2]}${system.indexOf('RULES FROM THE USER') > preset.index ? ' (rules after it)' : ''}` : 'No preset');
   }
+  // the project's part of the system prompt: its name and the first line of its instructions
+  if (/^which project/.test(text)) {
+    const project = /PROJECT "([^"]*)"[^\n]*\n([^\n]*)/.exec(getText(m[0]?.content));
+    return finish(project ? `Project ${project[1]}: ${project[2]}` : 'No project');
+  }
   // an answer in Markdown (the web chat renders it), with HTML and a javascript: link that must stay text
   if (/^markdown sample/.test(text)) {
     return finish([

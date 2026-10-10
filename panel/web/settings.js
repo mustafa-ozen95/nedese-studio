@@ -421,6 +421,22 @@
         }
     });
 
+    // Quick fill (user request 10.10.2026): the address and model of a known service; the key is the user's own
+    const REMOTE_PRESETS = {
+        claude: { url: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5' },
+        deepseek: { url: 'https://api.deepseek.com', model: 'deepseek-flash' },
+    };
+    for (const button of section.querySelectorAll('[data-remote-preset]')) {
+        button.addEventListener('click', () => {
+            const p = REMOTE_PRESETS[button.dataset.remotePreset];
+            if (!p || !remoteForm) return;
+            remoteForm.elements.url.value = p.url;
+            remoteForm.elements.model.value = p.model;
+            remoteForm.elements.key.focus();
+            notify('Address and model filled in: paste your API key and save.', 'info');
+        });
+    }
+
     // Remove asks first (design.js data-confirm), which submits this form natively: its submit is the request
     if (remoteRemoveForm) remoteRemoveForm.submit = () => saveRemote({ url: '', key: '', model: '', whenBusy: false }, null);
 

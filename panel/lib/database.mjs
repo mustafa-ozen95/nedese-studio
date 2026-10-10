@@ -52,6 +52,9 @@ export class Database {
     if (!chatColumns.includes('pinned')) this.db.exec('ALTER TABLE chats ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
     if (!chatColumns.includes('archived')) this.db.exec('ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
     this.db.exec('CREATE INDEX IF NOT EXISTS chats_shelf ON chats (archived, pinned, updated DESC, id DESC)');
+    // The project a chat belongs to (user request 10.10.2026); null: none
+    if (!chatColumns.includes('project')) this.db.exec('ALTER TABLE chats ADD COLUMN project TEXT');
+    this.db.exec('CREATE INDEX IF NOT EXISTS chats_project ON chats (project, archived, pinned, updated DESC, id DESC)');
     this.s = {
       writeJob: this.db.prepare('INSERT INTO jobs (id, type, status, creation, position, record) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET type = excluded.type, status = excluded.status, creation = excluded.creation, position = excluded.position, record = excluded.record'),
       deleteJob: this.db.prepare('DELETE FROM jobs WHERE id = ?'),
@@ -65,7 +68,9 @@ export class Database {
       countUpload: this.db.prepare('SELECT COUNT(*) AS n FROM uploads'),
       readMeta: this.db.prepare('SELECT value FROM meta WHERE key = ?'),
       writeMeta: this.db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)'),
-      writeChat: this.db.prepare('INSERT INTO chats (id, updated, parent, summary, pinned, archived) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated = excluded.updated, parent = excluded.parent, summary = excluded.summary, pinned = excluded.pinned, archived = excluded.archived RETURNING num'),
+      writeChat: this.db.prepare('INSERT INTO chats (id, updated, parent, summary, pinned, archived, project) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated = excluded.updated, parent = excluded.parent, summary = excluded.summary, pinned = excluded.pinned, archived = excluded.archived, project = excluded.project RETURNING num'),
+      projectChats: this.db.prepare('SELECT id FROM chats WHERE project = ?'),
+      projectCounts: this.db.prepare('SELECT project, COUNT(*) AS n FROM chats WHERE project IS NOT NULL GROUP BY project'),
       archivedCount: this.db.prepare('SELECT COUNT(*) AS n FROM chats WHERE archived = 1'),
       chatNum: this.db.prepare('SELECT num FROM chats WHERE id = ?'),
       deleteChat: this.db.prepare('DELETE FROM chats WHERE id = ?'),
@@ -166,7 +171,7 @@ export class Database {
 
   /** Writes a chat's list summary and its search text (title and body already folded for search). */
   writeChat(summary, { title, body }) {
-    const { num } = this.s.writeChat.get(summary.id, summary.update, summary.parent ?? null, JSON.stringify(summary), summary.pinned ? 1 : 0, summary.archived ? 1 : 0);
+    const { num } = this.s.writeChat.get(summary.id, summary.update, summary.parent ?? null, JSON.stringify(summary), summary.pinned ? 1 : 0, summary.archived ? 1 : 0, summary.project ?? null);
     this.s.deleteSearch.run(num);
     this.s.writeSearch.run(num, title, body);
   }
@@ -190,6 +195,16 @@ export class Database {
     return this.s.archivedCount.get().n;
   }
 
+  /** The ids of a project's chats. */
+  projectChats(project) {
+    return this.s.projectChats.all(project).map((r) => r.id);
+  }
+
+  /** { projectId: number of chats } */
+  projectChatCounts() {
+    return Object.fromEntries(this.s.projectCounts.all().map((r) => [r.project, r.n]));
+  }
+
   /** Every chat's list summary (parsed): totals over all chats without reading their files (rated answers). */
   chatSummaries() {
     return this.query('SELECT summary FROM chats').all().map((r) => {
@@ -207,10 +222,15 @@ export class Database {
    * sort 'relevance' (with match; user request 08.10.2026): best match first (FTS5 bm25, a title hit weighs 5 times a
    * message hit, then the newer chat); its cursor is { offset }. exclude: a chat id left out (the one searching).
    * shelf: 'main' (neither pinned nor archived), 'pinned' (pinned, not archived), 'archived'; null: every chat.
+   * project: only the chats of that project.
    */
-  chatPage({ match = null, after = null, limit = 30, sort = 'recent', exclude = null, shelf = null } = {}) {
+  chatPage({ match = null, after = null, limit = 30, sort = 'recent', exclude = null, shelf = null, project = null } = {}) {
     const condition = [];
     const value = [];
+    if (project) {
+      condition.push('c.project = ?');
+      value.push(project);
+    }
     if (shelf === 'main') condition.push('c.archived = 0 AND c.pinned = 0');
     else if (shelf === 'pinned') condition.push('c.archived = 0 AND c.pinned = 1');
     else if (shelf === 'archived') condition.push('c.archived = 1');
@@ -226,7 +246,7 @@ export class Database {
     const total = this.query(`SELECT COUNT(*) AS n FROM chats c ${where}`).get(...value).n;
     if (match && sort === 'relevance') {
       const skip = Math.max(0, Math.floor(Number(after?.offset) || 0));
-      const rows = this.query(`SELECT c.id, c.updated, c.summary FROM chat_search s JOIN chats c ON c.num = s.rowid WHERE chat_search MATCH ?${exclude ? ' AND c.id != ?' : ''} ORDER BY bm25(chat_search, 5.0, 1.0), c.updated DESC, c.id DESC LIMIT ? OFFSET ?`).all(match, ...(exclude ? [exclude] : []), limit + 1, skip);
+      const rows = this.query(`SELECT c.id, c.updated, c.summary FROM chat_search s JOIN chats c ON c.num = s.rowid WHERE chat_search MATCH ?${exclude ? ' AND c.id != ?' : ''}${project ? ' AND c.project = ?' : ''} ORDER BY bm25(chat_search, 5.0, 1.0), c.updated DESC, c.id DESC LIMIT ? OFFSET ?`).all(match, ...(exclude ? [exclude] : []), ...(project ? [project] : []), limit + 1, skip);
       return { summaries: rows.slice(0, limit).map((r) => JSON.parse(r.summary)), total, next: rows.length > limit ? { offset: skip + limit } : null };
     }
     if (after) {

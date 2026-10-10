@@ -226,6 +226,15 @@ test('Knowledge API and agent: documents added (upload or path) and listed, vect
     assert.match(await o.send(chat.id, 'search knowledge car in Fleet plan'), /This chat is set to use other documents of Knowledge/);
     assert.equal((await o.call(`/api/v1/chat/${chat.id}`, { method: 'PATCH', body: { knowledge: ['no such'] } })).code, 400);
     assert.equal((await o.call(`/api/v1/chat/${chat.id}`, { method: 'PATCH', body: { knowledge: [] } })).json.chat.knowledge, null);
+    // a project set to the budget (user request 10.10.2026): its chats search only that, unless a chat chooses its own
+    const project = (await o.call('/api/v1/chat/projects', { method: 'POST', body: { name: 'Costs', knowledge: ['budget'] } })).json.project;
+    assert.deepEqual(project.knowledge, [b.json.document.id]);
+    assert.equal((await o.call('/api/v1/chat/projects', { method: 'POST', body: { name: 'Nothing', knowledge: ['no such'] } })).code, 400);
+    const inProject = (await o.call('/api/v1/chat', { method: 'POST', body: { project: project.id } })).json.chat;
+    assert.match(await o.send(inProject.id, 'which tools'), /\(1 of 2 documents chosen for this project;/);
+    assert.doesNotMatch(await o.send(inProject.id, 'search knowledge car fleet'), /Fleet plan/);
+    await o.call(`/api/v1/chat/${inProject.id}`, { method: 'PATCH', body: { knowledge: ['Fleet plan'] } });
+    assert.match(await o.send(inProject.id, 'search knowledge car fleet'), /Fleet plan/, 'the chat\'s own choice wins');
     // a file attached in another chat joins Knowledge, and leaves with that chat
     const other = (await o.call('/api/v1/chat', { method: 'POST', body: {} })).json.chat;
     const notes = await o.call('/api/v1/uploads/file?name=notes.md', { method: 'POST', raw: Buffer.from('# Notes\nThe office moves to Ankara in June.\n') });
