@@ -179,7 +179,7 @@ export function promoSteps(g, size, narration) {
 }
 
 /** Integrated loudness (LUFS) of a file. */
-function loudness(ffmpeg, file) {
+export function loudness(ffmpeg, file) {
   return new Promise((ok) => {
     const p = spawn(ffmpeg, ['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128=framelog=quiet', '-f', 'null', '-'], { windowsHide: true });
     let err = '';
@@ -189,7 +189,7 @@ function loudness(ffmpeg, file) {
 }
 
 /** Raw float samples of an audio file (ffmpeg), interleaved by channel. */
-function samples(ffmpeg, file, { rate, channels, filter = null, signal }) {
+export function samples(ffmpeg, file, { rate, channels, filter = null, signal }) {
   return new Promise((ok, no) => {
     const p = spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-i', file, ...(filter ? ['-af', filter] : []), '-f', 'f32le', '-ac', String(channels), '-ar', String(rate), '-'], { windowsHide: true, signal });
     const parts = [];

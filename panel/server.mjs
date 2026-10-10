@@ -46,6 +46,7 @@ import * as data from './lib/jobs/data.mjs';
 import * as describe from './lib/jobs/describe.mjs';
 import * as pageVideo from './lib/jobs/page-video.mjs';
 import * as promo from './lib/jobs/promo.mjs';
+import * as beatEdit from './lib/jobs/beat-edit.mjs';
 
 const args = process.argv.slice(2);
 const value = (name) => {
@@ -80,7 +81,7 @@ if (await isAlreadyOpen()) {
 // Eski Turkce klasor adlari (ciktilar, panel-veri) yenilerine bir kez tasinir.
 migrateOldFolders(setting, (m) => console.log(m));
 // Data written by the Turkish-named versions (ayar.json keys, panel.db columns, is.json): renamed once (lib/migrate.mjs).
-const runners = { image, video, voice, speech, film, music, clone, edit, song, sing, audioEdit, videoEdit, model3d, training, data, describe, pageVideo, promo };
+const runners = { image, video, voice, speech, film, music, clone, edit, song, sing, audioEdit, videoEdit, model3d, training, data, describe, pageVideo, promo, beatEdit };
 migrateLegacyData({ dataRoot: setting.dataRoot, outputRoot: setting.outputRoot, aiRoot: setting.aiRoot, modelRoot: setting.modelRoot, summaries: Object.fromEntries(Object.entries(runners).map(([k, m]) => [k, m.summary])), log: (m) => console.log(`[migration] ${m}`) });
 const settingFile = new SettingsFile(join(setting.dataRoot, DATA_FILES.settings));
 // Ayarlar > "İstemleri İngilizceye çevir" (kapaliysa istemler modele yazildigi gibi gider)

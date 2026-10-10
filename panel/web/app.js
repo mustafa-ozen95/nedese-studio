@@ -72,7 +72,7 @@
         return `${iki(t.getDate())}.${iki(t.getMonth() + 1)} ${iki(t.getHours())}:${iki(t.getMinutes())}`;
     }
 
-    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
+    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', beatEdit: 'Beat cut', promo: 'Promo video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
     // Is turu adi: once arayuzun bildigi (cevrilebilir), yoksa sunucunun gonderdigi, o da yoksa "İş".
     const typeName = (job) => TYPE_NAME[job?.type] ?? job?.typeName ?? 'Job';
     const STATUS_NAME = {
@@ -2254,6 +2254,82 @@
     }
     $('[data-video-music-clear]', videoEditForm).addEventListener('click', () => configureFileField('videoMusic', null));
 
+    /* Beat cut: the videos in order (uploaded or from the gallery) and the music */
+    const beatForm = $('[data-job-form="beatEdit"]');
+    status.beatVideos = [];
+
+    function renderBeatVideos() {
+        $('[data-beat-list]', beatForm).replaceChildren(...status.beatVideos.map((v, i) => el('div', { class: 'row row--between row--wrap' },
+            el('span', { class: 'text-sm truncate', translate: 'no', title: v.name, text: `${i + 1}. ${v.name || v.source}` }),
+            el('div', { class: 'row' },
+                el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-beat-up': i, title: 'Move up', 'aria-label': 'Move up', text: '↑' }),
+                el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-beat-remove': i, text: 'Remove' })))));
+        saveDraft();
+    }
+
+    function addBeatVideo(v) {
+        if (!v?.source || status.beatVideos.some((x) => x.source === v.source)) return;
+        status.beatVideos.push({ source: v.source, name: v.name ?? '' });
+        renderBeatVideos();
+    }
+
+    function configureBeatMusic(d) {
+        $('[data-beat-music-field]', beatForm).value = d?.source ?? '';
+        showName($('[data-beat-music-name]', beatForm), d?.name, 'No music');
+        saveDraft();
+    }
+
+    function beatMusicMode() {
+        const mode = beatForm.music.value;
+        $('[data-beat-music-file]', beatForm).hidden = mode !== 'file';
+        $('[data-beat-music-style]', beatForm).hidden = mode !== 'generate';
+    }
+
+    beatForm.addEventListener('click', (event) => {
+        const up = event.target.closest('[data-beat-up]');
+        const remove = event.target.closest('[data-beat-remove]');
+        if (up && Number(up.dataset.beatUp) > 0) {
+            const i = Number(up.dataset.beatUp);
+            [status.beatVideos[i - 1], status.beatVideos[i]] = [status.beatVideos[i], status.beatVideos[i - 1]];
+            renderBeatVideos();
+        } else if (remove) {
+            status.beatVideos.splice(Number(remove.dataset.beatRemove), 1);
+            renderBeatVideos();
+        }
+    });
+    beatForm.addEventListener('change', (event) => {
+        if (event.target.name === 'music') beatMusicMode();
+    });
+    $('[data-beat-upload]', beatForm).addEventListener('change', async (event) => {
+        const files = [...(event.target.files ?? [])];
+        event.target.value = '';
+        const statusText = $('[data-beat-status]', beatForm);
+        for (const file of files) {
+            try {
+                statusText.textContent = `Uploading: ${file.name}`;
+                const j = await api(`/api/record/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
+                addBeatVideo(j.record);
+            } catch (e) {
+                notify(e.message, 'danger');
+            }
+        }
+        statusText.textContent = '';
+    });
+    $('[data-beat-music-upload]', beatForm).addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+        try {
+            $('[data-beat-music-name]', beatForm).textContent = `Uploading: ${file.name}`;
+            const j = await api(`/api/music/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
+            configureBeatMusic(j.music);
+            notify(j.message, 'success');
+        } catch (e) {
+            configureBeatMusic(null);
+            notify(e.message, 'danger');
+        }
+    });
+
     /* 3D model: kaynak görsel ya da videodan kare (TRELLIS.2); Blender yoksa yalnız GLB. */
     const m3Form = $('[data-job-form="model3d"]');
 
@@ -2608,8 +2684,8 @@
         const trigger = event.target.closest('[data-voice-picker]');
         if (!trigger) return;
         const pickerType = trigger.dataset.voicePicker;
-        status.voicePickerTarget = pickerType === 'scene' ? trigger.closest('[data-scene]') : ['song', 'sing', 'audioEdit', 'videoEdit', 'videoMusic', 'model3d'].includes(pickerType) ? pickerType : 'music';
-        const videoMu = pickerType === 'videoEdit' || pickerType === 'model3d';
+        status.voicePickerTarget = pickerType === 'scene' ? trigger.closest('[data-scene]') : ['song', 'sing', 'audioEdit', 'videoEdit', 'videoMusic', 'model3d', 'beatVideo', 'beatMusic'].includes(pickerType) ? pickerType : 'music';
+        const videoMu = pickerType === 'videoEdit' || pickerType === 'model3d' || pickerType === 'beatVideo';
         $('#voice-picker-title').textContent = videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
         const list = $('[data-voice-picker-list]', voicePicker);
         list.replaceChildren(el('p', { class: 'text-sm text-muted', text: 'Loading…' }));
@@ -2617,8 +2693,8 @@
             const items = [];
             if (videoMu) {
                 // Video düzenle: panelin videoları, filmleri, düzenlenmiş videoları ve yüklenen videolar
-                const [v, t, d, y] = await Promise.all([api('/api/v1/gallery?type=video'), api('/api/v1/gallery?type=film'), api('/api/v1/gallery?type=videoEdit'), api('/api/v1/uploads')]);
-                for (const job of [...v.gallery, ...t.gallery, ...d.gallery]) {
+                const [v, t, d, b, y] = await Promise.all([api('/api/v1/gallery?type=video'), api('/api/v1/gallery?type=film'), api('/api/v1/gallery?type=videoEdit'), api('/api/v1/gallery?type=beatEdit'), api('/api/v1/uploads')]);
+                for (const job of [...v.gallery, ...t.gallery, ...d.gallery, ...b.gallery]) {
                     const c = job.outputs.find((x) => x.type === 'video');
                     if (c) items.push({ source: c.source, url: c.url, name: job.title, type: 'Video', duration: c.duration, dateText: job.creation, video: true });
                 }
@@ -2681,6 +2757,10 @@
             configureSing({ source: o.source, name: o.name, url: o.url });
         } else if (target === 'model3d') {
             configureM3Video({ source: o.source, name: o.name, url: o.url });
+        } else if (target === 'beatVideo') {
+            addBeatVideo({ source: o.source, name: o.name });
+        } else if (target === 'beatMusic') {
+            configureBeatMusic({ source: o.source, name: o.name });
         } else if (typeof target === 'string' && FILE_FIELDS[target]) {
             configureFileField(target, { source: o.source, name: o.name, url: o.url });
         } else if (target instanceof HTMLElement) {
@@ -3445,6 +3525,11 @@
             delete data.size_desktop;
             delete data.size_phone;
         }
+        if (type === 'beatEdit') {
+            data.sources = status.beatVideos.map((v) => v.source);
+            if (data.music !== 'file') delete data.musicFile;
+            if (data.length === '') delete data.length;
+        }
         if (type === 'video') {
             data.duration = videoDuration();
             if (data.start === 'text') delete data.source;
@@ -3518,6 +3603,10 @@
             scenesNumber();
             applySceneMode();
         }
+        if (type === 'beatEdit') {
+            status.beatVideos = [];
+            renderBeatVideos();
+        }
         if (type === 'promo') {
             promoList.replaceChildren();
             $('[data-promo-brief]', promoForm).value = '';
@@ -3558,6 +3647,7 @@
             t.videoSource = status.videoSource;
             t.m3Image = status.m3Image;
             t.m3Video = status.m3Video;
+            t.beatVideos = status.beatVideos;
             try {
                 localStorage.setItem(DRAFT, JSON.stringify(t));
             } catch {
@@ -3594,6 +3684,9 @@
         if (Array.isArray(t.promo?.scenes)) t.promo.scenes.forEach((x) => addPromoScene(x));
         $('[data-promo-music-style]', promoForm).hidden = promoForm.music.value !== 'generate';
         promoRows();
+        if (Array.isArray(t.beatVideos)) t.beatVideos.forEach(addBeatVideo);
+        if (t.beatEdit?.musicFile) showName($('[data-beat-music-name]', beatForm), t.beatEdit.musicFile.split('/').pop(), 'No music');
+        beatMusicMode();
         if (t.videoSource?.source) configureSource(t.videoSource);
         if (t.m3Image?.source) configureM3Image(t.m3Image);
         if (t.m3Video?.source) configureM3Video(t.m3Video);

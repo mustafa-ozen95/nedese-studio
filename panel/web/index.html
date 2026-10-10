@@ -95,6 +95,7 @@
                     <label class="mode-choice__option"><input type="radio" name="editType" value="sing"><span>Sing in a voice</span></label>
                     <label class="mode-choice__option"><input type="radio" name="editType" value="voice"><span>Voice</span></label>
                     <label class="mode-choice__option"><input type="radio" name="editType" value="video"><span>Video</span></label>
+                    <label class="mode-choice__option"><input type="radio" name="editType" value="beat"><span>Beat cut</span></label>
                 </div>
 
                 <div class="split">
@@ -174,6 +175,73 @@
                                 <div class="form-actions">
                                     <span class="text-sm text-muted" data-estimate="videoEdit"></span>
                                     <button type="submit" class="btn btn--primary">Edit</button>
+                                </div>
+                            </div>
+                        </form>
+
+                        <form class="panel" data-job-form="beatEdit" data-edit-form="beat" novalidate autocomplete="off" hidden>
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Beat cut</h2>
+                                    <p class="text-sm text-muted">Give one or more videos: their liveliest parts are cut to the beat of the music.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <span class="field__label">Videos <span class="required tag-note">required</span></span>
+                                    <div class="row row--wrap">
+                                        <label class="btn btn--sm">Upload<input type="file" accept="video/*" multiple data-beat-upload hidden></label>
+                                        <button type="button" class="btn btn--sm" data-voice-picker="beatVideo" data-modal-open="modal-voice-picker">Pick from gallery</button>
+                                        <span class="text-sm text-muted" data-beat-status></span>
+                                    </div>
+                                    <div class="stack" data-beat-list></div>
+                                    <span class="field__hint">Used in this order; their own sound is left out.</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field__label">Music</span>
+                                    <div class="mode-choice mode-choice--small" data-beat-music>
+                                        <label class="mode-choice__option"><input type="radio" name="music" value="made" checked><span>Beat music</span></label>
+                                        <label class="mode-choice__option"><input type="radio" name="music" value="generate"><span>Music model</span></label>
+                                        <label class="mode-choice__option"><input type="radio" name="music" value="file"><span>My music</span></label>
+                                    </div>
+                                    <div class="row row--wrap" data-beat-music-file hidden>
+                                        <input type="hidden" name="musicFile" data-beat-music-field>
+                                        <label class="btn btn--sm">Upload<input type="file" accept="audio/*,video/*" data-beat-music-upload hidden></label>
+                                        <button type="button" class="btn btn--sm" data-voice-picker="beatMusic" data-modal-open="modal-voice-picker">Pick from gallery</button>
+                                        <span class="text-sm text-muted" data-beat-music-name>No music</span>
+                                    </div>
+                                    <div data-beat-music-style hidden>
+                                        <textarea class="textarea" name="musicStyle" rows="2" aria-label="Music style" placeholder="Leave empty for energetic electronic pop (e.g. epic orchestral trailer, no vocals)"></textarea>
+                                    </div>
+                                    <span class="field__hint">The tempo of the music is measured and every cut lands on its beat; a quiet intro is skipped.</span>
+                                </div>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="bc-size">Size</label>
+                                        <select class="select" id="bc-size" name="size">
+                                            <option value="source">Like the first video</option>
+                                            <option value="9:16">9:16 (phone)</option>
+                                            <option value="16:9">16:9 (wide)</option>
+                                            <option value="1:1">1:1 (square)</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="bc-pace">Pace</label>
+                                        <select class="select" id="bc-pace" name="pace">
+                                            <option value="calm">Calm (a shot per bar)</option>
+                                            <option value="medium" selected>Medium (two beats)</option>
+                                            <option value="fast">Fast (every beat)</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="bc-length">Length (s) <span class="tag-note tag-note--optional">optional</span></label>
+                                        <input class="input input--mono" type="number" id="bc-length" name="length" min="0" max="180" step="1" placeholder="Auto">
+                                        <span class="field__hint">Empty: as long as the videos, at most 30 s.</span>
+                                    </div>
+                                </div>
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-estimate="beatEdit"></span>
+                                    <button type="submit" class="btn btn--primary">Cut to the beat</button>
                                 </div>
                             </div>
                         </form>

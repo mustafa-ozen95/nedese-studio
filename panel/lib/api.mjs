@@ -285,6 +285,21 @@ export const JOB_TYPES = {
     ],
     example: { type: 'promo', url: 'panel', lang: 'en', sizes: ['desktop', 'phone'], title: 'Nedese Studio', subtitle: 'Your own AI studio', music: 'made', scenes: [{ section: 'chat', caption: 'Ask, and it *builds*', narration: 'Ask for anything. It writes, searches and builds while you watch.' }, { section: 'image', caption: 'Pictures from *one sentence*', narration: 'Describe a picture, and it appears.', demo: 'A red fox in the snow, cinematic' }, { section: 'gallery', caption: 'Everything in *one place*', narration: 'Everything you make waits in the gallery.' }] },
   },
+  beatEdit: {
+    name: 'Beat cut',
+    description: 'Your own videos cut to the beat of a music (ffmpeg; the GPU only for music=generate): the tempo and the first bar line of your music or the music model\'s are measured and every cut lands on the grid (longer shots in the intro, half as long after a drop, the last shot held and faded); music=made draws a 120 BPM track to the cut. Every shot is the part of a video with the most motion that does not run over a cut of its own, the videos in the given order; flashes and a punch-in on the drops. The videos\' own sound is left out; the music at −14 LUFS.',
+    fields: [
+      { name: 'sources', type: 'array', required: true, description: 'Videos (1-30) in order: "upload/…" (POST /uploads/record) or "job/<id>/<file>" (from the gallery).' },
+      { name: 'music', type: 'string', required: false, defaultValue: 'made', options: ['made', 'generate', 'file'], description: 'made: beat music drawn to the cut; generate: the music model (ACE-Step); file: your music (musicFile).' },
+      { name: 'musicFile', type: 'string', required: false, description: 'music=file: an audio or video file ("upload/…" or "job/<id>/<file>"); a quiet intro is skipped.' },
+      { name: 'musicStyle', type: 'string', required: false, description: 'generate: the music\'s style (default: energetic electronic pop, instrumental).' },
+      { name: 'size', type: 'string', required: false, defaultValue: 'source', options: ['source', '16:9', '9:16', '1:1'], description: 'source: the first video\'s own shape; else cropped to fill 16:9, 9:16 or 1:1 (1080p).' },
+      { name: 'pace', type: 'string', required: false, defaultValue: 'medium', options: ['calm', 'medium', 'fast'], description: 'A shot lasts a bar (calm), two beats (medium) or a beat (fast); half as long after a drop.' },
+      { name: 'length', type: 'number', required: false, defaultValue: 0, description: 'Seconds (rounded to whole bars, at most 180); 0: as long as the videos, at most 30 s (and as long as the music allows).' },
+      { name: 'seed', type: 'integer', required: false, description: 'Seed of the music model.' },
+    ],
+    example: { type: 'beatEdit', sources: ['job/20261004-011700-video-2fcf/video.mp4', 'job/20261004-013000-video-8a1c/video.mp4'], music: 'made', size: '9:16', pace: 'medium', length: 20 },
+  },
   training: {
     name: 'Model training',
     description: 'field=video: video LoRA for the installed Wan 2.2 TI2V 5B (ComfyUI\'s built-in training nodes; clips and images + same-name .txt captions or a .zip; in 150-step slices, resumes from the last slice if paused; the result is selected in a video job with model=wan5 and lora, and sample videos with and without the LoRA are generated). field=image: image LoRA for FLUX.2 klein 4B (musubi-tuner; images + optional same-name .txt captions or a .zip; the result goes to the ComfyUI LoRA folder, is selected with lora in an image job, and sample images with and without the LoRA are generated for comparison). Other fields: trains the local text model with your own data. method=fine: an existing model is improved (a ready base with QLoRA or a model trained here before). method=scratch: a vocabulary and a small Llama model from the data, from scratch. The result goes to llm\\models as GGUF (selected with PATCH /settings textModel) and sample answers are generated. Data is uploaded first with POST /uploads/data: plain text/Markdown/HTML (text), JSONL/JSON/CSV ({prompt, response} or {messages:[…]} chat; {text} plain text). It can take hours; meanwhile the text model and ComfyUI wait.',
