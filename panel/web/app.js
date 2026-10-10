@@ -88,8 +88,8 @@
     const RETRY_STATUSES = ['error', 'cancelled', 'interrupted', 'paused'];
     const retryButton = (job, button) => actionForm({ path: `/api/job/${job.id}/retry`, tag: job.status === 'paused' ? 'Resume' : 'Retry', button });
     const pauseButton = (job, button) => actionForm({ path: `/api/job/${job.id}/pause`, tag: 'Pause', title: 'Pause job', approval: 'Training will stop and the GPU and RAM will be freed. "Resume" continues from the last completed step (an unfinished step is redone).', button });
-    const SECTIONS = ['chat', 'image', 'video', 'voice', 'music', 'edit', 'model3d', 'film', 'training', 'gallery', 'settings'];
-    const SINGLE = ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d'];
+    const SECTIONS = ['chat', 'image', 'video', 'voice', 'music', 'edit', 'model3d', 'film', 'promo', 'training', 'gallery', 'settings'];
+    const SINGLE = ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d', 'promo'];
     const SPEECH_RATE = 13; // Türkçe anlatım, karakter/sn (Chatterbox, cfg 0,5): tahmin için
 
     const status = {
@@ -337,7 +337,7 @@
         const name = trainingTabName ?? ($(`[data-sub-tab="${section}"]`) ?? $(`[data-section-link="${section}"]`))?.textContent ?? '';
         document.title = `${name} · Nedese Studio`;
         if (section === 'gallery') {
-            status.galleryFilter = ['image', 'video', 'voice', 'music', 'film', 'model3d', 'error'].includes(sub) ? sub : '';
+            status.galleryFilter = ['image', 'video', 'voice', 'music', 'film', 'promo', 'model3d', 'error'].includes(sub) ? sub : '';
             $$('[data-filter]').forEach((a) => {
                 if (a.dataset.filter === status.galleryFilter) a.setAttribute('aria-current', 'page');
                 else a.removeAttribute('aria-current');
@@ -366,7 +366,7 @@
             return false;
         }
     })();
-    const shown = (job) => !(RECORDING && job?.type === 'pageVideo');
+    const shown = (job) => !(RECORDING && ['pageVideo', 'promo'].includes(job?.type));
     // and its gallery has only the outputs with a picture (a voice card is a bare player in a promo)
     const pictured = (job) => (job.outputs ?? []).some((o) => o.preview || o.type === 'image' || o.type === 'video');
 
@@ -3128,6 +3128,124 @@
         }
     });
 
+    /* ── Promo: the script (scenes) and its writer ───────────────────────── */
+
+    const promoForm = $('[data-job-form="promo"]');
+    const promoList = $('[data-promo-scenes]', promoForm);
+    // the panel's sections a scene can show (lib/jobs/promo.mjs PANEL_SECTIONS); demo: the words typed in its form
+    const PROMO_SECTIONS = { chat: 'Chat', image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', edit: 'Edit', song: 'Song edit', videoEdit: 'Audio and video edit', model3d: '3D', training: 'Training', gallery: 'Gallery', devices: 'On a phone', settings: 'Settings' };
+    const PROMO_TYPED = ['image', 'edit', 'videoEdit'];
+    const promoPanel = () => /^(panel)?$/i.test(promoForm.url.value.trim());
+
+    function promoField(label, control, wide = false) {
+        fieldCounter += 1;
+        control.id = `promo-${fieldCounter}`;
+        return el('div', { class: `field${wide ? ' field--wide' : ''}` }, el('label', { class: 'field__label', for: control.id, text: label }), control);
+    }
+
+    function addPromoScene(s = {}) {
+        const section = el('select', { class: 'select', 'data-p': 'section' }, ...Object.entries(PROMO_SECTIONS).map(([v, t]) => el('option', { value: v, text: t })));
+        section.value = PROMO_SECTIONS[s.section] ? s.section : 'chat';
+        const row = el('section', { class: 'panel', 'data-promo-scene': '' },
+            el('header', { class: 'panel__head' },
+                el('h2', { class: 'panel__title', 'data-promo-title': '', text: 'Scene' }),
+                el('div', { class: 'panel__actions' },
+                    el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-promo-up': '', title: 'Move up', 'aria-label': 'Move up', text: '↑' }),
+                    el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-promo-remove': '', text: 'Remove' }))),
+            el('div', { class: 'panel__body form-grid' },
+                promoField('Headline', el('input', { class: 'input', 'data-p': 'caption', maxlength: 120, placeholder: 'Pictures from *one sentence*', value: s.caption ?? '' }), true),
+                promoField('Narration', Object.assign(el('textarea', { class: 'textarea', 'data-p': 'narration', rows: 2, maxlength: 400, placeholder: 'Describe a picture, and it appears.' }), { value: s.narration ?? '' }), true),
+                promoField('Section shown', section),
+                promoField('Typed text', el('input', { class: 'input', 'data-p': 'demo', maxlength: 300, placeholder: 'A red fox in the snow', value: s.demo ?? '' })),
+                promoField('Brought into view', el('input', { class: 'input', 'data-p': 'target', maxlength: 300, placeholder: 'Pricing or #features', value: s.target ?? '' }), true)));
+        promoList.append(row);
+        promoRows();
+        return row;
+    }
+
+    /** Numbers the scenes, shows the fields that fit the page (a panel section, else a target) and the total. */
+    function promoRows() {
+        const panel = promoPanel();
+        const rows = $$('[data-promo-scene]', promoList);
+        rows.forEach((row, i) => {
+            $('[data-promo-title]', row).textContent = `Scene ${i + 1}`;
+            const section = $('[data-p="section"]', row).value;
+            $('[data-p="section"]', row).closest('.field').hidden = !panel;
+            $('[data-p="demo"]', row).closest('.field').hidden = !panel || !PROMO_TYPED.includes(section);
+            $('[data-p="target"]', row).closest('.field').hidden = panel;
+        });
+        const words = promoCollect().reduce((t, s) => t + (s.narration ? s.narration.split(/\s+/).length : 0), 0);
+        // about 2.5 words a second, at least two seconds a scene
+        $('[data-promo-summary]', promoForm).textContent = rows.length ? `${rows.length} scenes · about ${durationText(Math.max(rows.length * 2, words / 2.5) + 8)}` : '';
+    }
+
+    function promoCollect() {
+        const panel = promoPanel();
+        return $$('[data-promo-scene]', promoList).map((row) => {
+            const v = (p) => $(`[data-p="${p}"]`, row).value.trim();
+            const s = { caption: v('caption'), narration: v('narration') };
+            if (panel) s.section = v('section');
+            if (panel && PROMO_TYPED.includes(s.section) && v('demo')) s.demo = v('demo');
+            if (!panel && v('target')) s.target = v('target');
+            return s;
+        }).filter((s) => s.caption || s.narration);
+    }
+
+    promoForm.addEventListener('click', (event) => {
+        const row = event.target.closest('[data-promo-scene]');
+        if (event.target.closest('[data-promo-remove]')) row.remove();
+        else if (event.target.closest('[data-promo-up]') && row.previousElementSibling) row.previousElementSibling.before(row);
+        else if (event.target.closest('[data-promo-add]')) $('[data-p="caption"]', addPromoScene()).focus();
+        else return;
+        promoRows();
+        saveDraft();
+    });
+    promoForm.addEventListener('input', (event) => {
+        if (event.target.matches('[name="url"], [data-p="section"], [data-p="narration"]')) promoRows();
+    });
+    promoForm.addEventListener('change', (event) => {
+        if (event.target.matches('[data-p="section"]')) promoRows();
+        if (event.target.name === 'music') $('[data-promo-music-style]', promoForm).hidden = promoForm.music.value !== 'generate';
+    });
+
+    $('[data-promo-write]', promoForm).addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        const statusText = $('[data-promo-write-status]', promoForm);
+        // written scenes are replaced only on a second press
+        if (promoCollect().length && !button.dataset.approval) {
+            button.dataset.approval = '1';
+            button.textContent = 'Yes, rewrite them';
+            statusText.textContent = 'The current scenes will be replaced.';
+            setTimeout(() => {
+                delete button.dataset.approval;
+                button.textContent = 'Write the script';
+                if (!button.disabled) statusText.textContent = '';
+            }, 5000);
+            return;
+        }
+        delete button.dataset.approval;
+        button.textContent = 'Write the script';
+        button.disabled = true;
+        statusText.textContent = 'Writing… (progress in Queue)';
+        try {
+            const req = api('/api/write-promo', { method: 'POST', body: { brief: $('[data-promo-brief]', promoForm).value, url: promoForm.url.value, lang: promoForm.lang?.value, sceneCount: $('[data-promo-count]', promoForm).value } });
+            setTimeout(pollStatus, 400);
+            const j = await req;
+            promoList.replaceChildren();
+            j.scenes.forEach((s) => addPromoScene(s));
+            if (j.title && !promoForm.title.value.trim()) promoForm.title.value = j.title;
+            if (j.subtitle && !promoForm.subtitle.value.trim()) promoForm.subtitle.value = j.subtitle;
+            saveDraft();
+            notify(j.message, 'success');
+        } catch (e) {
+            notify(e.message, 'danger');
+        } finally {
+            statusText.textContent = '';
+            button.disabled = false;
+            pollStatus();
+        }
+    });
+
     /* ── Müzik: sözleri panel yazsın ───────────────────────────────────── */
 
     const musicForm = $('[data-job-form="music"]');
@@ -3321,6 +3439,12 @@
             data.scenes = scenesCollect();
             data.characters = charactersCollect();
         }
+        if (type === 'promo') {
+            data.scenes = promoCollect();
+            data.sizes = ['desktop', 'phone'].filter((x) => data[`size_${x}`]);
+            delete data.size_desktop;
+            delete data.size_phone;
+        }
         if (type === 'video') {
             data.duration = videoDuration();
             if (data.start === 'text') delete data.source;
@@ -3394,6 +3518,11 @@
             scenesNumber();
             applySceneMode();
         }
+        if (type === 'promo') {
+            promoList.replaceChildren();
+            $('[data-promo-brief]', promoForm).value = '';
+            promoRows();
+        }
         updateEstimates();
         saveDraft();
     }
@@ -3423,6 +3552,7 @@
             for (const form of $$('[data-job-form]')) t[form.dataset.jobForm] = formData(form);
             t.film.scenes = scenesCollect();
             t.film.characters = status.characters;
+            t.promo.scenes = $$('[data-promo-scene]', promoList).map((row) => Object.fromEntries($$('[data-p]', row).map((f) => [f.dataset.p, f.value])));
             t.video.durationReady = $('[data-duration-preset]', videoForm).value;
             t.video.durationUnit = $('[data-duration-unit]', videoForm).value;
             t.videoSource = status.videoSource;
@@ -3461,6 +3591,9 @@
         if (Array.isArray(scenes) && scenes.length) scenes.forEach((s) => addScene(s));
         else addScene();
         renderCharacters();
+        if (Array.isArray(t.promo?.scenes)) t.promo.scenes.forEach((x) => addPromoScene(x));
+        $('[data-promo-music-style]', promoForm).hidden = promoForm.music.value !== 'generate';
+        promoRows();
         if (t.videoSource?.source) configureSource(t.videoSource);
         if (t.m3Image?.source) configureM3Image(t.m3Image);
         if (t.m3Video?.source) configureM3Video(t.m3Video);
@@ -3496,6 +3629,7 @@
         $('[data-side="edit"]').append(lastPanel('edit', 'Recent edits'));
         $('[data-side="model3d"]').append(lastPanel('model3d', 'Recent 3D models'));
         $('[data-side="film"]').append(lastPanel('film', 'Recent films'));
+        $('[data-side="promo"]').append(lastPanel('promo', 'Recent promos'));
         applyRoute();
         try {
             await loadOptions();

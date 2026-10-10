@@ -23,6 +23,8 @@ import { Tasks } from './tasks.mjs';
 import { hasText } from './text-model.mjs';
 import { findLlm } from './llm.mjs';
 import { writeLyrics } from './lyricist.mjs';
+import { writePromo } from './promo-writer.mjs';
+import { pageAddress } from './jobs/page-video.mjs';
 import { RECORD_EXTENSIONS } from './jobs/clone.mjs';
 import { collections as dataCollections } from './jobs/data.mjs';
 import { FIELDS as TRAINING_FIELDS, SIZES as TRAINING_SIZES, IMAGE_RESOLUTIONS, MUSIC_LANGUAGES, QUANTIZATIONS as TRAINING_QUANTIZATIONS, DATA_EXTENSIONS, trainedModels, baseModelStatuses, videoResolutions, videoTrainingMissing, videoFrames } from './jobs/training.mjs';
@@ -533,6 +535,33 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       const write = setting.lyricWriter ?? writeLyrics;
       const result = await write(input);
       return { message: 'Lyrics written.', lyrics: result.lyrics };
+    },
+
+    /* ── Promo script writer (Production › Promo video) ── */
+    async writePromoScript(g) {
+      const { url, panel } = pageAddress(g.url, setting);
+      const input = {
+        brief: text(g.brief, 'Brief', { required: false, max: 2000 }),
+        lang: choice(g.lang, 'Language', ['tr', 'en'], 'tr'),
+        count: number(g.sceneCount, 'Number of scenes', { min: 3, max: 20, defaultValue: 10, full: true }),
+        url,
+        panel,
+      };
+      // the kinds of results the panel has (a section with none would be an empty card)
+      const counts = {};
+      for (const job of queue.jobs.values()) if (job.status === 'done') counts[job.type] = (counts[job.type] ?? 0) + 1;
+      const task = tasks.add({ type: 'write-promo', title: input.brief || 'Promo script' });
+      task.advance({ stage: 'Writing the promo script' });
+      try {
+        const write = setting.promoWriter ?? writePromo;
+        const result = await write({ ...input, counts, signal: task.signal, waiting: (b, x) => task.advance({ detail: !b ? '' : x?.loading ? 'loading the text model' : 'waiting for the GPU (written once the running job finishes)' }) });
+        return { message: `${result.scenes.length} scenes written.`, url: panel ? 'panel' : url, lang: input.lang, ...result };
+      } catch (e) {
+        if (task.signal.aborted) throw new UserError('Script writing was cancelled.');
+        throw e;
+      } finally {
+        task.finish();
+      }
     },
 
     /* ── ComfyUI ── */

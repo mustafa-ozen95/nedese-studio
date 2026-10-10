@@ -97,6 +97,7 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
     ['POST', /^\/api\/write-scenes$/, async (req) => ({ ok: true, ...(await h.writeScene(await readJson(req))) })],
     ['POST', /^\/api\/task\/([\w-]+)\/cancel$/, async (_i, _u, [id]) => ({ ok: true, ...h.cancelTask(id) })],
     ['POST', /^\/api\/write-lyrics$/, async (req) => ({ ok: true, ...(await h.writeLyric(await readJson(req))) })],
+    ['POST', /^\/api\/write-promo$/, async (req) => ({ ok: true, ...(await h.writePromoScript(await readJson(req))) })],
     ['POST', /^\/api\/voices\/upload$/, async (req, url) => ({ ok: true, ...(await h.loadVoice(req, url.searchParams.get('name'), url.searchParams.get('voiceName'))) })],
     ['POST', /^\/api\/voices\/([\w-]+)\/delete$/, async (_i, _u, [id]) => ({ ok: true, ...(await h.deleteVoice(id)), retval: 'voice' })],
     ['POST', /^\/api\/comfy\/start$/, async () => ({ ok: true, ...(await h.startComfy()) })],

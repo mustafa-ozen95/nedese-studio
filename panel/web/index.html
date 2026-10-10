@@ -76,6 +76,7 @@
             <a href="#film" class="tabs__link" data-sub-tab="film">Film</a>
             <a href="#edit" class="tabs__link" data-sub-tab="edit">Edit</a>
             <a href="#model3d" class="tabs__link" data-sub-tab="model3d">3D</a>
+            <a href="#promo" class="tabs__link" data-sub-tab="promo">Promo</a>
         </nav>
 
         <!-- ── DÜZENLE (verdiğiniz görseli talimatla düzenleme) ───────────────── -->
@@ -1201,6 +1202,122 @@
             </div>
         </section>
 
+        <!-- ── PROMO: a promo video of the panel or a page, cut to the beat (user 10.10.2026) ── -->
+        <section data-section="promo" aria-labelledby="b-promo" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-promo">Promo</h1>
+                        <p class="page-head__subtitle">A promo video of this panel or of a web page: the script is read aloud, the screen is recorded and everything is cut to the beat with music, in 16:9 and 9:16.</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main">
+                        <form class="stack" data-job-form="promo" novalidate autocomplete="off">
+                            <section class="panel">
+                                <div class="panel__body">
+                                    <div class="field">
+                                        <label class="field__label" for="p-url">Page</label>
+                                        <input class="input" id="p-url" name="url" maxlength="500" value="panel" placeholder="panel or https://example.com">
+                                        <span class="field__hint">"panel": this panel, every scene shows one of its sections. Another address: the page is scrolled scene by scene.</span>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="p-brief">What should the promo say? <span class="tag-note tag-note--optional">optional</span></label>
+                                        <textarea class="textarea" id="p-brief" data-promo-brief rows="2" maxlength="2000" placeholder="Everything it can do, for content creators"></textarea>
+                                    </div>
+                                    <div class="form-grid">
+                                        <div class="field">
+                                            <label class="field__label" for="p-count">Number of scenes</label>
+                                            <input class="input input--mono" type="number" id="p-count" data-promo-count min="3" max="20" step="1" value="10">
+                                        </div>
+                                    </div>
+                                    <div class="form-actions">
+                                        <span class="text-sm text-muted" data-promo-write-status></span>
+                                        <button type="button" class="btn" data-promo-write>Write the script</button>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <div class="stack">
+                                <div class="stack" data-promo-scenes></div>
+                                <div class="row row--between row--wrap">
+                                    <button type="button" class="btn" data-promo-add>Add scene</button>
+                                    <span class="text-sm text-muted" data-promo-summary></span>
+                                </div>
+                            </div>
+
+                            <section class="panel">
+                                <header class="panel__head">
+                                    <div>
+                                        <h2 class="panel__title">Video</h2>
+                                    </div>
+                                </header>
+                                <div class="panel__body">
+                                    <div class="field">
+                                        <span class="field__label">Sizes</span>
+                                        <div class="choices">
+                                            <label class="checkbox"><input type="checkbox" name="size_desktop" checked><span>16:9 (desktop)</span></label>
+                                            <label class="checkbox"><input type="checkbox" name="size_phone" checked><span>9:16 (phone)</span></label>
+                                        </div>
+                                    </div>
+                                    <div class="form-grid" data-voice-fields></div>
+                                    <div class="field">
+                                        <span class="field__label">Music</span>
+                                        <div class="mode-choice mode-choice--small" data-promo-music>
+                                            <label class="mode-choice__option"><input type="radio" name="music" value="made" checked><span>Beat music</span></label>
+                                            <label class="mode-choice__option"><input type="radio" name="music" value="generate"><span>Music model</span></label>
+                                            <label class="mode-choice__option"><input type="radio" name="music" value="none"><span>None</span></label>
+                                        </div>
+                                        <div data-promo-music-style hidden>
+                                            <textarea class="textarea" name="musicStyle" rows="2" aria-label="Music style" placeholder="Leave empty for upbeat electronic pop (e.g. cinematic hybrid trailer, no vocals)"></textarea>
+                                        </div>
+                                        <span class="field__hint">Beat music is drawn to the cut, every hit on a cut. The music model (ACE-Step) plays at 120 BPM and is laid on the same beat. Both duck under the narration.</span>
+                                    </div>
+                                    <details class="fine-setting">
+                                        <summary class="fine-setting__title">Fine settings</summary>
+                                        <div class="fine-setting__content form-grid">
+                                            <div class="field">
+                                                <label class="field__label" for="p-title">Title <span class="tag-note tag-note--optional">optional</span></label>
+                                                <input class="input" id="p-title" name="title" maxlength="80" placeholder="Nedese Studio">
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="p-subtitle">Subtitle <span class="tag-note tag-note--optional">optional</span></label>
+                                                <input class="input" id="p-subtitle" name="subtitle" maxlength="160" placeholder="Your own AI studio">
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="p-end">Closing line <span class="tag-note tag-note--optional">optional</span></label>
+                                                <input class="input" id="p-end" name="endTitle" maxlength="160" placeholder="Under the title on the end card">
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="p-theme">Theme of the page</label>
+                                                <select class="select" id="p-theme" name="theme">
+                                                    <option value="dark" selected>Dark</option>
+                                                    <option value="light">Light</option>
+                                                </select>
+                                            </div>
+                                            <div class="field">
+                                                <label class="field__label" for="p-seed">Seed</label>
+                                                <input class="input input--mono" type="number" id="p-seed" name="seed" min="0" placeholder="Random">
+                                            </div>
+                                            <div class="form-grid field--wide" data-voice-fine></div>
+                                        </div>
+                                    </details>
+                                </div>
+                            </section>
+
+                            <div class="form-actions">
+                                <span class="text-sm text-muted" data-estimate="promo"></span>
+                                <button type="submit" class="btn btn--primary">Make the promo</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <aside class="split__side" data-side="promo"></aside>
+                </div>
+            </div>
+        </section>
+
         <!-- ── CHAT (web/chat.js) ─────────────────────────────────────── -->
         <section data-section="chat" aria-labelledby="b-chat" hidden>
             <div class="page__inner page__inner--wide">
@@ -1696,6 +1813,7 @@
                     <a href="#gallery/voice" class="tabs__link" data-filter="voice">Voice</a>
                     <a href="#gallery/music" class="tabs__link" data-filter="music">Music</a>
                     <a href="#gallery/film" class="tabs__link" data-filter="film">Film</a>
+                    <a href="#gallery/promo" class="tabs__link" data-filter="promo">Promo</a>
                     <a href="#gallery/model3d" class="tabs__link" data-filter="model3d">3D</a>
                     <a href="#gallery/error" class="tabs__link" data-filter="error">Failed</a>
                 </nav>

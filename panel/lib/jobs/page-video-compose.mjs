@@ -66,6 +66,23 @@ export function pairLayout(W, H, top, bottom, win, phone) {
 }
 
 /**
+ * The promo's pair (the beat-cut promos, approved 09.10.2026): the window keeps its size and steps a little left, the
+ * phone (60% of the height) stands in front of the bottom right corner on the bottom line.
+ */
+export function cornerLayout(W, H, top, bottom, win, phone) {
+  const room = H - top - bottom;
+  const ws = Math.min((room * 0.96) / win.h, (W * 0.86) / win.w);
+  const wh = win.h * ws;
+  const ps = (H * 0.6) / phone.h;
+  const pw = phone.w * ps;
+  const ph = phone.h * ps;
+  return {
+    win: { cx: W / 2 - W * 0.02, cy: top + wh / 2, s: ws },
+    phone: { cx: W - W * 0.04 - pw / 2, cy: H - bottom - ph / 2, s: ps },
+  };
+}
+
+/**
  * The plan of the composed video from the recording's step marks: scenes (a section or a device each), the slides
  * between them, the camera keys and the headline changes. Times are in recording seconds.
  */
@@ -75,6 +92,7 @@ export function plan({ marks, end, size }) {
   const camera = [];
   const headlines = [];
   let headline = '';
+  let scene;
   for (const [i, m] of marks.entries()) {
     const view = m.view ?? scenes.at(-1).view;
     const sceneChange = i > 0 && ['open', 'device'].includes(m.do);
@@ -89,9 +107,12 @@ export function plan({ marks, end, size }) {
     }
     // a scene keeps its caption until another one is given; a scene without one has no headline
     const text = m.caption ? m.caption : sceneChange ? '' : headline;
-    if (text !== headline || (sceneChange && text)) {
-      headlines.push({ t: sceneChange ? transitions.at(-1).p0 : m.start, text });
+    // a promo's step carries the number of its script scene (its narration): a new one is a new headline too
+    const newScene = m.scene !== undefined && m.scene !== scene;
+    if (text !== headline || (sceneChange && text) || newScene) {
+      headlines.push({ t: sceneChange ? transitions.at(-1).p0 : m.start, text, ...(m.scene !== undefined ? { scene: m.scene } : {}) });
       headline = text;
+      if (m.scene !== undefined) scene = m.scene;
     }
     // a scene starts wide: no move of its own before its slide has ended
     const after = transitions.at(-1)?.b ?? 0;
@@ -164,7 +185,7 @@ body { font-family: 'Public Sans', 'Segoe UI', system-ui, sans-serif; -webkit-fo
   var back = function (p) { var c = 1.5; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
   var span = function (t, a, d) { return clamp((t - a) / d); };
   var cameraAt = ${cameraAt.toString()};
-  var pairLayout = ${pairLayout.toString()};
+  var pairLayout = T.pair === 'corner' ? ${cornerLayout.toString()} : ${pairLayout.toString()};
   var stage = document.getElementById('stage');
   var make = function (tag, cls, parent, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; (parent || stage).appendChild(e); return e; };
   var STATUS = '<span>9:41</span><span><svg viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg><svg viewBox="0 0 16 12"><path d="M8 11.5 5.6 8.8a3.4 3.4 0 0 1 4.8 0zM3.4 6.6a6.5 6.5 0 0 1 9.2 0l-1.4 1.5a4.5 4.5 0 0 0-6.4 0zM1.2 4.3a9.6 9.6 0 0 1 13.6 0l-1.4 1.5a7.6 7.6 0 0 0-10.8 0z" fill="currentColor"/></svg><svg viewBox="0 0 27 12"><rect x=".5" y=".5" width="23" height="11" rx="3.2" fill="none" stroke="currentColor" stroke-opacity=".45"/><rect x="2.2" y="2.2" width="19.6" height="7.6" rx="1.8" fill="currentColor"/><path d="M25 4v4a2 2 0 0 0 0-4z" fill="currentColor" fill-opacity=".5"/></svg></span>';
@@ -292,6 +313,16 @@ body { font-family: 'Public Sans', 'Segoe UI', system-ui, sans-serif; -webkit-fo
     if (k.sub) { var q = out(span(t, start + 0.5, 0.7)); k.sub.style.opacity = String(q); k.sub.style.transform = 'translateY(' + ((1 - q) * 18) + 'px)'; }
   }
 
+  // a beat cut (lib/beat-cut.mjs): a white flash over everything, a horizontal blur for the whip, a pulse on the beat
+  var white = make('div', '');
+  white.style.cssText = 'position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none';
+  var svgNS = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(svgNS, 'svg'); svg.setAttribute('width', '0'); svg.setAttribute('height', '0'); svg.style.position = 'absolute';
+  var blurFilter = document.createElementNS(svgNS, 'filter'); blurFilter.id = 'whip'; blurFilter.setAttribute('x', '-10%'); blurFilter.setAttribute('width', '120%');
+  var blurAmount = document.createElementNS(svgNS, 'feGaussianBlur'); blurAmount.setAttribute('stdDeviation', '0 0'); blurFilter.appendChild(blurAmount); svg.appendChild(blurFilter); document.body.appendChild(svg);
+  function blurPage(d, px) { var p = d.imgs[0].parentNode; if (px < 0.4) { p.style.filter = ''; return; } blurAmount.setAttribute('stdDeviation', px.toFixed(1) + ' 0'); p.style.filter = 'url(#whip)'; }
+  function pulseAt(t, amp) { var list = T.pulses || []; for (var i = 0; i < list.length; i++) { if (t >= list[i][0] && t < list[i][1]) { var u = (t - list[i][0]) % 0.5; return 1 + amp * Math.exp(-u * 14); } } return 1; }
+  var PULSE = 1;
   var black = make('div', '');
   black.id = 'black';
 
@@ -348,7 +379,7 @@ body { font-family: 'Public Sans', 'Segoe UI', system-ui, sans-serif; -webkit-fo
   }
   function between(a, b, p) { return { cx: lerp(a.cx, b.cx, p), cy: lerp(a.cy, b.cy, p), s: lerp(a.s, b.s, p) }; }
   function put(d, q, s, dx, dy, opacity, dim) {
-    d.e.style.transform = 'translate(' + (q.cx + dx - d.g1.w / 2) + 'px,' + (q.cy + dy - d.g1.h / 2) + 'px) scale(' + (q.s * s) + ')';
+    d.e.style.transform = 'translate(' + (q.cx + dx - d.g1.w / 2) + 'px,' + (q.cy + dy - d.g1.h / 2) + 'px) scale(' + (q.s * s * PULSE) + ')';
     d.e.style.opacity = String(opacity);
     d.e.style.visibility = opacity > 0.001 ? 'visible' : 'hidden';
     d.e.style.filter = dim > 0.001 ? 'brightness(' + (1 - dim).toFixed(3) + ')' : 'none';
@@ -384,6 +415,8 @@ body { font-family: 'Public Sans', 'Segoe UI', system-ui, sans-serif; -webkit-fo
 
   window.render = function (t) {
     waiting = [];
+    PULSE = pulseAt(t, 0.006);
+    Object.keys(devices).forEach(function (v) { blurPage(devices[v], 0); });
     var r = t - T.intro;
     var end = T.end;
     // backdrop drifts slowly
@@ -394,7 +427,7 @@ body { font-family: 'Public Sans', 'Segoe UI', system-ui, sans-serif; -webkit-fo
     });
     // device: flies in at the end of the opening, leaves at the end
     var enter = out(span(t, T.intro - 0.55, 0.95));
-    var leave = ease(span(r, end, 0.7));
+    var leave = ease(span(r, end - (T.leaveLead || 0), T.leaveTime || 0.7));
     var gs = lerp(0.88, 1, enter) * lerp(1, 0.86, leave);
     var gy = (1 - enter) * H * 0.22 - leave * H * 0.04;
     var go = clamp(enter * (1 - leave));
@@ -409,7 +442,20 @@ body { font-family: 'Public Sans', 'Segoe UI', system-ui, sans-serif; -webkit-fo
       var outFrame = frameAt(Math.min(rr, tr.out)), inFrame = frameAt(tr.b);
       // the leaving section only goes wide; the coming one's own moves start after the slide
       var cam = cameraAt(T.camera.filter(function (k) { return k.t <= tr.p0; }), rr);
-      if (fromView === toView) {
+      if (fromView === toView && tr.kind === 'whip') {
+        // the whip: both pictures pushed across the screen, blurred along the way, on the beat
+        var d = devices[toView];
+        d.used = true;
+        var u = span(rr, tr.p0, tr.b - tr.p0), P = ease(u);
+        show(d.imgs[0], outFrame); show(d.imgs[1], inFrame);
+        tint(d, u < 0.5 ? tr.from : tr.to);
+        place(d.imgs[0], d.g1, cam, -P, 1);
+        place(d.imgs[1], d.g1, { z: 1, x: 0.5, y: 0.5 }, 1 - P, 1);
+        blurPage(d, Math.pow(Math.sin(Math.PI * u), 2) * 42);
+        var punch = 1 + 0.03 * Math.sin(Math.PI * u);
+        if (mobileAt(toView)) stand(toView, rr, L, gs * punch, gs, gy, go);
+        else posture(d, L, gs * lean(cam) * punch, 0, gy, go);
+      } else if (fromView === toView) {
         var d = devices[toView];
         d.used = true;
         show(d.imgs[0], outFrame); show(d.imgs[1], inFrame);
@@ -458,17 +504,25 @@ body { font-family: 'Public Sans', 'Segoe UI', system-ui, sans-serif; -webkit-fo
     fill(layers[0], h.cur.text); fill(layers[1], h.prev.text);
     var hv = clamp(enter * 1.4 - 0.4) * (1 - leave);
     var words = layers[0].querySelectorAll('.word > span');
-    for (var k = 0; k < words.length; k++) words[k].style.transform = 'translateY(' + (110 * (1 - out(span(r, h.cur.t + 0.12 + k * 0.055, 0.6)))) + '%)';
+    for (var k = 0; k < words.length; k++) words[k].style.transform = 'translateY(' + (110 * (1 - out(span(r, h.cur.t + 0.12 + k * (T.wordGap || 0.055), T.wordTime || 0.6)))) + '%)';
     var acc = layers[0].querySelector('.accent');
     if (acc) acc.style.width = (out(span(r, h.cur.t + 0.35, 0.7)) * Math.min(W, H) * 0.09) + 'px';
     layers[0].style.opacity = String(hv);
-    layers[0].style.transform = 'none';
+    var hp = pulseAt(t, 0.018);
+    layers[0].style.transform = hp !== 1 ? 'scale(' + hp + ')' : 'none';
     var q = ease(span(r, h.cur.t, 0.4));
     layers[1].style.opacity = String((1 - q) * hv);
     layers[1].style.transform = 'translateY(' + (-q * fontSize * 0.5) + 'px)';
     // cards
     if (opening) { opening.e.style.visibility = t < T.intro ? 'visible' : 'hidden'; playCard(opening, t, 0.55, T.intro - 1); }
-    if (closing) { closing.e.style.visibility = r > end ? 'visible' : 'hidden'; playCard(closing, Math.max(0, r - end - 0.3), 0.75, null); }
+    if (closing) { closing.e.style.visibility = r > end ? 'visible' : 'hidden'; playCard(closing, Math.max(0, r - end - (T.closeDelay === undefined ? 0.3 : T.closeDelay)), T.closeShow || 0.75, null); }
+    // flashes and shakes (a beat cut's drops)
+    var flash = 0;
+    (T.flashes || []).forEach(function (f) { if (t >= f[0] && t < f[0] + f[2]) flash = Math.max(flash, f[1] * (1 - (t - f[0]) / f[2])); });
+    white.style.opacity = String(flash);
+    var sx = 0, sy = 0;
+    (T.shakes || []).forEach(function (s) { var u = t - s[0]; if (u < 0 || u > 0.5) return; var g = s[1] * Math.exp(-u * 9); sx += g * Math.sin(u * 2 * Math.PI * 23); sy += g * Math.cos(u * 2 * Math.PI * 17); });
+    stage.style.transform = sx || sy ? 'translate(' + sx.toFixed(2) + 'px,' + sy.toFixed(2) + 'px)' : 'none';
     // from black at the start, to black at the end
     black.style.opacity = String(Math.max(1 - span(t, 0, 0.5), span(t, T.duration - 0.6, 0.6)));
     return Promise.all(waiting).then(function () { return new Promise(function (ok) { requestAnimationFrame(function () { ok(true); }); }); });
@@ -511,6 +565,26 @@ export async function compose(ctx, { g, frames, marks, end, out, views, fps, fol
     frames: { files: frames.map((f) => f.file.split(/[\\/]/).pop()), times: frames.map((f) => Math.round(f.t * 10000) / 10000) },
     ...plan({ marks, end, size: g.size }),
   };
+  await draw(ctx, { timeline, folder, fps, output, percent });
+  return { duration, intro };
+}
+
+/** The recording's own timeline (times in recording seconds): the plan of its marks, its frames, sizes and views. */
+export function recordingTimeline({ marks, end, frames, size, views, out, host = '' }) {
+  return {
+    width: out[0],
+    height: out[1],
+    end,
+    host,
+    views: Object.fromEntries(Object.entries(views).map(([k, v]) => [k, { width: v.width, height: v.height, mobile: v.mobile }])),
+    frames: { files: frames.map((f) => f.file.split(/[\\/]/).pop()), times: frames.map((f) => Math.round(f.t * 10000) / 10000) },
+    ...plan({ marks, end, size }),
+  };
+}
+
+/** Draws the timeline into `output` (pictures only): the composing page in the browser, frame by frame into ffmpeg. */
+export async function draw(ctx, { timeline, folder, fps, output, percent = [80, 94] }) {
+  const { width: W, height: H, duration } = timeline;
   writeFileSync(join(folder, 'compose.html'), PAGE(fontFaces()));
   writeFileSync(join(folder, 'timeline.js'), `window.TIMELINE = ${JSON.stringify(timeline)};\n`);
 
@@ -553,5 +627,4 @@ export async function compose(ctx, { g, frames, marks, end, out, views, fps, fol
     }
     await b.close();
   }
-  return { duration, intro };
 }

@@ -16,7 +16,7 @@ import { Browser, browserPath } from '../lib/browser.mjs';
 import { LocalLlm } from '../lib/llm.mjs';
 import { CATALOG } from '../lib/models.mjs';
 
-const SECTIONS = ['image', 'video', 'voice', 'music', 'edit', 'model3d', 'film', 'gallery', 'training', 'settings'];
+const SECTIONS = ['image', 'video', 'voice', 'music', 'edit', 'model3d', 'film', 'promo', 'gallery', 'training', 'settings'];
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const FAKE_LLM = fileURLToPath(new URL('./fake-llm.mjs', import.meta.url));
 const freePort = () => new Promise((ok) => {
@@ -67,7 +67,7 @@ test('UI: sections, training fields, video models and the language toggle work w
     }
     assert.deepEqual([...leftovers], [], 'Turkish text left on the English page');
     // the Text section is gone (user decision 09.10.2026: the chat does its work): not in the menu, no page for it
-    assert.deepEqual(await t.evaluate("[...document.querySelectorAll('[data-sub-tab]')].map((a) => a.dataset.subTab)"), ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d'], 'Production tabs');
+    assert.deepEqual(await t.evaluate("[...document.querySelectorAll('[data-sub-tab]')].map((a) => a.dataset.subTab)"), ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d', 'promo'], 'Production tabs');
     assert.equal(await t.evaluate("Boolean(document.querySelector('[data-section=text], [data-text-form], a[href=\"#text\"]'))"), false, 'something of the Text section is left');
     // Egitim: her alan (yontem, temel listesi, ipucu, alan bloklari degisir)
     const fields = await t.evaluate(`(async () => {

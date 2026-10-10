@@ -61,7 +61,7 @@ function audioPath(outputRoot, ref, name) {
 }
 
 /** Address of the page: "panel" (or nothing) is this panel. */
-function pageAddress(value, setting) {
+export function pageAddress(value, setting) {
   const s = String(value ?? '').trim();
   if (!s || /^panel$/i.test(s)) return { url: `http://127.0.0.1:${setting.port ?? 1071}/`, panel: true };
   let u;
@@ -265,7 +265,7 @@ const wait = (ms, signal) => new Promise((ok, no) => {
 });
 
 /** The recording: steps played in the browser, frames on disk with their times, the start time of every step. */
-async function record(ctx, g, steps, frameDir) {
+export async function record(ctx, g, steps, frameDir) {
   const size = SIZES[g.size];
   const promo = g.style === 'promo';
   // captions and the title cards are drawn by the composing step in a promo, on the page otherwise
@@ -331,9 +331,10 @@ async function record(ctx, g, steps, frameDir) {
       if (now() > MAX_SECONDS) throw new UserError(`The video would be longer than ${MAX_SECONDS / 60} minutes.`);
       ctx.progress({ percent: 5 + (i / all.length) * (promo ? 50 : 75), stage: 'Recording', detail: `${i + 1}/${all.length} ${a.do}${a.caption ? `: ${a.caption}` : ''}` });
       const startedAt = now();
-      const audioSec = a.audio ? await measureDuration(ctx.setting.ffprobe, audioPath(ctx.setting.outputRoot, a.audio, 'Audio')).catch(() => 0) : 0;
+      // a promo gives the seconds of its scene's narration (the clip is laid by the beat cut, not here)
+      const audioSec = a.audioSeconds ?? (a.audio ? await measureDuration(ctx.setting.ffprobe, audioPath(ctx.setting.outputRoot, a.audio, 'Audio')).catch(() => 0) : 0);
       // what the composing step needs: the step, its caption, the device shown, where it acts, when the page was ready
-      const mark = { step: i, start: startedAt, do: a.do, caption: a.caption ?? '', view: viewName, audio: a.audio ? audioPath(ctx.setting.outputRoot, a.audio, 'Audio') : null };
+      const mark = { step: i, start: startedAt, do: a.do, caption: a.caption ?? '', view: viewName, audio: a.audio ? audioPath(ctx.setting.outputRoot, a.audio, 'Audio') : null, ...(a.scene !== undefined ? { scene: a.scene } : {}) };
       marks.push(mark);
       if (a.do === 'device') {
         view = SIZES[a.size];
