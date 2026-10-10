@@ -809,7 +809,7 @@
         if (title.dataset.raw !== rawTitle) {
             title.dataset.raw = rawTitle;
             // Kullanıcının yazdığı istem çevrilmez (translate=no).
-            title.replaceChildren(`${typeName(job)} · `, el('span', { translate: 'no', title: job.summary?.title ?? '', text: job.summary?.title ?? '' }));
+            title.replaceChildren(typeName(job), ' · ', el('span', { translate: 'no', title: job.summary?.title ?? '', text: job.summary?.title ?? '' }));
         }
         const running = job.status === 'running';
         const pause = $('form[action$="/pause"]', line);
@@ -1240,7 +1240,7 @@
             try {
                 const j = await api(`/api/v1/jobs/${encodeURIComponent(job.id)}`, { method: 'PATCH', body: { title } });
                 job.summary = j.job.summary;
-                $('#preview-title').replaceChildren(`${typeName(job)} · `, el('span', { translate: 'no', text: job.summary.title }));
+                $('#preview-title').replaceChildren(typeName(job), ' · ', el('span', { translate: 'no', text: job.summary.title }));
                 notify(j.message, 'success');
             } catch (err) {
                 notify(err.message, 'error');
@@ -1255,7 +1255,7 @@
         const body = $('[data-preview-body]', previewWindow);
         const [, name] = STATUS_NAME[job.status] ?? ['gray', job.status];
         // a name being written stays while a running job's window refreshes
-        if (!$('[data-rename-form]', previewWindow)) $('#preview-title').replaceChildren(`${typeName(job)} · `, el('span', { translate: 'no', text: job.summary?.title ?? '' }));
+        if (!$('[data-rename-form]', previewWindow)) $('#preview-title').replaceChildren(typeName(job), ' · ', el('span', { translate: 'no', text: job.summary?.title ?? '' }));
         $('[data-preview-sub]', previewWindow).textContent = [name, dateText(job.creation), job.duration ? durationText(job.duration) : null, job.summary?.detail].filter(Boolean).join(' · ');
 
         // Çalışan işte yalnızca günlük ve ilerleme tazelenir (pencere baştan çizilmez).
@@ -2139,12 +2139,18 @@
     $('[data-edit-type]').addEventListener('change', editTypeApply);
     editTypeApply();
 
+    // A file field's name: the empty text ("No song selected") is the panel's and translated, a file name is not
+    function showName(node, name, empty) {
+        node.translate = !name;
+        node.textContent = name ?? empty;
+    }
+
     /* Şarkı düzenle: kaynak şarkı (yüklenen ya da galeriden) */
     const songForm = $('[data-job-form="song"]');
 
     function configureSong(m) {
         songForm.source.value = m?.source ?? '';
-        $('[data-song-name]', songForm).textContent = m?.name ?? 'No song selected';
+        showName($('[data-song-name]', songForm), m?.name, 'No song selected');
         const listen = $('[data-song-listen]', songForm);
         listen.hidden = !m?.url;
         if (m?.url) listen.src = m.url;
@@ -2170,7 +2176,7 @@
 
     function configureSing(m) {
         singForm.source.value = m?.source ?? '';
-        $('[data-sing-name]', singForm).textContent = m?.name ?? 'No song selected';
+        showName($('[data-sing-name]', singForm), m?.name, 'No song selected');
         const listen = $('[data-sing-listen]', singForm);
         listen.hidden = !m?.url;
         if (m?.url) listen.src = m.url;
@@ -2219,7 +2225,7 @@
     function configureFileField(target, d) {
         const a = FILE_FIELDS[target];
         $(`[data-${a.prefix}-field]`, a.form).value = d?.source ?? '';
-        $(`[data-${a.prefix}-name]`, a.form).textContent = d?.name ?? a.free;
+        showName($(`[data-${a.prefix}-name]`, a.form), d?.name, a.free);
         if (a.preview) {
             const o = $(`[${a.preview}]`, a.form);
             o.hidden = !d?.url;
@@ -2268,7 +2274,7 @@
     function configureM3Video(v) {
         status.m3Video = v ?? null;
         m3Form.videoSource.value = v?.source ?? '';
-        $('[data-m3v-name]', m3Form).textContent = v?.name ?? 'No video selected';
+        showName($('[data-m3v-name]', m3Form), v?.name, 'No video selected');
         const watch = $('[data-m3v-watch]', m3Form);
         watch.hidden = !v?.url;
         if (v?.url) watch.src = v.url;

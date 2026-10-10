@@ -187,6 +187,11 @@ test('UI rename: the job window renames the job; the recent card and the window 
     assert.ok(await until(`Boolean(${card})`), 'the image is in the recent panel');
     await t.evaluate(`${card}.click(); true`);
     assert.ok(await until(`document.querySelector('#modal-preview [data-rename]')?.textContent === 'Yeniden adlandır'`));
+    // 10.10.2026: the type before the title was one text with it ("Image · "), so it stayed English in the queue and
+    // the window; the empty file fields ("No song selected") were translate=no for the file name and stayed English
+    assert.ok((await t.evaluate(`document.querySelector('#preview-title').textContent`)).startsWith('Görsel · '), await t.evaluate(`document.querySelector('#preview-title').textContent`));
+    assert.deepEqual(await t.evaluate(`['song', 'sing', 'audio-edit', 'video-edit', 'video-music', 'm3v'].map((k) => document.querySelector('[data-' + k + '-name]').textContent)`),
+      ['Şarkı seçilmedi', 'Şarkı seçilmedi', 'Ses seçilmedi', 'Video seçilmedi', 'Müzik yok', 'Video seçilmedi']);
     await t.evaluate(`document.querySelector('#modal-preview [data-rename]').click(); true`);
     assert.equal(await t.evaluate(`document.querySelector('[data-rename-form] input').value`), 'a red fox walking in the snowy forest');
     await t.evaluate(`(() => { const f = document.querySelector('[data-rename-form]'); f.title.value = 'Karda yürüyen tilki'; f.requestSubmit(); return true; })()`);
