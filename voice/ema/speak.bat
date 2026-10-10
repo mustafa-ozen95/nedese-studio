@@ -5,4 +5,6 @@ set "PATH=%~dp0..\..\ffmpeg\bin;%PATH%;%LOCALAPPDATA%\Microsoft\WinGet\Packages\
 set PYTHONUTF8=1
 "%~dp0.venv\Scripts\python.exe" "%~dp0generate.py" %*
 if errorlevel 1 exit /b 1
+rem Read aloud (--no-check): generate.py already wrote <id>.wav
+for %%a in (%*) do if "%%~a"=="--no-check" exit /b 0
 "%~dp0..\.venv\Scripts\python.exe" "%~dp0..\speak.py" %* --check-only

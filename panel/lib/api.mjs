@@ -37,7 +37,7 @@ export const JOB_TYPES = {
   },
   video: {
     name: 'Video',
-    description: 'Video from a source image, or from text alone, with Wan 2.2. Without a source the first frame is drawn from the prompt with an image model (kept as frame.png). Unlimited duration: generated in ~5 s segments, each segment continues from the last frame of the previous one; when the segments are done they are joined without re-encoding. A retry continues from the last finished segment.',
+    description: 'Video from a source image, or from text alone, with Wan 2.2. Without a source the first frame is drawn from the prompt with an image model (kept in the job folder as frame.png, not an output). Unlimited duration: generated in ~5 s segments, each segment continues from the last frame of the previous one; when the segments are done they are joined without re-encoding. A retry continues from the last finished segment.',
     fields: [
       { name: 'source', type: 'string', required: false, description: 'Source image: "job/<jobId>/<file>" (from the gallery) or "upload/<file>" (from uploads). Leave it out to make the video from text.' },
       { name: 'prompt', type: 'string', required: false, description: 'Motion prompt (English); a natural gentle motion if empty. Required without a source: it then also describes the first frame unless image is given.' },

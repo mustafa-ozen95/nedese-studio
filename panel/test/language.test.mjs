@@ -123,7 +123,8 @@ test('the error messages a job shows have a Turkish entry (a missing model said 
     const { message } = friendlyError(e);
     assert.notEqual(translate(message, 'tr'), message, `no Turkish for: ${message}`);
   }
-  assert.match(friendlyError(errors[0]).message, /tools\\comfy\.mjs/);
+  // where to get it, not a code path (user 10.10.2026: the 3D error said tools\comfy.mjs)
+  assert.match(friendlyError(errors[0]).message, /Download it in Settings > Models/);
 });
 
 test('API docs: the English page has no Turkish text; the Turkish page is translated from the dictionary', async () => {

@@ -43,6 +43,9 @@ const OUTPUT_LIMIT = 60;
 // Jobs that serve another screen (the chat's read aloud): in the queue while they run, never in the gallery or job pages
 export const HIDDEN_TYPES = ['speech'];
 
+/** Does the job leave the graphics card alone (runner.gpuNotNeeded: true, or a function of the job's input)? */
+const noGpu = (runner, job) => (typeof runner?.gpuNotNeeded === 'function' ? Boolean(runner.gpuNotNeeded(job.input)) : Boolean(runner?.gpuNotNeeded));
+
 export class Queue {
   /**
    * setting: what the settings setup returns; comfy: the ComfyUI client; mod: the exports of comfy.mjs;
@@ -59,6 +62,8 @@ export class Queue {
     this.jobs = new Map();
     this.logs = new Map();
     this.active = null;
+    // Jobs running beside the active one (runner.sideLane: no graphics card, short, e.g. read aloud with EMA on the CPU)
+    this.side = new Map();
     this.version = 1;
     this.closed = false;
     this.wake = null;
@@ -80,7 +85,7 @@ export class Queue {
   externalRequestShouldWait() {
     if (!this.active || !fineSetting('gpuShare')) return false;
     const runner = this.runners?.[this.active.job.type];
-    return !(runner?.textModelShares || runner?.gpuNotNeeded);
+    return !(runner?.textModelShares || noGpu(runner, this.active.job));
   }
 
   /* ── Records ───────────────────────────────────────────────────────── */
@@ -266,6 +271,19 @@ export class Queue {
     this.jobs.set(id, job);
     this.save(job);
     this.log(id, `Added to queue: ${c.name}`);
+    // A side-lane job does not wait for the running one (a read-aloud waited behind a 6-minute video) nor makes it yield
+    if (this.active && c.sideLane?.(clean)) {
+      this.changed();
+      this.runJob(job, { side: true }).catch((e) => {
+        console.error('Queue: side job could not be run:', e);
+        this.side.delete(job.id);
+        job.status = 'error';
+        job.error = `Job could not be started: ${e.message}`;
+        this.db?.writeJob(job);
+        this.changed();
+      });
+      return job;
+    }
     this.yieldFor(job);
     this.changed();
     this.wake?.();
@@ -294,13 +312,14 @@ export class Queue {
       this.changed();
       return job;
     }
-    if (job.status === 'running' && this.active?.job.id === id) {
+    const slot = this.active?.job.id === id ? this.active : this.side.get(id);
+    if (job.status === 'running' && slot) {
       // A cancelled job does not come back by yielding or at shutdown
       job.yielded = false;
-      this.active.cancel = true;
+      slot.cancel = true;
       this.log(id, 'Cancel requested; stopping the running step.');
       job.progress = { ...job.progress, detail: 'Cancelling…' };
-      this.active.control.abort();
+      slot.control.abort();
       this.changed();
       return job;
     }
@@ -493,6 +512,7 @@ export class Queue {
       this.log(job.id, 'Panel closing: stopping the job.');
       control.abort();
     }
+    for (const { control } of this.side.values()) control.abort();
   }
 
   async loop() {
@@ -634,10 +654,12 @@ export class Queue {
     this.log(job.id, free >= threshold ? `Enough RAM (${free.toFixed(1)} GB); job starting.` : `RAM still low (${free.toFixed(1)} GB); starting the job anyway.`);
   }
 
-  async runJob(job) {
+  async runJob(job, { side = false } = {}) {
     const c = this.runners[job.type];
     const control = new AbortController();
-    this.active = { job, control };
+    const slot = { job, control };
+    if (side) this.side.set(job.id, slot);
+    else this.active = slot;
     job.status = 'running';
     job.start = new Date().toISOString();
     job.end = null;
@@ -649,7 +671,7 @@ export class Queue {
     this.log(job.id, `Started (${this.setting.machine})`);
     const ctx = this.context(job, control.signal);
     try {
-      if (!c.gpuNotNeeded) {
+      if (!noGpu(c, job)) {
         // An idle text model (e.g. the last query of a yielding collection) does not hold RAM and VRAM: released before
         // the checks. Otherwise the RAM watchdog waited for nothing with "close the browsers" (05.10.2026: Gemma 11 GB
         // VRAM + ~5 GB RAM). With the gpuShare fine setting off (a big card) the text model stays on the card.
@@ -668,11 +690,11 @@ export class Queue {
       job.status = 'done';
       job.progress = { percent: 100, stage: 'Done' };
     } catch (e) {
-      if ((e instanceof CancelError || control.signal.aborted) && this.active?.pause && !this.closed) {
+      if ((e instanceof CancelError || control.signal.aborted) && slot.pause && !this.closed) {
         job.status = 'paused';
         job.progress = { ...job.progress, stage: job.yielded ? 'Yielded the queue (resumes once the queue is empty)' : 'Paused', detail: '' };
         this.log(job.id, job.yielded ? 'Yielded the queue to another job; resumes automatically when it finishes.' : 'Paused. "Resume" continues from the last checkpoint.');
-      } else if ((e instanceof CancelError || control.signal.aborted) && this.closed && c.yields && !this.active?.cancel) {
+      } else if ((e instanceof CancelError || control.signal.aborted) && this.closed && c.yields && !slot.cancel) {
         // a clean shutdown (Ctrl+C, the window): a yielding job goes on by itself when the panel opens
         job.status = 'paused';
         job.yielded = true;
@@ -698,7 +720,8 @@ export class Queue {
       this.cleanComfy(job.id);
       job.end = new Date().toISOString();
       job.duration = Math.round((Date.parse(job.end) - Date.parse(job.start)) / 100) / 10;
-      this.active = null;
+      if (side) this.side.delete(job.id);
+      else this.active = null;
       try {
         this.save(job);
       } catch {

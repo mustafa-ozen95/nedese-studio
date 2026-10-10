@@ -68,8 +68,8 @@ export function validate(g, { mod, setting }) {
   if (g.lora && model !== 'wan5') throw new UserError('The selected LoRA was trained for Wan 2.2 5B; choose Wan 2.2 5B as the model.');
   generatorRequired(mod, VIDEO_MODELS[model].generator, VIDEO_MODELS[model].name, setting?.modelRoot);
   const source = String(g.source ?? '');
-  // Without a source image the video is made from text: an image model draws the first frame (frame.png, kept as an
-  // output), then the usual image-to-video flow runs on it.
+  // Without a source image the video is made from text: an image model draws the first frame (frame.png, kept in the job
+  // folder for a retry, not an output), then the usual image-to-video flow runs on it.
   const fromText = source ? null : textFrame(g, { mod, setting });
   const size = fromText ? { width: fromText.width, height: fromText.height } : imageSize(sourcePath(setting.outputRoot, source));
   if (!size) throw new UserError('Could not read the source image size.');
@@ -429,8 +429,9 @@ export async function run(ctx) {
   rmSync(pFolder, { recursive: true, force: true });
   const duration = Math.round((totalFrame / frameFps) * 100) / 100;
   const [outputWidth, outputHeight] = g.upscale ?? g.truncate ?? [g.width, g.height];
+  // A video made from text shows only the video: its drawn first frame (frame.png, kept for a retry) is not an output
+  // (user 10.10.2026: "Video önizlemede fotosu da gelmiş saçma")
   ctx.addOutput({ file: 'video.mp4', type: 'video', preview: 'video.preview.jpg', width: outputWidth, height: outputHeight, duration, fps: videoFps });
-  if (g.fromText) ctx.addOutput({ file: 'frame.png', type: 'image', width: g.fromText.width, height: g.fromText.height, name: 'First frame' });
   ctx.log(`Video: ${n} parts, ${totalFrame} frames, ${durationText(duration)}`);
 }
 

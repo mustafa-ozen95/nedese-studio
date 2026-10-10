@@ -8,7 +8,7 @@
  * Like voice\voxcpm\description.py / voice\design\design.py:  --spec @s.txt --text @t.txt --output timbre.wav [...]
  * Like voice\convert.py (timbre transfer):  --script convert.py [--folder] source target output
  *
- * Environment: FAKE_VOICE_ERROR=1 -> prints a Python trace and exits with 1; WAIT_FAKE_VOICE=ms -> waits on every take;
+ * Environment: FAKE_VOICE_ERROR=1 -> prints a Python trace and exits with 1; WAIT_FAKE_VOICE=ms -> waits on every take (not in read aloud);
  * FAKE_VOICE_ENGINE: the engine the panel chose (voxcpm, kizagan, ema, qwen or empty).
  */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -84,9 +84,14 @@ if (value('--spec')) {
 
 // Every engine goes through speak.py (strict parse_args): directly (Chatterbox) or after the engine's generate.py with
 // the same arguments + --check-only (voxcpm\speak.bat, ema\speak.bat). generate.py takes its part (parse_known_args).
-expectArgs('voice/speak.py', [...a, ...(engine ? ['--check-only'] : [])]);
+// Read aloud (--no-check, only with EMA): ema\speak.bat skips speak.py, generate.py writes <id>.wav itself
+const quick = a.includes('--no-check');
+if (quick && engine !== 'ema') throw new Error(`--no-check without EMA (engine: ${engine || 'none'})`);
+if (quick) expectSource('voice/ema/speak.bat', '"--no-check" exit /b 0');
+else expectArgs('voice/speak.py', [...a, ...(engine ? ['--check-only'] : [])]);
 const generator = engine === 'ema' ? 'voice/ema/generate.py' : engine ? 'voice/voxcpm/generate.py' : 'voice/speak.py';
-expectArgs(generator, a.filter((x) => !x.startsWith('--') || ['--job', '--folder', '--trial'].includes(x)));
+expectArgs(generator, a.filter((x) => !x.startsWith('--') || ['--job', '--folder', '--trial', ...(quick ? ['--no-check', '--device'] : [])].includes(x)));
+if (quick) expectSource(generator, 'EMA(device=a.device)', 'if a.no_check:');
 expectSource(generator, 'generated {');
 expectSource('voice/speak.py', ' error {', "'report.json'");
 
@@ -108,7 +113,7 @@ const report = [];
 for (const s of job.lines) {
   const duration = Math.max(0.6, s.text.length / 13 / pace);
   for (let k = 0; k < trial; k++) {
-    if (process.env.WAIT_FAKE_VOICE) await wait(Number(process.env.WAIT_FAKE_VOICE));
+    if (process.env.WAIT_FAKE_VOICE && !quick) await wait(Number(process.env.WAIT_FAKE_VOICE));
     writeFileSync(join(folder, `${s.id}_${k}.wav`), makeWav(duration, { hz: 200 + k * 20 }));
     console.log(`generated ${s.id}_${k}.wav (${duration.toFixed(2)} s)`);
   }
@@ -123,5 +128,7 @@ for (const s of job.lines) {
   report.push({ id: s.id, text: s.text, selected, candidates: [selected] });
   console.log(`${s.id.padEnd(10)} error 0.000 ${duration.toFixed(2)} s  <- ${s.text}`);
 }
+// Fake only: the arguments of the last run (the tests check the read-aloud ones)
+writeFileSync(join(folder, 'fake-args.json'), JSON.stringify({ args: a, engine: engine || null }));
 // One take ("Fast"): speak.py writes no report (no Whisper)
 if (trial > 1 || a.includes('--naturalness')) writeFileSync(join(folder, 'report.json'), JSON.stringify(report, null, 1), 'utf8');

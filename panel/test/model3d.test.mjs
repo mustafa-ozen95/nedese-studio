@@ -3,12 +3,15 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createPanel } from './env.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
-import { COMPLETE_PROMPT } from '../lib/jobs/model3d.mjs';
+import { COMPLETE_PROMPT, QUALITY, validate } from '../lib/jobs/model3d.mjs';
+import { graphFiles, SAMPLE_INPUT } from '../lib/models.mjs';
+import * as comfy from '../../tools/comfy.mjs';
 
 const promptList = (p) => p.fake.status.records.filter((x) => x.path === '/prompt').map((x) => Object.values(JSON.parse(x.prompt).prompt));
 
@@ -91,5 +94,29 @@ test('3D model: frame from video, GLB only without Blender; clear error if a sho
     assert.deepEqual(last.outputs.map((c) => [c.file, c.main]), [['model.glb', true]]);
   } finally {
     await p.close();
+  }
+});
+
+// 10.10.2026: a fresh install's 3D jobs started while Pixal3D and MoGe were still downloading reached ComfyUI ("Value not
+// in list"); the check before the queue looked only at the default (TRELLIS.2) graph's files.
+test("3D model: the chosen quality's own model files are checked before the queue (high: Pixal3D + MoGe)", () => {
+  const modelRoot = mkdtempSync(join(tmpdir(), 'ai-panel-models-'));
+  try {
+    const put = (key) => {
+      mkdirSync(join(modelRoot, key.split('/')[0]), { recursive: true });
+      writeFileSync(join(modelRoot, ...key.split('/')), '');
+    };
+    const fast = graphFiles(comfy.trellis2Job({ ...SAMPLE_INPUT, ...QUALITY.fast }));
+    const high = graphFiles(comfy.trellis2Job({ ...SAMPLE_INPUT, ...QUALITY.high }));
+    assert.ok(high.includes('diffusion_models/pixal3d_int8_convrot.safetensors') && high.includes('geometry_estimation/moge_2_vitl_normal_fp16.safetensors'), high.join(', '));
+    for (const key of fast) put(key);
+    const setting = { modelRoot, outputRoot: modelRoot, blender: null };
+    assert.throws(() => validate({ quality: 'high' }, { mod: comfy, setting }), /Model files missing for 3D model \(Pixal3D\): .*pixal3d_int8_convrot\.safetensors.*moge_2_vitl_normal_fp16\.safetensors\. Download them in Settings > Models/);
+    // fast (TRELLIS.2) has its files: the check passes and the next one (the source) speaks
+    assert.throws(() => validate({ quality: 'fast' }, { mod: comfy, setting }), /Choose an image or a video/);
+    for (const key of high) put(key);
+    assert.throws(() => validate({ quality: 'high' }, { mod: comfy, setting }), /Choose an image or a video/);
+  } finally {
+    rmSync(modelRoot, { recursive: true, force: true });
   }
 });

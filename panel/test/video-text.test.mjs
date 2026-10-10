@@ -1,6 +1,6 @@
 /**
- * Video from text alone: without a source image the first frame is drawn with an image model (frame.png, kept as an
- * output), then the image-to-video flow runs on it. Fake ComfyUI, end to end through the API.
+ * Video from text alone: without a source image the first frame is drawn with an image model (frame.png, kept in the job
+ * folder, not an output), then the image-to-video flow runs on it. Fake ComfyUI, end to end through the API.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,7 +29,8 @@ test('video from text: the first frame is drawn from the prompt, the video follo
     assert.match(r.j.job.summary.detail, /^From text · /);
     const last = await p.waitUntilDone(r.j.job.id, 30000);
     assert.equal(last.status, 'done', last.error);
-    assert.deepEqual(last.outputs.map((o) => [o.file, o.type]), [['video.mp4', 'video'], ['frame.png', 'image']], 'the video is the main output, the drawn frame follows it');
+    // only the video in the preview (user 10.10.2026: "Video önizlemede fotosu da gelmiş saçma")
+    assert.deepEqual(last.outputs.map((o) => [o.file, o.type]), [['video.mp4', 'video']], 'the drawn frame is not an output');
     const folder = join(p.setting.outputRoot, r.j.job.id);
     assert.ok(existsSync(join(folder, 'video.mp4')));
     assert.ok(imageSize(join(folder, 'frame.png')), 'frame.png is a readable image');

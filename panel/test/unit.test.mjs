@@ -187,7 +187,13 @@ test('friendly error mapping', () => {
     error: { type: 'prompt_outputs_failed_validation', message: 'Prompt outputs failed validation' },
     node_errors: { 1: { errors: [{ type: 'value_not_in_list', message: 'Value not in list', details: "unet_name: 'qwen-image-2512-Q8_0.gguf' not in []" }], class_type: 'UnetLoaderGGUF' } },
   });
-  assert.match(friendlyError(missing).message, /Model file not found: qwen-image-2512-Q8_0\.gguf/);
+  assert.match(friendlyError(missing).message, /Model file not found: qwen-image-2512-Q8_0\.gguf\. Download it in Settings > Models/);
+  // MoGe (3D high quality) names its file model_name: the same clear message, not ComfyUI's "Value not in list" (10.10.2026)
+  const moge = new ComfyValidationError({
+    error: { type: 'prompt_outputs_failed_validation', message: 'Prompt outputs failed validation' },
+    node_errors: { 37: { errors: [{ type: 'value_not_in_list', message: 'Value not in list', details: "model_name: 'moge_2_vitl_normal_fp16.safetensors' not in []" }], class_type: 'LoadMoGeModel' } },
+  });
+  assert.match(friendlyError(moge).message, /^Model file not found: moge_2_vitl_normal_fp16\.safetensors\. Download it in Settings > Models/);
   const oom = new ComfyRuntimeError({ exception_type: 'torch.OutOfMemoryError', exception_message: 'CUDA error: out of memory', node_type: 'KSamplerAdvanced' });
   assert.match(friendlyError(oom).message, /Not enough GPU memory \(KSamplerAdvanced\)/);
   const ram = new ComfyRuntimeError({ exception_message: '[enforce fail at alloc_cpu.cpp:121] DefaultCPUAllocator: not enough memory' });

@@ -10,7 +10,7 @@ import { runFfmpeg, audioSpeed } from '../ffmpeg.mjs';
 import { wavDuration } from '../media.mjs';
 import { UPLOAD_FOLDER } from '../settings.mjs';
 import { voiceInfo, addVoice, voiceLoraPath, voicePath, voicePace, voiceTimbre, defaultVoice } from '../voices.mjs';
-import { usedFiles } from '../models.mjs';
+import { usedFiles, graphFiles, SAMPLE_INPUT } from '../models.mjs';
 import { fixPronunciation } from '../pronunciation.mjs';
 
 /* ── Input checks ───────────────────────────────────────────────────── */
@@ -112,16 +112,22 @@ export function generatorStatus(mod, generator) {
   }
 }
 
-/** In validation: when the generator cannot be used, an error before the job is created. */
-export function generatorRequired(mod, generator, name, modelRoot = null) {
+/**
+ * In validation: when the generator cannot be used, an error before the job is created. input: the job's own graph
+ * parameters, whose files are checked too (3D high quality loads Pixal3D and MoGe, not the default TRELLIS.2; a job
+ * started while they were still downloading reached ComfyUI and failed there, 10.10.2026).
+ */
+export function generatorRequired(mod, generator, name, modelRoot = null, input = null) {
   const d = generatorStatus(mod, generator);
   if (!d.available) throw new UserError(`${name} is not available on this machine: ${d.reason}`);
   // Model files: a missing file is reported before the job enters the queue (before ComfyUI).
   // RIFE (checkpoints/rife49.pth) lives in the extension's own folder, which downloads it on first use.
   if (modelRoot && existsSync(modelRoot)) {
-    const missing = Object.entries(usedFiles(mod))
-      .filter(([key, generators]) => generators.includes(generator) && !/^checkpoints\/rife/.test(key))
-      .map(([key]) => key)
+    const files = input
+      ? graphFiles(mod[generator]({ ...SAMPLE_INPUT, ...input }))
+      : Object.entries(usedFiles(mod)).filter(([, generators]) => generators.includes(generator)).map(([key]) => key);
+    const missing = files
+      .filter((key) => !/^checkpoints\/rife/.test(key))
       .filter((key) => !existsSync(join(modelRoot, ...key.split('/'))));
     if (missing.length) throw new UserError(`Model files missing for ${name}: ${missing.map((e) => e.split('/')[1]).join(', ')}. Download them in Settings > Models or move your own files.`);
   }
@@ -342,9 +348,10 @@ export async function voiceDesign(ctx, { spec, recordName, folder, neutral = fal
  * lines: [{ id, text, reference?, referenceText? }]: a line with a voice is read in that voice (film dialogue:
  * character voices), otherwise in the job's reference. Returns { [id]: { path, duration, heard, error, words, f0 } };
  * f0: the median pitch of the selected take, Hz (checked/natural quality; the gender/age check of a character voice).
- * progress(ratio 0..1, text)
+ * progress(ratio 0..1, text). quick: EMA reads once on the CPU without the Whisper check (read aloud: ~0.3 s a sentence,
+ * the graphics card stays with the running job).
  */
-export async function speak(ctx, { lines, reference, referenceText = null, lora = null, engine = null, timbre = null, pace = null, select, folder, progress = () => {} }) {
+export async function speak(ctx, { lines, reference, referenceText = null, lora = null, engine = null, timbre = null, pace = null, select, folder, quick = false, progress = () => {} }) {
   mkdirSync(folder, { recursive: true });
   const quality = QUALITY[select.quality];
   // A long line: split into sub-lines, then joined.
@@ -368,7 +375,8 @@ export async function speak(ctx, { lines, reference, referenceText = null, lora 
   // to EMA; EMA does not clone, so lines with a reference (a chosen voice, a character) go to VoxCPM2 in voiceCommand.
   const cloned = Boolean(reference) || subs.some((a) => a.reference);
   const enabledEngine = engine ?? (ctx.setting.selectVoiceEngine?.() === 'ema' && ctx.setting.hasEma && !cloned ? 'ema' : null);
-  const k = ctx.setting.voiceCommand(['--job', jobFile, '--folder', join(folder, 'shots'), '--trial', String(quality.trial), ...quality.args], enabledEngine);
+  const fast = quick && enabledEngine === 'ema' ? ['--no-check', '--device', 'cpu'] : [];
+  const k = ctx.setting.voiceCommand(['--job', jobFile, '--folder', join(folder, 'shots'), '--trial', String(quality.trial), ...quality.args, ...fast], enabledEngine);
   ctx.log(`Voice-over: ${subs.length} lines × ${quality.trial} takes (${quality.name})${reference ? `, reference ${basename(reference)}` : ", the model's own voice"}`);
   await runProcess(k.command, k.args, {
     env: k.env,

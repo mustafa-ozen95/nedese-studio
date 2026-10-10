@@ -9,7 +9,7 @@ import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Updater, blobSha, localVersion } from '../lib/update.mjs';
+import { Updater, blobSha, localVersion, SETUP_FILE } from '../lib/update.mjs';
 import { SettingsFile } from '../lib/settings-file.mjs';
 import { createPanel } from './env.mjs';
 
@@ -215,7 +215,7 @@ test('the repository ships no read key: the update needs none', () => {
 });
 
 test('top bar summary: the last check stays in the settings file, the new version is known after a restart; it disappears once installed; absent in a development copy', async () => {
-  const gh = await fakeGithub({ compare: ['panel/server.mjs', 'setup/setup.ps1'] });
+  const gh = await fakeGithub({ compare: ['panel/server.mjs', 'setup/lock/voice.txt'] });
   const { root, settingFile } = setupSetup();
   const setup = () => new Updater({ setting: setting(root, gh.api), settingFile: new SettingsFile(join(root, 'panel-data', 'settings.json')), queue: freeQueue() });
   try {
@@ -273,4 +273,13 @@ test('API: update status, check, settings, /status summary, prompt translation b
     gh.close();
     await p.close();
   }
+});
+
+// User 10.10.2026: an update that changed setup.ps1 and tools.json told the installed panel to run setup again ("bu bir
+// hata değil mi"): only the environment locks and the vendored ComfyUI/training code need it.
+test('setup again: only when a Python environment lock or vendored code changes, not for the installer script or the tool list', () => {
+  const required = ['setup/lock/voice.txt', 'setup/lock/sidestep-uv.lock', 'setup/vendor/ComfyUI-GGUF/nodes.py', 'training/sidestep/uv.lock', 'voice/pyproject.toml', 'tools/requirements-extra.txt'];
+  const not = ['setup/setup.ps1', 'setup/tools.json', 'setup/download-models.mjs', 'setup/voice-models.py', 'setup.bat', 'panel/server.mjs', 'docs/setup/lock.md'];
+  assert.deepEqual(required.filter((f) => !SETUP_FILE.test(f)), []);
+  assert.deepEqual(not.filter((f) => SETUP_FILE.test(f)), []);
 });

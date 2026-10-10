@@ -160,7 +160,7 @@
             g.development ? 'Development copy (git): it is updated with git pull.' : null,
             g.last ? (g.last.fresh ? `Last check: ${dateText(g.lastControl)} · new version: ${shortVersion(g.last.remote.sha)} (${g.last.remote.message})` : `Last check: ${dateText(g.lastControl)} · up to date`) : g.lastControl ? `Last check: ${dateText(g.lastControl)}` : 'Not checked yet.',
             g.waiting ? 'The update will be applied when the jobs finish.' : null,
-            g.last?.setupRequired ? 'Python environments also change in this version: after updating, run setup.bat -Models none.' : null,
+            g.last?.setupRequired ? 'Python environments or ComfyUI extensions also change in this version: after updating, run setup.bat -Models none.' : null,
         ].filter(Boolean);
         $('[data-update-info]', k).replaceChildren(...lines.map((s) => el('div', { text: s })));
         $('[data-update-auto]', k).checked = Boolean(g.auto);

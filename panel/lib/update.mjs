@@ -22,8 +22,11 @@ import { UserError } from './errors.mjs';
 
 const DAY_MS = 24 * 3600 * 1000;
 const SHA = /^[0-9a-f]{40}$/;
-// When these files change the Python environments / tools must be renewed too: setup.bat -Models none
-const SETUP_FILE = /^setup\/|(^|\/)(uv\.lock|pyproject\.toml|requirements[^/]*\.txt)$/;
+// When these files change the Python environments or the copied ComfyUI extensions must be renewed too (setup.bat
+// -Models none): the environment locks and the vendored code. Not setup.ps1, tools.json or the model scripts: every
+// update that touched the installer said "run setup again" although nothing on the machine needed it (user 10.10.2026:
+// "bu bir hata değil mi"); a new environment always comes with its own lock file.
+export const SETUP_FILE = /^setup\/(lock|vendor)\/|(^|\/)(uv\.lock|pyproject\.toml|requirements[^/]*\.txt)$/;
 
 /** The installation's version: { sha, dateText, message?, source: 'git' | 'pkg' | 'unknown', files? } */
 export function localVersion(aiRoot) {
@@ -274,7 +277,7 @@ export class Updater {
       this.localCache = null;
       this.waiting = false;
       this.last = { ...d, fresh: false, local: { sha: d.remote.sha, dateText: d.remote.dateText, source: 'pkg' } };
-      const message = `Updated: ${d.remote.sha.slice(0, 7)} (${d.remote.message}). ${written} files written${deleted ? `, ${deleted} deleted` : ''}; the panel is restarting.${d.setupRequired ? ' Python environments changed too: run setup.bat -Models none.' : ''}`;
+      const message = `Updated: ${d.remote.sha.slice(0, 7)} (${d.remote.message}). ${written} files written${deleted ? `, ${deleted} deleted` : ''}; the panel is restarting.${d.setupRequired ? ' Python environments or ComfyUI extensions changed too: run setup.bat -Models none.' : ''}`;
       this.log(message);
       if (this.startAgain) setTimeout(() => this.startAgain(), 1500).unref?.();
       return { message, written, same, deleted, setupRequired: d.setupRequired, version: d.remote };

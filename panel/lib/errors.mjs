@@ -50,7 +50,8 @@ export class ProcessError extends Error {
   }
 }
 
-const MODEL_FIELDS = ['unet_name', 'ckpt_name', 'lora_name', 'clip_name', 'vae_name'];
+// model_name: MoGe (LoadMoGeModel), the 3D high quality's geometry model
+const MODEL_FIELDS = ['unet_name', 'ckpt_name', 'lora_name', 'clip_name', 'vae_name', 'model_name'];
 
 function isMemory(text) {
   return /out of memory|OutOfMemoryError|CUDA error: out of memory|Allocation on device|CUBLAS_STATUS_ALLOC_FAILED/i.test(text);
@@ -81,7 +82,7 @@ function validationReason(response) {
       const field = MODEL_FIELDS.find((a) => detail.includes(a));
       if (h.type === 'value_not_in_list' && field) {
         const name = /'([^']+)'\s+not in/.exec(detail)?.[1] ?? h.extra_info?.received_value ?? '';
-        return `Model file not found: ${name}. It is not in ComfyUI's models folder; the file name must match the one in tools\\comfy.mjs.`;
+        return `Model file not found: ${name}. Download it in Settings > Models (a download still running must finish first).`;
       }
       if (h.type === 'value_not_in_list' && /image/.test(detail)) {
         return 'The source image did not reach ComfyUI (not in the input folder). Retry the job.';

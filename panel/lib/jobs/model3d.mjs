@@ -35,7 +35,8 @@ const COMPLETE_SIZE = [832, 1248];
 export const COMPLETE_PROMPT = 'Show the main subject of image 1 complete and whole: if it is a person or creature, as a full-body figure from head to toe (legs and feet visible), standing upright facing the camera in a relaxed A-pose with the arms held slightly away from the body, hands open and relaxed with all fingers clearly visible and separated; if it is an object, the entire object. Centered with empty space around it, on a plain light grey studio background, soft even lighting. Keep exactly the same face, hair, clothing, materials and colors as in image 1.';
 
 export function validate(g, { mod, setting }) {
-  generatorRequired(mod, 'trellis2Job', '3D model (TRELLIS.2 / Pixal3D)', setting?.modelRoot);
+  const quality = choice(g.quality, 'Quality', Object.keys(QUALITY), 'high');
+  generatorRequired(mod, 'trellis2Job', `3D model (${MODEL_NAME[QUALITY[quality].mode]})`, setting?.modelRoot, QUALITY[quality]);
   const complete = yes(g.complete);
   if (complete) generatorRequired(mod, 'editJob', 'Full-body completion (Qwen-Image-Edit)', setting?.modelRoot);
   const source = String(g.source ?? '').trim();
@@ -52,7 +53,7 @@ export function validate(g, { mod, setting }) {
     source,
     time: video ? number(g.time, 'Frame time (s)', { min: 0, max: 36000, defaultValue: 0 }) : null,
     title: text(g.title, 'Title', { required: false, max: 120 }),
-    quality: choice(g.quality, 'Quality', Object.keys(QUALITY), 'high'),
+    quality,
     deleteBackPlan: g.deleteBackPlan === undefined ? true : yes(g.deleteBackPlan),
     complete,
     intro,

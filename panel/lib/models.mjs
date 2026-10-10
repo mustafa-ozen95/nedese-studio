@@ -39,6 +39,20 @@ export const GENERATOR_NAMES = { qwenJob: 'Image: Qwen-Image 2512', fluxJob: 'Im
  */
 export const isDefaultModel = (k) => !k.variant;
 
+export const SAMPLE_INPUT = { text: 'x', pictures: ['x.png'], voice: 'x.mp3', style: 'x', lyrics: '', duration: 10, seed: 0, prefix: 'x', picture: 'x.png', width: 1280, height: 720, frame: 81, smooth: 2 };
+
+/** The model files a graph loads: ['diffusion_models/qwen-image-Q4_K_M.gguf', 'geometry_estimation/moge….safetensors']. */
+export function graphFiles(graph) {
+  const result = [];
+  for (const d of Object.values(graph ?? {})) {
+    for (const [field, folder] of Object.entries({ ...MODEL_FIELDS, ...CLASS_FIELDS[d?.class_type] })) {
+      const name = d?.inputs?.[field];
+      if (typeof name === 'string') result.push(`${folder}/${name}`);
+    }
+  }
+  return [...new Set(result)];
+}
+
 /** Is akislarinin kullandigi dosyalar: { 'diffusion_models/qwen-image-Q4_K_M.gguf': ['qwenIsi'] }. */
 export function usedFiles(mod) {
   const result = {};
@@ -46,18 +60,11 @@ export function usedFiles(mod) {
     if (typeof mod?.[generator] !== 'function') continue;
     let graph;
     try {
-      graph = mod[generator]({ text: 'x', pictures: ['x.png'], voice: 'x.mp3', style: 'x', lyrics: '', duration: 10, seed: 0, prefix: 'x', picture: 'x.png', width: 1280, height: 720, frame: 81, smooth: 2 });
+      graph = mod[generator](SAMPLE_INPUT);
     } catch {
       continue;
     }
-    for (const d of Object.values(graph)) {
-      for (const [field, folder] of Object.entries({ ...MODEL_FIELDS, ...CLASS_FIELDS[d?.class_type] })) {
-        const name = d?.inputs?.[field];
-        if (typeof name !== 'string') continue;
-        const key = `${folder}/${name}`;
-        (result[key] ??= []).push(generator);
-      }
-    }
+    for (const key of graphFiles(graph)) (result[key] ??= []).push(generator);
   }
   // ComfyUI grafi olmayan isler (LatentSync, dudak\agiz.py): katalogda "kullanan" ile
   for (const k of CATALOG) for (const u of k.user ?? []) (result[`${k.folder}/${k.file}`] ??= []).push(u);

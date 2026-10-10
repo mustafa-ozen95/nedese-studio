@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
 
@@ -40,6 +40,43 @@ test('read aloud: one take in the default voice, kept out of the gallery and the
     const list = (await req('/jobs')).j.jobs.map((x) => x.id);
     assert.ok(list.includes(v.id) && !list.includes(r.j.job.id), 'job list: voice yes, read aloud no');
     assert.deepEqual((await req('/jobs?type=speech')).j.jobs.map((x) => x.id), [r.j.job.id], 'asked by type: listed');
+  } finally {
+    await p.close();
+  }
+});
+
+// User 10.10.2026: "Ses çalışmadı" (VoxCPM2 spent 52 s loading for a 3 s answer), "Ema ile seslendirilebilir 34mb"
+test('read aloud with EMA: Turkish is read once on the CPU without the Whisper check, beside a running job and without freeing the graphics card; English stays with VoxCPM2', async (t) => {
+  const p = await createPanel({ setting: { hasEma: true }, voiceEnv: { WAIT_FAKE_VOICE: '2500' } });
+  if (!p.setting.ffmpeg || !p.setting.ffprobe) {
+    await p.close();
+    t.skip('no ffmpeg');
+    return;
+  }
+  const args = (id) => JSON.parse(readFileSync(join(p.setting.outputRoot, id, 'narration', 'shots', 'fake-args.json'), 'utf8'));
+  try {
+    // a voice-over that takes a while holds the queue
+    const long = p.queue.add('voice', { text: 'Uzun bir seslendirme.', voice: 'model', quality: 'fast' });
+    for (let i = 0; i < 100 && p.queue.jobs.get(long.id).status !== 'running'; i++) await new Promise((ok) => setTimeout(ok, 20));
+    let released = 0;
+    p.queue.llm = { releaseGpu: async () => released++, ongoing: 0 };
+    const tr = p.queue.add('speech', { text: 'Görsel hazır: karda bir kızıl tilki.', lang: 'tr' });
+    assert.equal(tr.input.engine, 'ema');
+    const done = await p.waitUntilDone(tr.id, 20000);
+    assert.equal(done.status, 'done', done.error);
+    assert.equal(p.queue.jobs.get(long.id).status, 'running', 'read aloud did not wait for the running voice-over');
+    assert.equal(released, 0, 'the text model kept the graphics card');
+    assert.deepEqual(args(tr.id), { args: [...args(tr.id).args.slice(0, 6), '--no-check', '--device', 'cpu'], engine: 'ema' });
+    assert.ok(existsSync(join(p.setting.outputRoot, tr.id, 'voice.wav')));
+    assert.match(p.queue.logs.get(tr.id).join('\n'), /Read aloud with EMA Lightning \(CPU\)/);
+    assert.equal((await p.waitUntilDone(long.id, 20000)).status, 'done', 'the running job finished normally');
+
+    // English: EMA is Turkish only; VoxCPM2 with the Whisper flow, in the queue's order
+    const en = p.queue.add('speech', { text: 'The picture is ready.', lang: 'en' });
+    assert.equal(en.input.engine, null);
+    assert.equal((await p.waitUntilDone(en.id, 20000)).status, 'done');
+    assert.ok(!args(en.id).args.includes('--no-check'));
+    assert.notEqual(args(en.id).engine, 'ema');
   } finally {
     await p.close();
   }
