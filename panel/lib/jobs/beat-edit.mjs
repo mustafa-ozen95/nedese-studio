@@ -104,11 +104,34 @@ export function parseMotion(textOut) {
   return { motion, cuts: motion.filter((m) => m.v > 0.35 && m.t > 0.2).map((m) => m.t) };
 }
 
+/**
+ * A film from the gallery with its subtitles burned in stands for its scene clips, which have none: a crop to another
+ * shape cut the lines in half and every shot carried words of another moment.
+ */
+export function withoutSubtitles(outputRoot, refs) {
+  return refs.flatMap((ref) => {
+    const m = /^job\/([^/]+)\/([^/]+)$/.exec(String(ref).replace(/\\/g, '/'));
+    if (!m) return [ref];
+    let job;
+    try {
+      job = JSON.parse(readFileSync(join(outputRoot, m[1], 'job.json'), 'utf8'));
+    } catch {
+      return [ref];
+    }
+    const main = job.outputs?.find((o) => o.main)?.file;
+    const scenes = (job.outputs ?? []).filter((o) => o.type === 'scene' && VIDEO_EXTENSION.test(o.file) && existsSync(join(outputRoot, m[1], o.file)));
+    if (job.type !== 'film' || !job.input?.subtitle || main !== m[2] || !scenes.length) return [ref];
+    return scenes.map((o) => `job/${m[1]}/${o.file}`);
+  });
+}
+
 export async function run(ctx) {
   const g = ctx.job.input;
   const k = ctx.folder;
   const ff = ctx.setting.ffmpeg;
-  const files = g.sources.map((s) => recordPath(ctx.setting.outputRoot, s));
+  const refs = withoutSubtitles(ctx.setting.outputRoot, g.sources);
+  if (refs.length !== g.sources.length) ctx.log(`Films with subtitles are cut from their scene clips (${refs.length} videos).`);
+  const files = refs.map((s) => recordPath(ctx.setting.outputRoot, s));
 
   /* 1) The videos: size, length, motion ──────────────────────── */
   const infoFile = join(k, 'sources.json');

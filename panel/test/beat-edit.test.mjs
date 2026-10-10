@@ -5,13 +5,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSettings } from '../lib/settings.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
 import { cutPlan, musicPlan, share, pickShots, outputSize, musicStart } from '../lib/beat-edit-plan.mjs';
-import { validate, summary, run, parseMotion } from '../lib/jobs/beat-edit.mjs';
+import { validate, summary, run, parseMotion, withoutSubtitles } from '../lib/jobs/beat-edit.mjs';
 import { finishSound } from '../lib/jobs/promo.mjs';
 import { makeMusic, BAR } from '../lib/promo-music.mjs';
 
@@ -90,6 +90,16 @@ test('beat cut job: two videos and drawn music, then a music file measured; leng
     const f = await streams(setting.ffprobe, join(setting.outputRoot, 'file', 'beat-cut.mp4'));
     assert.ok(Math.abs(f.duration - 3 * BAR) < 0.1, `6 s is three bars (${f.duration})`);
     assert.equal(outputs[1].width, 1080);
+
+    // a film with burned-in subtitles stands for its scene clips (a crop cut its lines in half); one without stays
+    const film = (id, subtitle) => {
+      mkdirSync(join(setting.outputRoot, id), { recursive: true });
+      for (const f of ['film.mp4', 'scene01.mp4', 'scene02.mp4']) writeFileSync(join(setting.outputRoot, id, f), '');
+      writeFileSync(join(setting.outputRoot, id, 'job.json'), JSON.stringify({ type: 'film', input: { subtitle }, outputs: [{ file: 'film.mp4', main: true }, { file: 'film.srt', type: 'subtitle' }, { file: 'scene01.mp4', type: 'scene' }, { file: 'scene02.mp4', type: 'scene' }] }));
+    };
+    film('f1', true);
+    film('f2', false);
+    assert.deepEqual(withoutSubtitles(setting.outputRoot, ['job/f1/film.mp4', 'job/trial/a.mp4', 'job/f2/film.mp4', 'job/f1/scene02.mp4']), ['job/f1/scene01.mp4', 'job/f1/scene02.mp4', 'job/trial/a.mp4', 'job/f2/film.mp4', 'job/f1/scene02.mp4']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
