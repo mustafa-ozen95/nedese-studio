@@ -715,13 +715,13 @@ export async function run(ctx) {
 
   /* 5) Birlestirme + altyazi ─────────────────────────────────────── */
   const name = slug(g.title);
-  // Muzik bolumleri ayri uretilip yumusak gecisle birlesir (dongu yok); plan 1b'de yazildi.
+  // The music sections are made one by one and joined with a soft transition (no loop); the plan was written in 1b.
   if (musicToGenerate) {
     const startedAt = Date.now();
     const parts = [];
     let totalMusic = 0;
     for (let i = 0; i < sections.length; i++) {
-      const name = `muzik_b${String(i + 1).padStart(3, '0')}.mp3`;
+      const name = `music_part${String(i + 1).padStart(3, '0')}.mp3`;
       const len = Math.min(MUSIC_LONGEST, Math.max(10, Math.ceil(sections[i].duration + (i < sections.length - 1 ? SECTION_TRANSITION : 0) + 1)));
       totalMusic += len;
       if (!existsSync(join(k, name))) {

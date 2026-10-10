@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeWav } from '../lib/media.mjs';
 import { setTextModel } from '../lib/prompt-translate.mjs';
@@ -71,6 +71,7 @@ test('film music: a Turkish style is translated before the music plan (the plan 
     // The fake ComfyUI returns no real audio for the film's mix, so only the request to ACE-Step is checked here
     await p.waitUntilDone(job.id, 120000);
     assert.match(p.queue.logs.get(job.id).join(' '), /Stage: 5\/5 Music/);
+    assert.deepEqual(readdirSync(p.queue.folder(job.id)).filter((f) => /^mu[sz]i[ck]/.test(f) && f !== 'music.mp3'), ['music_part001.mp3'], 'the music section has an English file name');
     const tags = tagsOf(p);
     assert.ok(tags.length && tags.every((x) => x.startsWith(STYLE) && !/akustik|gitar/.test(x)), tags.join(' | '));
     assert.equal(p.queue.jobs.get(job.id).musicStyleEnglish, STYLE);
