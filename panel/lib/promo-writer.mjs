@@ -12,13 +12,15 @@ const SYSTEM = [
   '- Each scene has a headline shown on screen (caption, 2-6 words, one or two key words wrapped in *asterisks* for the accent colour) and one spoken sentence (narration, 6-16 words, natural and confident, never the product name).',
   '- The narration sentences together tell one story: a hook first, then what it does, and a short closing line.',
   '- Never invent features that are not in the list you are given.',
+  '- For a product with sections: first choose the section a scene shows, then write its caption and narration about what that section does and nothing else (the viewer sees that section while hearing the sentence).',
   '- Write the captions and the narration in the requested language; in Turkish use the Turkish characters (ç, ğ, ı, ö, ş, ü).',
 ].join('\n');
 
 /** The JSON schema of the answer (sections: the allowed panel sections, or none for another page). */
 export function promoSchema(sections, count) {
-  const scene = { caption: { type: 'string' }, narration: { type: 'string' } };
-  if (sections) Object.assign(scene, { section: { type: 'string', enum: sections }, demo: { type: 'string' } });
+  // the section first: the words are written about the section chosen, not the other way round
+  const scene = sections ? { section: { type: 'string', enum: sections }, demo: { type: 'string' } } : {};
+  Object.assign(scene, { caption: { type: 'string' }, narration: { type: 'string' } });
   return {
     type: 'object',
     properties: {
@@ -39,10 +41,10 @@ export function promoPrompt({ brief, lang, panel, url, sections, count }) {
   return [
     `Brief: ${brief || (panel ? 'A promo of this AI studio that runs on your own computer: show everything it can do.' : 'A promo of this web page.')}`,
     panel
-      ? `The product is a local AI studio. Its sections (use these ids as "section", in the order that tells the story best; use each at most once; "devices" shows the same studio on a phone):\n${sections.map((s) => `- ${s}: ${PANEL_SECTIONS[s].about}`).join('\n')}\n"demo" (image, edit, videoEdit only): the short English request typed in that section's form.`
+      ? `The product is a local AI studio. Its sections (use these ids as "section", in the order that tells the story best; use each at most once; "devices" shows the same studio on a phone):\n${sections.map((s) => `- ${s}: ${PANEL_SECTIONS[s].about}`).join('\n')}\nEach scene's caption and narration are about its own section only. "demo" (required for image, edit and videoEdit, else empty): the short English request typed in that section's form, matching the narration.`
       : `The page: ${url}`,
     `Language: ${lang === 'en' ? 'English' : 'Turkish'}`,
-    `Scenes: ${count} or fewer. Also a "subtitle": one short line under the title.`,
+    `Scenes: ${count} or fewer. Also a "subtitle": a short slogan (3-6 words) under the title, not the brief.`,
     'Return the JSON object.',
   ].join('\n');
 }
@@ -61,7 +63,8 @@ export function parsePromoResponse(text, { panel, sections, count }) {
   const seen = new Set();
   const scenes = [];
   for (const x of Array.isArray(data?.scenes) ? data.scenes : []) {
-    const caption = String(x?.caption ?? '').trim().slice(0, 120);
+    // the accent is one pair of asterisks; models often write markdown bold
+    const caption = String(x?.caption ?? '').replace(/\*{2,}([^*]+?)\*{2,}/g, '*$1*').trim().slice(0, 120);
     const narration = String(x?.narration ?? '').trim().slice(0, 400);
     if (!caption) continue;
     const scene = { caption, narration };

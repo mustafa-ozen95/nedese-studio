@@ -52,8 +52,10 @@ test('promo script writer: only sections with something to show, known sections 
   assert.ok(usableSections({}).includes('chat') && usableSections({}).includes('gallery'));
   const sections = usableSections({ image: 2 });
   assert.deepEqual(promoSchema(sections, 8).properties.scenes.items.properties.section.enum, sections);
+  // the live writer (10.10.2026) wrote the words first and matched sections by list order: the section comes first
+  assert.equal(Object.keys(promoSchema(sections, 8).properties.scenes.items.properties)[0], 'section');
   const r = parsePromoResponse(
-    'Sure! {"subtitle":"Your own studio","scenes":[{"caption":"Ask *anything*","narration":"Ask.","section":"chat","demo":"no"},{"caption":"Again","narration":"x","section":"chat"},{"caption":"3D","narration":"y","section":"model3d"},{"caption":"Draw","narration":"z","section":"image","demo":"A fox"}]}',
+    'Sure! {"subtitle":"Your own studio","scenes":[{"caption":"Ask **anything**","narration":"Ask.","section":"chat","demo":"no"},{"caption":"Again","narration":"x","section":"chat"},{"caption":"3D","narration":"y","section":"model3d"},{"caption":"Draw","narration":"z","section":"image","demo":"A fox"}]}',
     { panel: true, sections, count: 8 },
   );
   assert.deepEqual(r.scenes, [{ caption: 'Ask *anything*', narration: 'Ask.', section: 'chat' }, { caption: 'Draw', narration: 'z', section: 'image', demo: 'A fox' }]);
