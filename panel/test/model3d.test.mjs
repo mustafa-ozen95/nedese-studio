@@ -155,6 +155,10 @@ test('3D model: game copies (low poly + LOD) from the same generation, with FBX;
     assert.ok(trellis.filter((d) => d.class_type === 'DecimateMesh').slice(1).every((d) => d.inputs['placement_mode.feature_edge_quadric_weight'] > 0));
     const graph = JSON.parse(p.fake.status.records.filter((x) => x.path === '/prompt').at(-1).prompt).prompt;
     const main = Object.keys(graph).find((id) => graph[id].class_type === 'DecimateMesh' && graph[id].inputs.target_face_count === 500000);
+    // the first copy from the remesh, the LOD from the first copy (a second pass over a furry dwarf's remesh ran out of VRAM)
+    const copies = GAME.map((l) => Object.keys(graph).find((id) => graph[id].class_type === 'DecimateMesh' && graph[id].inputs.target_face_count === l.surface));
+    assert.deepEqual(copies.map((id) => graph[graph[id].inputs.mesh[0]].class_type), ['RemeshMesh', 'DecimateMesh']);
+    assert.equal(graph[copies[1]].inputs.mesh[0], copies[0]);
     for (const [i, level] of GAME.entries()) {
       const normal = trellis.filter((d) => d.class_type === 'BakeNormalMapFromMesh')[i + 1];
       assert.equal(normal.inputs.resolution, level.texture);

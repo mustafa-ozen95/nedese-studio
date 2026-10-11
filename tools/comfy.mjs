@@ -516,12 +516,13 @@ export function trellis2Job({ picture, appearances = null, seed = 0, prefix, mod
   // looks the same as against the remesh with 64 and takes ~50 s instead of ~120 s per copy. Decimated with midpoint
   // placement (as the main mesh) the knight's 30k copy broke into shards and dark facets and an 8k copy fell apart
   // (also when chained from the 30k copy); QEM placement from the remesh, with ridges and creases weighted, kept the
-  // shape (it stops a little under the target: 27.5k).
-  const qem = { placement_mode: 'qem', 'placement_mode.line_quadric_weight': 1, 'placement_mode.feature_edge_quadric_weight': 10, 'placement_mode.feature_edge_min_dihedral_deg': 30, 'placement_mode.clamp_v_to_edge': true };
+  // shape (it stops a little under the target: 27.5k). A copy after the first is decimated from the one before it: a
+  // second QEM pass over the remesh of a furry dwarf ran out of VRAM (12.7 GB held, 2.5 GB asked, 11.10.2026).
+  const qem ={ placement_mode: 'qem', 'placement_mode.line_quadric_weight': 1, 'placement_mode.feature_edge_quadric_weight': 10, 'placement_mode.feature_edge_min_dihedral_deg': 30, 'placement_mode.clamp_v_to_edge': true };
   game.forEach((level, i) => {
     const k = 60 + i * 10;
     const id = (n) => String(k + n);
-    g[k] = { class_type: 'DecimateMesh', inputs: { mesh: ['26', 0], target_face_count: level.surface, ...qem } };
+    g[k] = { class_type: 'DecimateMesh', inputs: { mesh: [i ? String(k - 10) : '26', 0], target_face_count: level.surface, ...qem } };
     g[k + 1] = { class_type: 'MeshSmoothNormals', inputs: { mesh: [id(0), 0], crease_angle: 180 } };
     g[k + 2] = { class_type: 'UnwrapMesh', inputs: { mesh: [id(1), 0], segmenter: 'pec', resolution: level.texture, padding: 1, weld_distance: 0.0002 } };
     g[k + 3] = { class_type: 'BakeTextureFromVoxel', inputs: { mesh: [id(2), 0], voxel_colors: ['25', 0], texture_size: level.texture, reference_mesh: ['22', 0] } };
