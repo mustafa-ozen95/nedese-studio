@@ -52,12 +52,13 @@ export function replaceWindows(total) {
 
 /**
  * Whom the next window follows: the prep node returns the person's box in every frame of the window (0-1, null where
- * they are not in the shot) and their look (a colour histogram), JSON in its ui output. box: the box at the start of
- * the next window, or the last one before it where the person was seen; look: the histogram. Each is null when there
- * is no next window or the node did not give it.
+ * they are not in the shot), their look (a colour histogram) and their place among the people ([k, n]: k-th of n from
+ * the left), JSON in its ui output. box: the box at the start of the next window, or the last one before it where the
+ * person was seen; look: the histogram; place: [k, n]. Each is null when there is no next window or the node did not
+ * give it.
  */
 export function nextTarget(outputs, graph, window, next) {
-  const none = { box: null, look: null };
+  const none = { box: null, look: null, place: null };
   if (!next) return none;
   const ui = outputs?.[nodes(graph, 'NedeseReplacePrep')[0]];
   const parse = (v) => {
@@ -69,9 +70,10 @@ export function nextTarget(outputs, graph, window, next) {
   };
   const boxes = parse(ui?.boxes?.[0]);
   const look = parse(ui?.look?.[0]);
+  const place = parse(ui?.place?.[0]);
   let box = null;
   if (Array.isArray(boxes)) for (let i = Math.min(next.start - window.start, boxes.length - 1); i >= 0 && !box; i--) box = boxes[i] ?? null;
-  return { box, look: Array.isArray(look) && look.length ? look : null };
+  return { box, look: Array.isArray(look) && look.length ? look : null, place: Array.isArray(place) && place.length === 2 ? place : null };
 }
 
 export function validate(g, { setting, mod }) {
@@ -178,8 +180,8 @@ export async function run(ctx) {
       const existing = pngs(targetFolder);
       const motions = w.no === 1 ? null : await Promise.all(existing.slice(-REPLACE.motion).map((d, j) => ctx.comfy.load(join(targetFolder, d), `${namePrefix}${who}w${w.no}_m${j + 1}.png`)));
       // the first window picks the person (one photo: the largest; several: the p-th from the left), later ones follow them
-      // (and look like them: a window can start in a shot without them)
-      const target = w.no > 1 && status.box ? { box: status.box, ...(status.look ? { look: status.look } : {}) } : passes > 1 ? { order: p } : {};
+      // (by their place from the left, and looking like them: a window can start in a shot without them)
+      const target = w.no > 1 && status.box ? { box: status.box, ...(status.look ? { look: status.look } : {}), ...(status.place ? { place: status.place } : {}) } : passes > 1 ? { order: p } : {};
       const graph = ctx.mod.replaceJob({ clip, picture, motions, target, text: g.people[p - 1].prompt, area: g.area ?? 'person', seed: g.seed, width, height, frame: w.length, prefix: `panel/${ctx.job.id}/${who}w${w.no}` });
       const record = nodes(graph, 'SaveImage')[0];
       const part = (k) => 5 + (90 * (p - 1 + k / windows.length)) / passes;
@@ -193,7 +195,7 @@ export async function run(ctx) {
         await ctx.comfy.getOutput(c, join(targetFolder, `${String(no).padStart(5, '0')}.png`));
       }
       const next = nextTarget(outputs, graph, w, windows[w.no]);
-      save({ ...status, window: w.no, frame: no, box: next.box ?? status.box, look: next.look ?? status.look ?? null });
+      save({ ...status, window: w.no, frame: no, box: next.box ?? status.box, look: next.look ?? status.look ?? null, place: next.place ?? status.place ?? null });
       rmSync(clipPath, { force: true });
       const seconds = (Date.now() - startedAt) / 1000;
       ctx.log(`${passes > 1 ? `Person ${p}/${passes}, window` : 'Window'} ${w.no}/${windows.length} (frames ${w.start + 1}-${w.start + w.length}): ${Math.round(seconds)} s`);
@@ -201,7 +203,7 @@ export async function run(ctx) {
     }
     // the last window ran past the end: its extra frames go
     for (const d of pngs(targetFolder).slice(frames.length)) rmSync(join(targetFolder, d), { force: true });
-    save({ ...status, pass: p + 1, window: 0, frame: 0, box: null, look: null });
+    save({ ...status, pass: p + 1, window: 0, frame: 0, box: null, look: null, place: null });
     if (p > 1) rmSync(inputFolder, { recursive: true, force: true });
   }
 

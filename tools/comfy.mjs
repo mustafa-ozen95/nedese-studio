@@ -340,9 +340,9 @@ export function lipJob({ picture, motions = null, voice1, voice2, mask1 = null, 
  * the foreground. picture: the person's photo (already padded to width x height: the node crops to fill). motions:
  * in a later window the previous window's last 5 output frames (uploaded file names); the clip then starts with the
  * frames they stand for and the first 5 output frames are dropped. target: which person ({} the largest, { order: k }
- * the k-th from the left, { box } the one the previous window followed); the node's UI output `boxes` gives the
- * followed person's box in every frame (and `look`, their colours). area: 'person' (the whole person repainted) or
- * 'face' (only the face).
+ * the k-th from the left, { box, look, place } the one the previous window followed); the node's UI output `boxes`
+ * gives the followed person's box in every frame (and `look`, their colours, and `place`, [k, n]: k-th of n from the
+ * left). area: 'person' (the whole person repainted) or 'face' (only the face).
  */
 export function replaceJob({ clip, picture, motions = null, target = {}, text, area = 'person', seed, width = 832, height = 480, frame = 77, prefix }) {
   const g = {

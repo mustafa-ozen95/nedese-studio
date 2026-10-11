@@ -11,10 +11,10 @@ Pose: DWPose (IDEA-Research, Apache-2.0) as TorchScript on the GPU: YOLOX-L find
 384) gives the 133 whole-body keypoints of one of them. The pre and post processing follow mmpose / DWPose; the body
 is drawn like ControlNet's OpenPose annotator at a 960 pixel short side, as ComfyUI's Wan Animate example does. One
 person is followed: the largest in the first frame with people (or the k-th from the left, or the one at a given box:
-target), then in every frame the box that overlaps it most and still looks like them (colours); after a cut or a hug
-the one who looks like them, and in a shot without them nothing is repainted. Their box in every frame and their look
-come back in the node's UI output (boxes, look): a long video is made window by window and the next window follows the
-same person from them.
+target), then in every frame with as many people their place from the left (shots keep sides), else the box that
+overlaps it most and still looks like them (colours); after a hug the one who looks like them, and in a shot without
+them nothing is repainted. Their box in every frame, their look and their place come back in the node's UI output
+(boxes, look, place): a long video is made window by window and the next window follows the same person from them.
 """
 import json
 import os
@@ -236,12 +236,16 @@ def similar(a, b):
 
 
 # Two people hugging are one box for the detector, and when they part or the shot changes the box that overlaps the
-# last one can be the other person. So the look decides too, against the person's look where they were picked (fixed:
-# a look that follows along drifts to the other one during the hug). The overlapping box is kept while it looks at
-# least a little like the person (LOW: the hug box has them in it) and nobody looks clearly more like them (MARGIN);
+# last one can be the other person. Shots keep people on their side (the 180-degree rule), so while the frame has as
+# many people as where the person was picked they are taken by their place from the left; their look (colours) only
+# overrides a swap: their place looks unlike them (under LOW) and someone else looks like them (SAME). With another
+# number of people (a hug, someone out of the shot) the look decides, against the person's look where they were picked
+# (fixed: a look that follows along drifts to the other one during the hug): the overlapping box is kept while it looks
+# at least a little like the person (LOW: the hug box has them in it) and nobody looks clearly more like them (MARGIN);
 # else whoever looks like them (SAME) is taken; else they are not in the shot. Measured on the balloon scene
-# (11.10.2026, the girl followed): the girl 0.58-0.88, the hug box 0.45, the man 0.18-0.45 in the first shot and
-# 0.22-0.27 after the cut.
+# (11.10.2026): the girl 0.58-0.88 to her own look, the hug box 0.45, the man 0.18-0.45 in the first shot and 0.22-0.27
+# after the cut; but the man to his own look only 0.21-0.32 in the close-up after the cut, against 0.37-0.42 for the
+# repainted boy in blue beside him, so the look alone loses him there.
 LOW = 0.3
 SAME = 0.55
 MARGIN = 0.15
@@ -249,16 +253,25 @@ BRIEF = 5  # frames
 
 
 def follow_person(detections, target=None, width=1, height=1, frames=None, foreground=None):
-    """One box per frame: the person picked in the first frame with people (pick_person), then the box overlapping the
-    last one most. With the frames (BGR) the person's look is followed too: after a cut the one who looks like them
-    is taken, and a frame where nobody does gets None (the person is not in the shot). Without the frames a frame
-    with no overlapping box keeps the last box. Returns (boxes, the person's look); boxes is None when no frame has a
-    person."""
+    """One box per frame: the person picked in the first frame with people (pick_person), then while the frame has as
+    many people as there their place from the left, else the box overlapping the last one most. With the frames (BGR)
+    the person's look is followed too: a swap of places is caught, after a cut the one who looks like them is taken,
+    and a frame where nobody does gets None (the person is not in the shot). Without the frames a frame with no
+    overlapping box keeps the last box. target as for pick_person, plus 'look' and 'place' carried over from the
+    previous window. Returns (boxes, the person's look, their place [k, n]: k-th of n from the left); boxes is None
+    when no frame has a person."""
     first = next((i for i, d in enumerate(detections) if len(d)), None)
     if first is None:
-        return None, None
+        return None, None, None
     target = target or {}
     last = pick_person(detections[first], target, width, height)
+    place = None
+    if target.get('place'):
+        place = [int(v) for v in target['place']]
+    elif not target.get('box'):
+        ordered = people_in_order(detections[first])
+        k = next((k for k, b in enumerate(ordered) if np.array_equal(b, last)), None)
+        place = None if k is None else [k + 1, len(ordered)]
     fg = lambda i: None if foreground is None else foreground[min(i, len(foreground) - 1)]
     # the look carried over from the previous window: the picked box must look like it too (a window can start in a
     # shot without the person)
@@ -271,9 +284,19 @@ def follow_person(detections, target=None, width=1, height=1, frames=None, foreg
     boxes = []
     for i, d in enumerate(detections):
         here = last
-        if (i > first or (i == first and given)) and len(d):
+        if (i > first or (i == first and (given or place))) and len(d):
             near = max(range(len(d)), key=lambda k: _overlap(d[k], last))
-            if ref is None:
+            ordered = people_in_order(d)
+            if place and len(ordered) == place[1]:
+                k = place[0] - 1
+                if ref is not None:
+                    alike = [similar(look(frames[i], b, fg(i)), ref) for b in ordered]
+                    most = int(np.argmax(alike))
+                    if alike[k] < LOW and alike[most] >= SAME:
+                        k = most
+                        place = [k + 1, place[1]]
+                last = here = ordered[k]
+            elif ref is None:
                 if _overlap(d[near], last) > 0.1:
                     last = here = d[near]
             else:
@@ -303,7 +326,7 @@ def follow_person(detections, target=None, width=1, height=1, frames=None, foreg
             for k in range(i, j):
                 boxes[k] = boxes[i - 1] if k - i < j - k else boxes[j]
         i = j
-    return boxes, ref
+    return boxes, ref, place
 
 
 def _fill(values, valid):
@@ -399,7 +422,7 @@ class NedeseReplacePrep:
             },
             'optional': {
                 'foreground': ('MASK', {'tooltip': 'The foreground of every frame (Remove Background); without it the person box is used.'}),
-                'target': ('STRING', {'default': '', 'tooltip': 'Which person (JSON): empty the largest; {"order": k} the k-th from the left; {"box": [x0, y0, x1, y1]} (0-1) the one there.'}),
+                'target': ('STRING', {'default': '', 'tooltip': 'Which person (JSON): empty the largest; {"order": k} the k-th from the left; {"box": [x0, y0, x1, y1]} (0-1) the one there, with "look" and "place" carried over from the previous window.'}),
                 'area': (['person', 'face'], {'default': 'person', 'tooltip': 'person: the whole person is repainted; face: only the face (the body, clothes and hair stay).'}),
             },
         }
@@ -422,7 +445,7 @@ class NedeseReplacePrep:
         fg = None if foreground is None else foreground.cpu().numpy()
         if fg is not None and fg.shape[1:] != (height, width):
             fg = np.stack([cv2.resize(m, (width, height), interpolation=cv2.INTER_LINEAR) for m in fg])
-        boxes, seen = follow_person(detections, json.loads(target) if target else {}, width, height, frames=bgr, foreground=fg)
+        boxes, seen, place = follow_person(detections, json.loads(target) if target else {}, width, height, frames=bgr, foreground=fg)
         if boxes is None:
             raise ValueError('No person was found in the video.')
         # frames without the person (another shot): nothing is repainted there
@@ -456,7 +479,7 @@ class NedeseReplacePrep:
         # the person's box in every frame (0-1, null where they are not in the shot): the next window follows them from it
         followed = [None if b is None else [round(float(b[0]) / width, 4), round(float(b[1]) / height, 4), round(float(b[2]) / width, 4), round(float(b[3]) / height, 4)] for b in boxes]
         carried = [] if seen is None else [round(float(v), 5) for v in seen.ravel()]
-        return {'ui': {'boxes': [json.dumps(followed)], 'look': [json.dumps(carried)]}, 'result': (as_image(pose), as_image(np.stack(faces)), torch.from_numpy(background), torch.from_numpy(masks))}
+        return {'ui': {'boxes': [json.dumps(followed)], 'look': [json.dumps(carried)], 'place': [json.dumps(place)]},'result': (as_image(pose), as_image(np.stack(faces)), torch.from_numpy(background), torch.from_numpy(masks))}
 
 
 NODE_CLASS_MAPPINGS = {'NedeseReplacePrep': NedeseReplacePrep}
