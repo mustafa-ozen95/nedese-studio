@@ -1087,7 +1087,7 @@
         text: 'Text', voice: 'Voice', spec: 'Voice description', recordName: 'Voice name', language: 'Language', speed: 'Speed', quality: 'Quality', exaggeration: 'Emotion', cfg: 'Reading pace',
         title: 'Title', imageModel: 'Image model', videoModel: 'Video model', subtitle: 'Subtitles', transition: 'Smooth transition', character: 'Same character',
         musicName: 'Music', musicLevel: 'Music volume',
-        complete: 'Complete to full body', deleteBackPlan: 'Remove background', intro: 'Turntable video', time: 'Frame (seconds)',
+        complete: 'Complete to full body', deleteBackPlan: 'Remove background', intro: 'Turntable video', time: 'Frame (seconds)', game: 'Game copies',
         method: 'Method', base: 'Base model', size: 'Model size', epoch: 'Epochs', context: 'Context', quantization: 'Quantization', examplePrompt: 'Sample question',
         collection: 'Collection', max: 'At most', total: 'Image count',
         // every key a job type writes has a name: a 3D job's window showed "printHeight" (09.10.2026)
@@ -1322,7 +1322,8 @@
         if (media.children.length) parts.push(media);
 
         // 3D model: GLB / FBX / OBJ (ZIP) / STL downloads; the STL is the print copy with its size and volume.
-        const models = job.outputs.filter((c) => c.type === 'model');
+        const models = job.outputs.filter((c) => c.type === 'model' && !c.game);
+        const game = job.outputs.filter((c) => c.type === 'model' && c.game);
         if (models.length) {
             const glb = models.find((c) => c.format === 'glb');
             const print = models.find((c) => c.format === 'stl')?.print;
@@ -1333,6 +1334,10 @@
                 intro ? el('a', { class: 'btn btn--sm', href: `${intro.url}?download=1`, download: true, target: '_blank', rel: 'noopener', text: 'Turntable video (MP4)' }) : null,
                 glb?.triangle ? el('span', { class: 'text-sm text-muted', text: `${number(glb.triangle)} triangles` }) : null));
             if (print) parts.push(el('p', { class: 'text-sm text-muted', 'data-print-info': true, text: [`STL for printing: ${print.size.map((v) => number(v, 1)).join(' × ')} mm, ${number(print.volume, 1)} cm³`, print.solid ? null : 'hollow inside', print.watertight ? null : 'not watertight'].filter(Boolean).join(' · ') }));
+            // the low-poly game copies: their own row, each with its triangle count
+            if (game.length) parts.push(el('div', { class: 'row row--wrap', 'data-game-copies': true },
+                el('span', { class: 'text-sm text-muted', text: 'For game engines (normal map):' }),
+                ...game.map((c) => el('a', { class: 'btn btn--sm', href: `${c.url}?download=1`, download: true, target: '_blank', rel: 'noopener', text: c.game.lod ? `${c.format.toUpperCase()} LOD ${c.game.lod} · ${number(c.game.triangles)} triangles` : `${c.format.toUpperCase()} · ${number(c.game.triangles)} triangles` }))));
         }
 
         // Sahne klipleri: en cok 20 dugme; gerisi klasorde (binlerce sahnede pencere sismesin).
@@ -2364,12 +2369,19 @@
     }
     $('[data-m3-remove]', m3Form).addEventListener('click', () => configureM3Source(null));
 
+    /** Game copies come from a generation: a model file without a description is only converted, so it has none. */
+    function applyM3Game() {
+        $('[data-m3-game]', m3Form).hidden = m3Form.dataset.kind === 'model' && !m3Form.prompt.value.trim();
+    }
+    m3Form.prompt.addEventListener('input', applyM3Game);
+
     /** The description's meaning follows the input: what to make, or what to change in the photo / the model. */
     function applyM3Kind() {
         const source = m3Form.source.value;
         const kind = !source ? 'text' : M3_MODEL.test(source) ? 'model' : 'image';
         m3Form.dataset.kind = kind;
         $('[data-m3-complete]', m3Form).hidden = kind !== 'image';
+        applyM3Game();
         $('[data-m3-prompt-label]', m3Form).textContent = kind === 'text' ? 'What to make' : 'What to change (optional)';
         $('[data-m3-prompt-hint]', m3Form).textContent = M3_HINT[kind];
         m3Form.prompt.placeholder = { text: 'e.g. a ceramic owl figurine with a blue glaze', image: 'e.g. give him a red cape', model: 'e.g. make it golden with ruby eyes' }[kind];
@@ -3581,6 +3593,7 @@
         if (type === 'model3d') {
             if (!data.source) delete data.source;
             if (m3Form.dataset.kind !== 'image') delete data.complete;
+            if (m3Form.dataset.kind === 'model' && !data.prompt?.trim()) delete data.game;
             const blender = status.options?.hasBlender;
             data.formats = blender ? ['fbx', 'obj', 'stl'].filter((b) => data[`format_${b}`]) : [];
             if (!blender) data.intro = false;

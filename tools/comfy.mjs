@@ -456,8 +456,11 @@ export function musicJob({ style, lyrics = '', duration = 60, seed, bpm = 120, l
  * gorunusler: { left, back, right } (ComfyUI input dosya adlari; resim on gorunus) verilirse Pixal3D cok gorunuslu
  * model: arka ve yanlar tahmin yerine bu gorsellerden (sablon 3d_pixal3d_multi_views; gorus acisi MoGe-2 ile).
  * int8 agirliklar: bf16 (11 GB) 16 GB RAM'de yuklenirken ComfyUI'yi cokertti (access violation, 04.10.2026).
+ * game: [{ surface, texture, placement }, ...] lighter copies for games (fewer triangles, smaller textures), each
+ * decimated from the remeshed surface (placement 'midpoint' | 'qem'), unwrapped and baked from the voxel colours, the
+ * normal map and AO from the main mesh (SaveGLB `<prefix>_game<i>`).
  */
-export function trellis2Job({ picture, appearances = null, seed = 0, prefix, mode = 'trellis', detail = 1536, mesh = 768, surface = 500000, texture = 4096, deleteBackPlan = true }) {
+export function trellis2Job({ picture, appearances = null, seed = 0, prefix, mode = 'trellis', detail = 1536, mesh = 768, surface = 500000, texture = 4096, deleteBackPlan = true, game = [] }) {
   const example = (model, condition, latent, step, cfg, timer = 'normal') => ({
     class_type: 'KSampler',
     inputs: { model, positive: [condition, 0], negative: [condition, 1], latent_image: latent, seed: seed, steps: step, cfg, sampler_name: 'euler', scheduler: timer, denoise: 1 },
@@ -509,6 +512,24 @@ export function trellis2Job({ picture, appearances = null, seed = 0, prefix, mod
     // Kirpilmis girdi (arka plani silinmis): panelde "modelin cikarildigi gorsel" olarak gosterilir.
     36: { class_type: 'SaveImage', inputs: { images: ['4', 0], filename_prefix: `${prefix}_girdi` } },
   };
+  // Measured 11.10.2026 (a snowy cabin, Pixal3D high): baking against the 1M mesh with 16 AO samples looks the same as
+  // against the remesh with 64 and takes ~50 s instead of ~120 s per copy; an 8k copy decimated with midpoint (or
+  // chained from the 30k copy) fell apart into shards, QEM placement from the remesh kept the shape.
+  const QEM = { 'placement_mode.line_quadric_weight': 0, 'placement_mode.feature_edge_quadric_weight': 0, 'placement_mode.feature_edge_min_dihedral_deg': 30, 'placement_mode.clamp_v_to_edge': true };
+  game.forEach((level, i) => {
+    const k = 60 + i * 10;
+    const id = (n) => String(k + n);
+    const placement = level.placement === 'qem' ? { placement_mode: 'qem', ...QEM } : { placement_mode: 'midpoint' };
+    g[k] = { class_type: 'DecimateMesh', inputs: { mesh: ['26', 0], target_face_count: level.surface, ...placement } };
+    g[k + 1] = { class_type: 'MeshSmoothNormals', inputs: { mesh: [id(0), 0], crease_angle: 180 } };
+    g[k + 2] = { class_type: 'UnwrapMesh', inputs: { mesh: [id(1), 0], segmenter: 'pec', resolution: level.texture, padding: 1, weld_distance: 0.0002 } };
+    g[k + 3] = { class_type: 'BakeTextureFromVoxel', inputs: { mesh: [id(2), 0], voxel_colors: ['25', 0], texture_size: level.texture, reference_mesh: ['22', 0] } };
+    g[k + 4] = { class_type: 'BakeNormalMapFromMesh', inputs: { low_poly: [id(2), 0], high_poly: ['27', 0], resolution: level.texture, cage_distance: 0.05, ignore_backfaces: true } };
+    g[k + 5] = { class_type: 'BakeAmbientOcclusion', inputs: { low_poly: [id(2), 0], high_poly: ['27', 0], resolution: Math.min(1024, level.texture), samples: 16, max_distance: 0.71, strength: 1, bias: 0.01 } };
+    g[k + 6] = { class_type: 'ApplyTextureToMesh', inputs: { mesh: [id(2), 0], base_color: [id(3), 0], metallic: [id(3), 1], roughness: [id(3), 2], occlusion: [id(5), 0], normal_map: [id(4), 0] } };
+    g[k + 7] = { class_type: 'MeshSmoothNormals', inputs: { mesh: [id(6), 0], crease_angle: 180 } };
+    g[k + 8] = { class_type: 'SaveGLB', inputs: { mesh: [id(7), 0], filename_prefix: `${prefix}_game${i}` } };
+  });
   if (appearances) {
     // Her gorunus ayni hazirlik: arka plan silinir, nesne kareye 1/1.1 olcekle kirpilir.
     // Gorus acisi on gorunusten MoGe-2 ile (uretilmis gorseller fotograf perspektifinde; sabit 20 ile on doku arkaya sizdi).

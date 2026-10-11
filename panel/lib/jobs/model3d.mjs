@@ -10,6 +10,8 @@
  * (textures embedded), OBJ (ZIP: OBJ + MTL + textures) and STL, a solid print copy printHeight mm tall.
  * TRELLIS models only what the image shows (a portrait cut at the chest -> a bust). complete: Qwen-Image-Edit first
  * draws the person or object whole, looking the same, on a plain background; the model is made from that image.
+ * game: low-poly copies for game engines made in the same ComfyUI run (GAME): the dense mesh decimated, unwrapped
+ * again, its detail baked into a normal map (game.glb and a lighter LOD, game-lod1.glb; game.fbx with FBX).
  */
 import { copyFileSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
@@ -34,6 +36,13 @@ export const QUALITY = {
   high: { mode: 'pixal', detail: 2048, mesh: 1024, surface: 1000000, texture: 4096 },
 };
 const MODEL_NAME = { trellis: 'TRELLIS.2', pixal: 'Pixal3D' };
+// The game copies (user 11.10.2026: "3d alanımız oyunlar için asset üretiyo dimi"): a main game mesh and one LOD.
+// Measured on a snowy cabin: 30k midpoint ≈ the full model on screen; the LOD needs QEM (midpoint broke it into
+// shards) and comes out at ~4.6k triangles (the target is a maximum). Both add ~2 min to the generation.
+export const GAME = [
+  { file: 'game.glb', surface: 30000, texture: 2048, placement: 'midpoint' },
+  { file: 'game-lod1.glb', surface: 8000, texture: 1024, placement: 'qem' },
+];
 const INTRO = { frames: 120, fps: 30, size: 1024 };
 // The front view of a given model (the gallery picture; the picture an edit starts from)
 const VIEW_SIZE = 1024;
@@ -79,6 +88,9 @@ export function validate(g, { mod, setting }) {
   if (kind === 'image') sourcePath(setting.outputRoot, source);
   const complete = kind === 'image' && yes(g.complete);
   if (complete || (prompt && kind !== 'text')) generatorRequired(mod, 'editJob', 'Image edit (Qwen-Image-Edit)', setting?.modelRoot);
+  // the game copies are baked from the generation's own voxels: a converted file has none
+  const game = yes(g.game);
+  if (game && !generate) throw new UserError('Game copies are made while generating; a 3D model file without a description is only converted. Describe a change or give an image.');
   // The turntable video is off unless asked for (user 10.10.2026: "3d için video üretmeye gerek olduğunu düşünmüyorum");
   // without Blender the exports are off by default too; asked for explicitly, an error.
   const intro = yes(g.intro);
@@ -96,6 +108,7 @@ export function validate(g, { mod, setting }) {
     quality,
     deleteBackPlan: g.deleteBackPlan === undefined ? true : yes(g.deleteBackPlan),
     complete,
+    game,
     intro,
     formats: [...new Set(formats)],
     printHeight: number(g.printHeight, 'Print height (mm)', { min: 10, max: 1000, defaultValue: 100 }),
@@ -125,6 +138,7 @@ export function summary(g) {
   if (g.kind === 'text') parts.push('from a description');
   else if (g.prompt) parts.push(g.kind === 'model' ? 'model edited' : 'image edited');
   if (g.complete) parts.push('full body');
+  if (g.game) parts.push('game copies');
   if (g.intro) parts.push('turntable video');
   if (g.formats.length) parts.push(g.formats.map((b) => b.toUpperCase()).join('/'));
   if (g.formats.includes('stl')) parts.push(`print ${g.printHeight ?? 100} mm`);
@@ -229,9 +243,11 @@ export async function run(ctx) {
   // 1) TRELLIS.2: the GLB (a retried job does not make a finished model again).
   if (!existsSync(glb)) {
     const picture = await ctx.comfy.load(source, `panel_${ctx.job.id}_3d${extname(source).toLowerCase() || '.png'}`);
-    const graph = ctx.mod.trellis2Job({ picture, seed: g.seed, prefix: `panel/${ctx.job.id}/model`, deleteBackPlan: g.deleteBackPlan, ...QUALITY[g.quality] });
+    const prefix = `panel/${ctx.job.id}/model`;
+    const graph = ctx.mod.trellis2Job({ picture, seed: g.seed, prefix, deleteBackPlan: g.deleteBackPlan, ...QUALITY[g.quality], game: g.game ? GAME : [] });
     ctx.job.modelFiles = modelFiles(graph);
-    const record = Object.keys(graph).find((id) => graph[id].class_type === 'SaveGLB');
+    const saved = (name) => Object.keys(graph).find((id) => graph[id].class_type === 'SaveGLB' && graph[id].inputs.filename_prefix === name);
+    const record = saved(prefix);
     const inputRecord = Object.keys(graph).find((id) => graph[id].class_type === 'SaveImage');
     const startedAt = Date.now();
     const outputs = await ctx.runComfy(graph, { stage: 'Generating the 3D model', range: [g.complete || g.prompt || g.kind === 'text' ? 20 : 2, lastPercent] });
@@ -239,6 +255,14 @@ export async function run(ctx) {
     if (!model) throw new Error('ComfyUI did not return the 3D model.');
     const input = inputRecord && images(outputs, inputRecord)[0];
     if (input) await ctx.comfy.getOutput(input, join(k, 'input.png'));
+    // the game copies before model.glb: a retried job that finds model.glb has them too
+    if (g.game) {
+      for (const [i, level] of GAME.entries()) {
+        const copy = outputs?.[saved(`${prefix}_game${i}`)]?.['3d']?.[0];
+        if (!copy) throw new Error('ComfyUI did not return the game copy of the 3D model.');
+        await ctx.comfy.getOutput(copy, join(k, level.file));
+      }
+    }
     await ctx.comfy.getOutput(model, glb);
     const duration = (Date.now() - startedAt) / 1000;
     ctx.measure(`model3d/${g.quality}`, duration);
@@ -258,11 +282,29 @@ export async function run(ctx) {
     });
     ctx.log(`Blender ${result.blender}: ${result.triangles} triangles, ${(Date.now() - startedAt) / 1000 | 0} s`);
   }
-  await finish(ctx, result, picture, startedAt);
+  // the game copies: their triangle counts and, with FBX, an FBX of each (game engines import FBX first)
+  const game = [];
+  if (g.game) {
+    for (const [i, level] of GAME.entries()) {
+      const output = { file: level.file, type: 'model', format: 'glb', game: { lod: i, triangles: level.surface, texture: level.texture } };
+      if (ctx.setting.blender) {
+        ctx.progress({ percent: 97, stage: 'Blender: game copies', detail: level.file });
+        const name = level.file.replace(/\.glb$/, '');
+        const copy = await blenderPresentation(ctx.setting.blender, { script: blenderScript, input: join(k, level.file), output: k, name, frames: 0, formats: g.formats.includes('fbx') ? ['fbx'] : [], signal: ctx.signal });
+        output.game.triangles = copy.triangles;
+        game.push(output);
+        if (copy.files?.fbx) game.push({ file: copy.files.fbx, type: 'model', format: 'fbx', game: { ...output.game } });
+      } else {
+        game.push(output);
+      }
+    }
+    ctx.log(`Game copies: ${game.filter((c) => c.format === 'glb').map((c) => `${c.file} ${c.game.triangles} triangles`).join(', ')}`);
+  }
+  await finish(ctx, result, picture, startedAt, game);
 }
 
 /** The outputs: the GLB (main unless there is a turntable), the exports and the turntable video. */
-async function finish(ctx, result, picture, startedAt) {
+async function finish(ctx, result, picture, startedAt, game = []) {
   const g = ctx.job.input;
   const k = ctx.folder;
   const outputs = [{ file: 'model.glb', type: 'model', format: 'glb', main: !g.intro, preview: picture }];
@@ -286,5 +328,5 @@ async function finish(ctx, result, picture, startedAt) {
     }
     ctx.measure('blender3d', (Date.now() - startedAt) / 1000);
   }
-  ctx.addOutputs(outputs);
+  ctx.addOutputs([...outputs, ...game]);
 }

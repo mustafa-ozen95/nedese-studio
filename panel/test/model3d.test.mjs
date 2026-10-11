@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
-import { COMPLETE_PROMPT, DRAW_SUFFIX, MODEL_EDIT_PROMPT, QUALITY, validate } from '../lib/jobs/model3d.mjs';
+import { COMPLETE_PROMPT, DRAW_SUFFIX, GAME, MODEL_EDIT_PROMPT, QUALITY, validate } from '../lib/jobs/model3d.mjs';
 import { graphFiles, SAMPLE_INPUT } from '../lib/models.mjs';
 import * as comfy from '../../tools/comfy.mjs';
 
@@ -123,6 +123,51 @@ test('3D model: a 3D model file is converted without a description and edited wi
     const texts = draw.filter((d) => d.class_type === 'CLIPTextEncode').map((d) => d.inputs.text);
     assert.ok(texts.includes(`a ceramic owl. ${DRAW_SUFFIX}`), texts.join(' | '));
     assert.ok(existsSync(join(p.setting.outputRoot, drawn.id, 'drawn.png')));
+  } finally {
+    await p.close();
+  }
+});
+
+// User 11.10.2026: "3d alanımız oyunlar için asset üretiyo dimi" — the million-triangle model is too heavy for a game.
+test('3D model: game copies (low poly + LOD) from the same generation, with FBX; none for a converted file', async (t) => {
+  const p = await createPanel({ blender: true, server: true });
+  if (!p.setting.ffmpeg) {
+    await p.close();
+    t.skip('no ffmpeg');
+    return;
+  }
+  try {
+    const uploads = join(p.setting.outputRoot, 'uploads');
+    mkdirSync(uploads, { recursive: true });
+    writeFileSync(join(uploads, 'owl.glb'), 'glTF');
+    assert.throws(() => p.queue.add('model3d', { source: 'upload/owl.glb', game: true }), /Game copies are made while generating/);
+    const job = p.queue.add('model3d', { prompt: 'a wooden barrel', translate: false, imageModel: 'flux', quality: 'fast', formats: ['fbx'], game: true });
+    assert.equal(job.input.game, true);
+    assert.match(job.summary.detail, /game copies/);
+    const last = await p.waitUntilDone(job.id, 60000);
+    assert.equal(last.status, 'done', last.error);
+    const trellis = promptList(p).at(-1);
+    assert.deepEqual(trellis.filter((d) => d.class_type === 'DecimateMesh').map((d) => d.inputs.target_face_count), [500000, ...GAME.map((l) => l.surface)]);
+    assert.deepEqual(trellis.filter((d) => d.class_type === 'SaveGLB').map((d) => d.inputs.filename_prefix), [`panel/${job.id}/model`, `panel/${job.id}/model_game0`, `panel/${job.id}/model_game1`]);
+    // the LOD with QEM placement (midpoint broke an 8k copy into shards); each copy in its own texture size, its normal
+    // map and AO baked from the main 1M mesh (the remesh took twice as long for the same look)
+    assert.deepEqual(trellis.filter((d) => d.class_type === 'DecimateMesh').map((d) => d.inputs.placement_mode), ['midpoint', 'midpoint', 'qem']);
+    const graph = JSON.parse(p.fake.status.records.filter((x) => x.path === '/prompt').at(-1).prompt).prompt;
+    const main = Object.keys(graph).find((id) => graph[id].class_type === 'DecimateMesh' && graph[id].inputs.target_face_count === 500000);
+    for (const [i, level] of GAME.entries()) {
+      const normal = trellis.filter((d) => d.class_type === 'BakeNormalMapFromMesh')[i + 1];
+      assert.equal(normal.inputs.resolution, level.texture);
+      assert.equal(normal.inputs.high_poly[0], main);
+    }
+    assert.deepEqual(last.outputs.map((c) => [c.file, c.format, c.game?.lod ?? null]), [['model.glb', 'glb', null], ['model.fbx', 'fbx', null], ['game.glb', 'glb', 0], ['game.fbx', 'fbx', 0], ['game-lod1.glb', 'glb', 1], ['game-lod1.fbx', 'fbx', 1]]);
+    assert.equal(last.outputs.find((c) => c.main)?.file, 'model.glb', 'the gallery still shows the full model');
+    assert.equal(last.outputs.find((c) => c.file === 'game.glb').game.triangles, 1234, 'the count Blender read');
+    const k = join(p.setting.outputRoot, job.id);
+    assert.equal(readFileSync(join(k, 'game-lod1.glb'), 'utf8'), 'glTF fake model');
+    // without game: the graph has a single bake and a single SaveGLB
+    const plain = p.queue.add('model3d', { prompt: 'a wooden barrel', translate: false, imageModel: 'flux', quality: 'fast', formats: [] });
+    assert.equal((await p.waitUntilDone(plain.id, 60000)).status, 'done');
+    assert.equal(promptList(p).at(-1).filter((d) => d.class_type === 'SaveGLB').length, 1);
   } finally {
     await p.close();
   }
