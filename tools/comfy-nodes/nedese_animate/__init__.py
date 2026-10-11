@@ -10,8 +10,10 @@ Pose: DWPose (IDEA-Research, Apache-2.0) as TorchScript on the GPU: YOLOX-L find
 384) gives the 133 whole-body keypoints of one of them. The pre and post processing follow mmpose / DWPose; the body
 is drawn like ControlNet's OpenPose annotator at a 960 pixel short side, as ComfyUI's Wan Animate example does. One
 person is followed: the largest in the first frame with people (or the k-th from the left, or the one at a given box:
-target), then in every frame the box that overlaps it most. Its box in every frame comes back in the node's UI output
-(boxes): a long video is made window by window and the next window follows the same person from it.
+target), then in every frame the box that overlaps it most and still looks like them (colours); after a cut or a hug
+the one who looks like them, and in a shot without them nothing is repainted. Their box in every frame and their look
+come back in the node's UI output (boxes, look): a long video is made window by window and the next window follows the
+same person from them.
 """
 import json
 import os
@@ -200,21 +202,107 @@ def pick_person(boxes, target, width, height):
     return max(boxes, key=area)
 
 
-def follow_person(detections, target=None, width=1, height=1):
-    """One box per frame: the person picked in the first frame with people (pick_person), then the box overlapping
-    the last one most (a frame without one keeps the last box). None when no frame has a person."""
+LOOK_BINS = [16, 8]  # hue x saturation
+
+
+def look(bgr, box, fg=None):
+    """The colours of a person: a hue x saturation histogram of the middle of the box (the middle 60% of its width,
+    10-90% of its height: the clothes and hair, little background), only the foreground there when it is given."""
+    h, w = bgr.shape[:2]
+    x1, y1, x2, y2 = box
+    bw, bh = x2 - x1, y2 - y1
+    l, r = int(max(0, x1 + bw * 0.2)), int(min(w, x2 - bw * 0.2))
+    t, b = int(max(0, y1 + bh * 0.1)), int(min(h, y2 - bh * 0.1))
+    if r - l < 2 or b - t < 2:
+        l, r, t, b = int(max(0, x1)), int(min(w, x2)), int(max(0, y1)), int(min(h, y2))
+    if r - l < 1 or b - t < 1:
+        return None
+    hsv = cv2.cvtColor(np.ascontiguousarray(bgr[t:b, l:r]), cv2.COLOR_BGR2HSV)
+    mask = None
+    if fg is not None:
+        m = (fg[t:b, l:r] > 0.5).astype(np.uint8)
+        if m.sum() >= m.size * 0.2:
+            mask = m
+    hist = cv2.calcHist([hsv], [0, 1], mask, LOOK_BINS, [0, 180, 0, 256])
+    return cv2.normalize(hist, hist, 1, 0, cv2.NORM_L1)
+
+
+def similar(a, b):
+    """How alike two looks are: 1 the same colours, 0 none in common."""
+    if a is None or b is None:
+        return 0.0
+    return 1.0 - cv2.compareHist(a, b, cv2.HISTCMP_BHATTACHARYYA)
+
+
+# Two people hugging are one box for the detector, and when they part or the shot changes the box that overlaps the
+# last one can be the other person. So the look decides too, against the person's look where they were picked (fixed:
+# a look that follows along drifts to the other one during the hug). The overlapping box is kept while it looks at
+# least a little like the person (LOW: the hug box has them in it) and nobody looks clearly more like them (MARGIN);
+# else whoever looks like them (SAME) is taken; else they are not in the shot. Measured on the balloon scene
+# (11.10.2026, the girl followed): the girl 0.58-0.88, the hug box 0.45, the man 0.18-0.45 in the first shot and
+# 0.22-0.27 after the cut.
+LOW = 0.3
+SAME = 0.55
+MARGIN = 0.15
+BRIEF = 5  # frames
+
+
+def follow_person(detections, target=None, width=1, height=1, frames=None, foreground=None):
+    """One box per frame: the person picked in the first frame with people (pick_person), then the box overlapping the
+    last one most. With the frames (BGR) the person's look is followed too: after a cut the one who looks like them
+    is taken, and a frame where nobody does gets None (the person is not in the shot). Without the frames a frame
+    with no overlapping box keeps the last box. Returns (boxes, the person's look); boxes is None when no frame has a
+    person."""
     first = next((i for i, d in enumerate(detections) if len(d)), None)
     if first is None:
-        return None
-    last = pick_person(detections[first], target or {}, width, height)
+        return None, None
+    target = target or {}
+    last = pick_person(detections[first], target, width, height)
+    fg = lambda i: None if foreground is None else foreground[min(i, len(foreground) - 1)]
+    # the look carried over from the previous window: the picked box must look like it too (a window can start in a
+    # shot without the person)
+    given = frames is not None and bool(target.get('look'))
+    ref = None
+    if given:
+        ref = np.array(target['look'], np.float32).reshape(LOOK_BINS)
+    elif frames is not None:
+        ref = look(frames[first], last, fg(first))
     boxes = []
     for i, d in enumerate(detections):
-        if i > first and len(d):
-            best = max(d, key=lambda b: _overlap(b, last))
-            if _overlap(best, last) > 0.1:
-                last = best
-        boxes.append(np.array(last, np.float64))
-    return boxes
+        here = last
+        if (i > first or (i == first and given)) and len(d):
+            near = max(range(len(d)), key=lambda k: _overlap(d[k], last))
+            if ref is None:
+                if _overlap(d[near], last) > 0.1:
+                    last = here = d[near]
+            else:
+                alike = [similar(look(frames[i], b, fg(i)), ref) for b in d]
+                most = int(np.argmax(alike))
+                if _overlap(d[near], last) > 0.1 and alike[near] >= LOW and alike[near] >= alike[most] - MARGIN:
+                    pick = near
+                elif alike[most] >= SAME:
+                    pick = most
+                else:
+                    pick = None
+                if pick is None:
+                    here = None
+                else:
+                    last = here = d[pick]
+        boxes.append(None if here is None else np.array(here, np.float64))
+    # a few frames without the person between frames with them are a miss (blur, a turn), not an absence
+    i = 0
+    while i < len(boxes):
+        if boxes[i] is not None:
+            i += 1
+            continue
+        j = i
+        while j < len(boxes) and boxes[j] is None:
+            j += 1
+        if j - i < BRIEF and i > 0 and j < len(boxes):
+            for k in range(i, j):
+                boxes[k] = boxes[i - 1] if k - i < j - k else boxes[j]
+        i = j
+    return boxes, ref
 
 
 def _fill(values, valid):
@@ -322,33 +410,40 @@ class NedeseReplacePrep:
             detections = [detect_people(detector, f) for f in bgr]
         finally:
             del detector
-        boxes = follow_person(detections, json.loads(target) if target else {}, width, height)
-        if boxes is None:
-            raise ValueError('No person was found in the video.')
-        model = _load(POSE_MODEL)
-        try:
-            wholes = estimate_poses(model, bgr, boxes)
-        finally:
-            del model
-            mm.soft_empty_cache()
         fg = None if foreground is None else foreground.cpu().numpy()
         if fg is not None and fg.shape[1:] != (height, width):
             fg = np.stack([cv2.resize(m, (width, height), interpolation=cv2.INTER_LINEAR) for m in fg])
+        boxes, seen = follow_person(detections, json.loads(target) if target else {}, width, height, frames=bgr, foreground=fg)
+        if boxes is None:
+            raise ValueError('No person was found in the video.')
+        # frames without the person (another shot): nothing is repainted there
+        present = np.array([b is not None for b in boxes])
+        near = np.where(present)[0]
+        filled = [b if b is not None else boxes[near[np.abs(near - i).argmin()]] for i, b in enumerate(boxes)]
+        model = _load(POSE_MODEL)
+        try:
+            wholes = estimate_poses(model, bgr, filled)
+        finally:
+            del model
+            mm.soft_empty_cache()
+        for i in np.where(~present)[0]:
+            wholes[i][:, 2] = 0
 
-        pose = np.stack([draw_body(body_points(w), height, width) for w in wholes])
+        pose = np.stack([draw_body(body_points(w), height, width) if p else np.zeros((height, width, 3), np.uint8) for w, p in zip(wholes, present)])
         faces = []
-        for f, (cx, cy, side) in zip(frames, face_boxes(wholes, boxes)):
+        for f, (cx, cy, side) in zip(frames, face_boxes(wholes, filled)):
             s = max(16, int(round(side)))
             faces.append(cv2.resize(cv2.getRectSubPix(f, (s, s), (float(cx), float(cy))), (512, 512), interpolation=cv2.INTER_AREA if s > 512 else cv2.INTER_CUBIC))
-        masks = np.stack([person_mask(None if fg is None else fg[min(i, len(fg) - 1)], boxes[i], height, width, grow, block) for i in range(count)])
+        masks = np.stack([person_mask(None if fg is None else fg[min(i, len(fg) - 1)], boxes[i], height, width, grow, block) if present[i] else np.zeros((height, width), np.float32) for i in range(count)])
         background = frames.astype(np.float32) / 255 * (1 - masks[..., None])
 
         found = sum(1 for d in detections if len(d))
-        print(f'[Nedese] replace prep: {count} frames {width}x{height}, a person in {found}, mask {masks.mean() * 100:.0f}% of the picture')
+        print(f'[Nedese] replace prep: {count} frames {width}x{height}, a person in {found}, the followed one in {int(present.sum())}, mask {masks.mean() * 100:.0f}% of the picture')
         as_image = lambda a: torch.from_numpy(np.ascontiguousarray(a)).float() / 255
-        # the person's box in every frame (0-1): the next window follows the same person from it
-        followed = [[round(float(b[0]) / width, 4), round(float(b[1]) / height, 4), round(float(b[2]) / width, 4), round(float(b[3]) / height, 4)] for b in boxes]
-        return {'ui': {'boxes': [json.dumps(followed)]}, 'result': (as_image(pose), as_image(np.stack(faces)), torch.from_numpy(background), torch.from_numpy(masks))}
+        # the person's box in every frame (0-1, null where they are not in the shot): the next window follows them from it
+        followed = [None if b is None else [round(float(b[0]) / width, 4), round(float(b[1]) / height, 4), round(float(b[2]) / width, 4), round(float(b[3]) / height, 4)] for b in boxes]
+        carried = [] if seen is None else [round(float(v), 5) for v in seen.ravel()]
+        return {'ui': {'boxes': [json.dumps(followed)], 'look': [json.dumps(carried)]}, 'result': (as_image(pose), as_image(np.stack(faces)), torch.from_numpy(background), torch.from_numpy(masks))}
 
 
 NODE_CLASS_MAPPINGS = {'NedeseReplacePrep': NedeseReplacePrep}

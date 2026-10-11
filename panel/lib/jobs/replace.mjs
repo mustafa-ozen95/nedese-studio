@@ -49,17 +49,27 @@ export function replaceWindows(total) {
 }
 
 /**
- * Where the followed person is at the start of the next window: the prep node returns the person's box in every frame
- * of the window (0-1, JSON in its ui output). null when there is no next window or the node gave no boxes.
+ * Whom the next window follows: the prep node returns the person's box in every frame of the window (0-1, null where
+ * they are not in the shot) and their look (a colour histogram), JSON in its ui output. box: the box at the start of
+ * the next window, or the last one before it where the person was seen; look: the histogram. Each is null when there
+ * is no next window or the node did not give it.
  */
-export function nextBox(outputs, graph, window, next) {
-  if (!next) return null;
-  try {
-    const boxes = JSON.parse(outputs?.[nodes(graph, 'NedeseReplacePrep')[0]]?.boxes?.[0] ?? 'null');
-    return Array.isArray(boxes) && boxes.length ? boxes[Math.min(next.start - window.start, boxes.length - 1)] ?? null : null;
-  } catch {
-    return null;
-  }
+export function nextTarget(outputs, graph, window, next) {
+  const none = { box: null, look: null };
+  if (!next) return none;
+  const ui = outputs?.[nodes(graph, 'NedeseReplacePrep')[0]];
+  const parse = (v) => {
+    try {
+      return JSON.parse(v ?? 'null');
+    } catch {
+      return null;
+    }
+  };
+  const boxes = parse(ui?.boxes?.[0]);
+  const look = parse(ui?.look?.[0]);
+  let box = null;
+  if (Array.isArray(boxes)) for (let i = Math.min(next.start - window.start, boxes.length - 1); i >= 0 && !box; i--) box = boxes[i] ?? null;
+  return { box, look: Array.isArray(look) && look.length ? look : null };
 }
 
 export function validate(g, { setting, mod }) {
@@ -161,7 +171,8 @@ export async function run(ctx) {
       const existing = pngs(targetFolder);
       const motions = w.no === 1 ? null : await Promise.all(existing.slice(-REPLACE.motion).map((d, j) => ctx.comfy.load(join(targetFolder, d), `${namePrefix}${who}w${w.no}_m${j + 1}.png`)));
       // the first window picks the person (one photo: the largest; several: the p-th from the left), later ones follow them
-      const target = w.no > 1 && status.box ? { box: status.box } : passes > 1 ? { order: p } : {};
+      // (and look like them: a window can start in a shot without them)
+      const target = w.no > 1 && status.box ? { box: status.box, ...(status.look ? { look: status.look } : {}) } : passes > 1 ? { order: p } : {};
       const graph = ctx.mod.replaceJob({ clip, picture, motions, target, text: g.people[p - 1].prompt, seed: g.seed, width, height, frame: w.length, prefix: `panel/${ctx.job.id}/${who}w${w.no}` });
       const record = nodes(graph, 'SaveImage')[0];
       const part = (k) => 5 + (90 * (p - 1 + k / windows.length)) / passes;
@@ -174,7 +185,8 @@ export async function run(ctx) {
         no += 1;
         await ctx.comfy.getOutput(c, join(targetFolder, `${String(no).padStart(5, '0')}.png`));
       }
-      save({ ...status, window: w.no, frame: no, box: nextBox(outputs, graph, w, windows[w.no]) ?? status.box });
+      const next = nextTarget(outputs, graph, w, windows[w.no]);
+      save({ ...status, window: w.no, frame: no, box: next.box ?? status.box, look: next.look ?? status.look ?? null });
       rmSync(clipPath, { force: true });
       const seconds = (Date.now() - startedAt) / 1000;
       ctx.log(`${passes > 1 ? `Person ${p}/${passes}, window` : 'Window'} ${w.no}/${windows.length} (frames ${w.start + 1}-${w.start + w.length}): ${Math.round(seconds)} s`);
@@ -182,7 +194,7 @@ export async function run(ctx) {
     }
     // the last window ran past the end: its extra frames go
     for (const d of pngs(targetFolder).slice(frames.length)) rmSync(join(targetFolder, d), { force: true });
-    save({ ...status, pass: p + 1, window: 0, frame: 0, box: null });
+    save({ ...status, pass: p + 1, window: 0, frame: 0, box: null, look: null });
     if (p > 1) rmSync(inputFolder, { recursive: true, force: true });
   }
 

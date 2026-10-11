@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { parsePlan } from '../lib/edit-plan.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
 import { makePng } from '../lib/media.mjs';
-import { replaceWindows, replaceSize, nextBox, REPLACE, DEFAULT_PROMPT } from '../lib/jobs/replace.mjs';
+import { replaceWindows, replaceSize, nextTarget, REPLACE, DEFAULT_PROMPT } from '../lib/jobs/replace.mjs';
 import { usedFiles, CATALOG, FOLDERS } from '../lib/models.mjs';
 import { replaceJob } from '../../tools/comfy.mjs';
 import { createPanel } from './env.mjs';
@@ -57,11 +57,14 @@ test("next window follows the person: the prep node's box at the frame the next 
   const prep = Object.entries(graph).find(([, d]) => d.class_type === 'NedeseReplacePrep');
   assert.deepEqual(JSON.parse(prep[1].inputs.target), { order: 2 });
   const boxes = Array.from({ length: 77 }, (_, i) => [i / 100, 0, 1, 1]);
-  const outputs = { [prep[0]]: { boxes: [JSON.stringify(boxes)] } };
+  const outputs = { [prep[0]]: { boxes: [JSON.stringify(boxes)], look: ['[0.5,0.5]'] } };
   const [w1, w2] = replaceWindows(96);
-  assert.deepEqual(nextBox(outputs, graph, w1, w2), [0.72, 0, 1, 1]);
-  assert.equal(nextBox(outputs, graph, w2, undefined), null, 'the last window');
-  assert.equal(nextBox({}, graph, w1, w2), null, 'no boxes from an older node');
+  assert.deepEqual(nextTarget(outputs, graph, w1, w2), { box: [0.72, 0, 1, 1], look: [0.5, 0.5] });
+  assert.deepEqual(nextTarget(outputs, graph, w2, undefined), { box: null, look: null }, 'the last window');
+  assert.deepEqual(nextTarget({}, graph, w1, w2), { box: null, look: null }, 'nothing from an older node');
+  // the person left the shot before the next window starts: the last box where they were seen
+  const gone = boxes.map((b, i) => (i >= 60 ? null : b));
+  assert.deepEqual(nextTarget({ [prep[0]]: { boxes: [JSON.stringify(gone)] } }, graph, w1, w2), { box: [0.59, 0, 1, 1], look: null });
 });
 
 test('replace graph: Wan Animate with the prep node, the photo and the motion frames; the model files are known', () => {
@@ -118,7 +121,8 @@ test('a video and two photos in Edit video: the job becomes Replace a person, on
     const animate = (g) => of(g, 'WanAnimateToVideo');
     assert.deepEqual(prompts.map((g) => [animate(g).length, animate(g).width, animate(g).height, Boolean(animate(g).continue_motion)]), [[77, 848, 480, false], [25, 848, 480, true], [77, 848, 480, false], [25, 848, 480, true]]);
     // window 1 picks the person from the left, window 2 follows them from the box at frame 72 (fake: x = 72 / 1000)
-    assert.deepEqual(prompts.map((g) => JSON.parse(of(g, 'NedeseReplacePrep').target)), [{ order: 1 }, { box: [0.072, 0.2, 0.372, 0.9] }, { order: 2 }, { box: [0.072, 0.2, 0.372, 0.9] }]);
+    // and by their look (each pass its own person's)
+    assert.deepEqual(prompts.map((g) => JSON.parse(of(g, 'NedeseReplacePrep').target)), [{ order: 1 }, { box: [0.072, 0.2, 0.372, 0.9], look: [1] }, { order: 2 }, { box: [0.072, 0.2, 0.372, 0.9], look: [2] }]);
     assert.deepEqual(prompts.map((g) => of(g, 'CLIPTextEncode').text), ['a little girl in a yellow dress talking', 'a little girl in a yellow dress talking', DEFAULT_PROMPT, DEFAULT_PROMPT]);
     assert.equal(Object.values(prompts[1]).filter((d) => d.class_type === 'LoadImage').length, 6, 'the photo and the 5 motion frames');
     const photo = (g) => Object.values(g).filter((d) => d.class_type === 'LoadImage').map((d) => d.inputs.image.match(/person\d/)?.[0]).find(Boolean);
