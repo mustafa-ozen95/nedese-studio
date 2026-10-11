@@ -23,7 +23,7 @@ import { Tasks } from './tasks.mjs';
 import { hasText } from './text-model.mjs';
 import { findLlm } from './llm.mjs';
 import { writeLyrics } from './lyricist.mjs';
-import { writePromo } from './promo-writer.mjs';
+import { writePromo, filmKind } from './promo-writer.mjs';
 import { pageAddress } from './jobs/page-video.mjs';
 import { RECORD_EXTENSIONS } from './jobs/clone.mjs';
 import { MODEL_EXTENSIONS } from './jobs/model3d.mjs';
@@ -120,6 +120,28 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       list.push({ source: `upload/${d}`, url: `/file/upload/${d}`, type: image ? 'image' : 'music', name: d.replace(/^\d{8}-\d{6}-(muzik-)?/, ''), size, creation, ...measure });
     }
     return list;
+  }
+
+  // a text model waited for (the GPU busy with a job, or the model loading): said on the writer's task
+  const waitingText = (task) => (b, x) => task.advance({ detail: !b ? '' : x?.loading ? 'loading the text model' : 'waiting for the GPU (written once the running job finishes)' });
+
+  /** A promo script from a brief: the scenes of a promo job for the panel (its sections) or a web page. */
+  async function promoScript(g, task) {
+    const { url, panel } = pageAddress(g.url, setting);
+    const input = {
+      brief: text(g.brief, 'Brief', { required: false, max: 2000 }),
+      lang: choice(g.lang, 'Language', ['tr', 'en'], 'tr'),
+      count: number(g.sceneCount, 'Number of scenes', { min: 3, max: 20, defaultValue: 10, full: true }),
+      url,
+      panel,
+    };
+    // the kinds of results the panel has (a section with none would be an empty card)
+    const counts = {};
+    for (const job of queue.jobs.values()) if (job.status === 'done') counts[job.type] = (counts[job.type] ?? 0) + 1;
+    task.advance({ stage: 'Writing the promo script' });
+    const write = setting.promoWriter ?? writePromo;
+    const result = await write({ ...input, counts, signal: task.signal, waiting: waitingText(task) });
+    return { message: `${result.scenes.length} scenes written.`, url: panel ? 'panel' : url, lang: input.lang, ...result };
   }
 
   const h = {
@@ -508,9 +530,14 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       };
       const secScene = queue.averages?.()?.['write-scenes'] ?? null;
       const task = tasks.add({ type: 'write-scenes', title: input.topic, expectedSec: secScene ? secScene * input.sceneCount : null });
-      task.advance({ stage: `Writing ${input.sceneCount} scenes` });
+      task.advance({ stage: 'Reading the description' });
       const startedAt = Date.now();
       try {
+        // the description says what to make (no Promo tab, user 11.10.2026): a promo of the panel or a web page is
+        // written as a promo script
+        const kind = await (setting.filmKind ?? filmKind)({ topic: input.topic, signal: task.signal, waiting: waitingText(task) });
+        if (kind.promo) return { kind: 'promo', brief: input.topic, ...(await promoScript({ brief: input.topic, url: kind.page, lang: input.lang, sceneCount: Math.min(Math.max(input.sceneCount, 3), 20) }, task)) };
+        task.advance({ stage: `Writing ${input.sceneCount} scenes` });
         const write = setting.sceneWriter ?? writeScenes;
         const result = await write({
           ...input,
@@ -523,7 +550,7 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
           queue.db?.writeMeasurement('write-scenes', Math.round(((Date.now() - startedAt) / 1000 / result.scenes.length) * 10) / 10, null);
           queue.averageCache = null;
         }
-        return { message: `${result.scenes.length} scenes written.`, ...result };
+        return { kind: 'film', message: `${result.scenes.length} scenes written.`, ...result };
       } catch (e) {
         if (task.signal.aborted) throw new UserError('Scene writing was cancelled.');
         throw e;
@@ -553,23 +580,10 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
 
     /* ── Promo script writer (Production › Promo video) ── */
     async writePromoScript(g) {
-      const { url, panel } = pageAddress(g.url, setting);
-      const input = {
-        brief: text(g.brief, 'Brief', { required: false, max: 2000 }),
-        lang: choice(g.lang, 'Language', ['tr', 'en'], 'tr'),
-        count: number(g.sceneCount, 'Number of scenes', { min: 3, max: 20, defaultValue: 10, full: true }),
-        url,
-        panel,
-      };
-      // the kinds of results the panel has (a section with none would be an empty card)
-      const counts = {};
-      for (const job of queue.jobs.values()) if (job.status === 'done') counts[job.type] = (counts[job.type] ?? 0) + 1;
-      const task = tasks.add({ type: 'write-promo', title: input.brief || 'Promo script' });
-      task.advance({ stage: 'Writing the promo script' });
+      pageAddress(g.url, setting);
+      const task = tasks.add({ type: 'write-promo', title: String(g.brief ?? '').trim().slice(0, 200) || 'Promo script' });
       try {
-        const write = setting.promoWriter ?? writePromo;
-        const result = await write({ ...input, counts, signal: task.signal, waiting: (b, x) => task.advance({ detail: !b ? '' : x?.loading ? 'loading the text model' : 'waiting for the GPU (written once the running job finishes)' }) });
-        return { message: `${result.scenes.length} scenes written.`, url: panel ? 'panel' : url, lang: input.lang, ...result };
+        return await promoScript(g, task);
       } catch (e) {
         if (task.signal.aborted) throw new UserError('Script writing was cancelled.');
         throw e;

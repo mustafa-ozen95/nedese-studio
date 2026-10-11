@@ -1,5 +1,5 @@
 /**
- * Promo script writer (Production › Promo video › Write the script): the local text model turns a short brief into the
+ * Promo script writer (Film: a description that asks for a promo, or POST /write-promo): the local text model turns a brief into the
  * scenes of a promo job ({ caption, narration, section, demo }). For the panel it is told what every section shows and
  * which of them have results to show (a section of a kind never made is left out: an empty card in a promo).
  */
@@ -98,5 +98,48 @@ export function writePromo({ brief, lang, url, panel, counts, count = 10, signal
     waiting,
     name: 'Promo script writer',
     parse: (text) => parsePromoResponse(text, { panel, sections, count }),
+  });
+}
+
+const KIND_SYSTEM = [
+  'A user of a local AI studio described a video to make. Decide what kind it is. Return only the requested JSON object.',
+  '- "promo": they ask for a promo, advert, showcase, introduction or demo video of this AI studio itself (the app they are using, Nedese Studio, "the panel") or of a website or web page (its screen is recorded).',
+  '- "film": anything else made of generated pictures and footage: a story, an explainer, a music video, an advert for some other product or idea.',
+  '- "page": for a promo, "panel" for the studio itself, or the web address of the site; empty for a film.',
+].join('\n');
+
+/** What a film description asks for: { promo, page } (page: "panel" or an address; reading it as a film when unclear). */
+export function parseFilmKind(text) {
+  const s = String(text ?? '');
+  let data = null;
+  try {
+    data = JSON.parse(s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1));
+  } catch {
+    return { promo: false, page: '' };
+  }
+  if (data?.kind !== 'promo') return { promo: false, page: '' };
+  const page = String(data.page ?? '').trim();
+  return { promo: true, page: /^(panel|nedese.*|the panel|this panel)?$/i.test(page) ? 'panel' : page.slice(0, 500) };
+}
+
+/**
+ * Film › Write scenes reads the description first (user 11.10.2026: "Ayrı sekme olmamalı... Tarif edileni yapmalı"): a
+ * promo of the panel or of a web page gets a promo script, anything else a film. Without a text model: a film.
+ */
+export function filmKind({ topic, signal = null, waiting = null }) {
+  if (!hasText()) return Promise.resolve({ promo: false, page: '' });
+  return runText({
+    system: KIND_SYSTEM,
+    prompt: `The description:\n${topic}\n\nReturn the JSON object.`,
+    json: true,
+    schema: { type: 'object', properties: { kind: { type: 'string', enum: ['film', 'promo'] }, page: { type: 'string' } }, required: ['kind', 'page'] },
+    temperature: 0,
+    maxToken: 200,
+    externalRequest: true,
+    waitSec: 600,
+    signal,
+    waiting,
+    name: 'Scene writer',
+    parse: parseFilmKind,
   });
 }

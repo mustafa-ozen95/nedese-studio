@@ -309,6 +309,12 @@ export class McpClient {
       this.pending.clear();
     };
     s.on('error', (e) => done(e.message));
+    // a server that stopped reading (closed, killed) fails the write with EPIPE: unheard it would end the panel. One
+    // still running is ended (the next use starts a new one; left alone it would be an orphan).
+    s.stdin.on('error', (e) => {
+      done(e.message);
+      s.kill();
+    });
     s.on('exit', (code) => done(`exit ${code}`));
   }
 

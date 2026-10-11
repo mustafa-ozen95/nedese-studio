@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validate, promoSteps, PANEL_SECTIONS, samples } from '../lib/jobs/promo.mjs';
 import { loadSettings } from '../lib/settings.mjs';
-import { parsePromoResponse, promoSchema, usableSections } from '../lib/promo-writer.mjs';
+import { parsePromoResponse, promoSchema, usableSections, parseFilmKind } from '../lib/promo-writer.mjs';
 import { makeMusic, beatGrid, BAR, BEAT, SR } from '../lib/promo-music.mjs';
 import { beatCut, bigScenes, INTRO, OUTRO } from '../lib/beat-cut.mjs';
 import { plan, cornerLayout } from '../lib/jobs/page-video-compose.mjs';
@@ -73,6 +73,14 @@ function readMono(file) {
   for (let i = 0; i < n; i++) out[i] = (b.readInt16LE(44 + i * 4) + b.readInt16LE(46 + i * 4)) / 65536;
   return out;
 }
+
+test('film kind: the text model answer read as a film or a promo of the panel or of an address', () => {
+  assert.deepEqual(parseFilmKind('{"kind":"film","page":""}'), { promo: false, page: '' });
+  assert.deepEqual(parseFilmKind('not json'), { promo: false, page: '' }, 'an unreadable answer is a film');
+  assert.deepEqual(parseFilmKind('Here: {"kind":"promo","page":""} done'), { promo: true, page: 'panel' }, 'no page: the panel');
+  for (const page of ['panel', 'Nedese Studio', 'this panel']) assert.deepEqual(parseFilmKind(JSON.stringify({ kind: 'promo', page })), { promo: true, page: 'panel' }, page);
+  assert.deepEqual(parseFilmKind('{"kind":"promo","page":" https://example.com/shop "}'), { promo: true, page: 'https://example.com/shop' });
+});
 
 test('beat grid: the tempo and the first bar line of a track, also stretched and late', () => {
   const dir = mkdtempSync(join(tmpdir(), 'promo-'));

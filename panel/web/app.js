@@ -315,10 +315,9 @@
             if (a.dataset.subTab === section) a.setAttribute('aria-current', 'page');
             else a.removeAttribute('aria-current');
         });
-        // Film makes a promo video too (#film/promo); Edit shows the form of the file's kind (#edit/image|audio|video)
-        if (section === 'film') filmTypeApply(sub === 'promo' ? 'promo' : 'film');
+        // Edit shows the form of the file's kind (#edit/image|audio|video)
         if (section === 'edit' && ['image', 'audio', 'video'].includes(sub)) editKindApply(sub);
-        const side = $(`[data-side="${section === 'film' && sub === 'promo' ? 'promo' : section}"]`);
+        const side = $(`[data-side="${section}"]`);
         if (side && section !== 'settings' && queuePanel.parentElement !== side) side.prepend(queuePanel);
         // the film section's Recent panel goes with the queue to the aside shown
         const recentFilms = $('[data-last="film"]')?.closest('.panel');
@@ -2152,18 +2151,14 @@
         });
     }
 
-    /* Film: a film or a promo video (no tab of its own, user 11.10.2026); the choice is in the address (#film/promo). */
-    function filmTypeApply(type) {
-        const root = $('[data-section="film"]');
-        $$('[data-film-form]', root).forEach((n) => {
-            n.hidden = n.dataset.filmForm !== type;
+    /* Film: one description, no Film / Promo choice (user 11.10.2026: "Ayrı sekme olmamalı... Tarif edileni yapmalı"):
+       the writer reads what it asks for and the form of that kind (a film or a promo video) is shown. */
+    function filmKindApply(kind) {
+        status.filmKind = kind;
+        $$('[data-film-form]').forEach((n) => {
+            n.hidden = n.dataset.filmForm !== kind;
         });
-        const radio = $(`[data-film-type] input[value="${type}"]`, root);
-        if (radio) radio.checked = true;
     }
-    $('[data-film-type]').addEventListener('change', (event) => {
-        location.hash = event.target.value === 'promo' ? '#film/promo' : '#film';
-    });
 
     // A file field's name: the empty text ("No video selected") is the panel's and translated, a file name is not
     function showName(node, name, empty) {
@@ -2810,6 +2805,8 @@
     /* ── Tek parça: sahneler ───────────────────────────────────────────── */
 
     const filmForm = $('[data-job-form="film"]');
+    const filmPage = $('[data-film-page]');
+    const sceneModeOf = () => $('[name="sceneMode"]:checked', filmPage)?.value ?? 'automatic';
     const sceneContainer = $('[data-scenes]', filmForm);
 
     function addScene(data = {}, { focus = false } = {}) {
@@ -3147,18 +3144,20 @@
 
     function applySceneMode() {
         const hasWriter = Boolean(status.options?.hasSceneWriter);
-        const choice = $('[data-scene-mode]', filmForm);
+        const choice = $('[data-scene-mode]', filmPage);
         choice.hidden = !hasWriter;
-        if (!hasWriter) filmForm.sceneMode.value = 'manual';
-        const auto = filmForm.sceneMode.value === 'automatic';
-        $('[data-scene-writer]', filmForm).hidden = !auto;
+        if (!hasWriter) $('[name="sceneMode"][value="manual"]', filmPage).checked = true;
+        const auto = sceneModeOf() === 'automatic';
+        $('[data-scene-writer]', filmPage).hidden = !auto;
+        // scenes written by hand are a film's
+        if (!auto) filmKindApply('film');
         // Panel yazınca sahneler gözden geçirmek için görünür; yazılmadan boş sahne gösterilmez.
         const full = scenesCollect().some((x) => x.narration.trim() || x.image.trim() || x.source);
         $('[data-scene-area]', filmForm).hidden = auto && !full;
         $('[data-scene-add]', filmForm).hidden = auto;
     }
 
-    $('[data-scene-mode]', filmForm).addEventListener('change', applySceneMode);
+    $('[data-scene-mode]', filmPage).addEventListener('change', applySceneMode);
 
     /* ── Tek parça: konudan sahne yazımı ───────────────────────────────── */
 
@@ -3166,19 +3165,19 @@
     $('#t-sahne-sayisi')?.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter') return;
         event.preventDefault();
-        $('[data-scene-write]', filmForm).click();
+        $('[data-scene-write]', filmPage).click();
     });
-    $('[data-scene-write]', filmForm).addEventListener('click', async (event) => {
+    $('[data-scene-write]', filmPage).addEventListener('click', async (event) => {
         const button = event.currentTarget;
-        const topic = $('[data-topic]', filmForm).value.trim();
+        const topic = $('[data-topic]', filmPage).value.trim();
         if (!topic) {
-            notify('Write a topic first.', 'warning');
-            $('[data-topic]', filmForm).focus();
+            notify('Describe what to make first.', 'warning');
+            $('[data-topic]', filmPage).focus();
             return;
         }
-        const statusText = $('[data-scene-write-status]', filmForm);
-        // Dolu sahneler varsa ikinci basışta yazılır (yanlışlıkla silinmesin).
-        const full = scenesCollect().some((s) => s.narration.trim() || s.image.trim());
+        const statusText = $('[data-scene-write-status]', filmPage);
+        // written scenes (a film's or a promo's) are replaced only on a second press
+        const full = status.filmKind === 'promo' ? promoCollect().length > 0 : scenesCollect().some((s) => s.narration.trim() || s.image.trim());
         if (full && !button.dataset.approval) {
             button.dataset.approval = '1';
             button.textContent = 'Yes, rewrite them';
@@ -3195,10 +3194,28 @@
         button.disabled = true;
         statusText.textContent = 'Writing… (progress in Queue)';
         try {
-            const req = api('/api/write-scenes', { method: 'POST', body: { topic, sceneCount: $('[data-scene-count]', filmForm).value, ratio: filmForm.ratio.value, speech: $('[data-speech]', filmForm)?.checked !== false, lang: filmForm.lang?.value } });
+            const req = api('/api/write-scenes', { method: 'POST', body: { topic, sceneCount: $('[data-scene-count]', filmPage).value, ratio: filmForm.ratio.value, speech: $('[data-speech]', filmPage)?.checked !== false, lang: filmForm.lang?.value } });
             // Yazim Kuyruk'ta yan gorev olarak gorunur (ilerleme, Iptal): durum hemen yoklanir
             setTimeout(pollStatus, 400);
             const j = await req;
+            if (j.kind === 'promo') {
+                // a promo of the panel or of a web page: its script, in the same voice language
+                promoList.replaceChildren();
+                j.scenes.forEach((s) => addPromoScene(s));
+                promoForm.url.value = j.url ?? 'panel';
+                if (promoForm.lang && filmForm.lang) promoForm.lang.value = filmForm.lang.value;
+                if (j.title && !promoForm.title.value.trim()) promoForm.title.value = j.title;
+                if (j.subtitle && !promoForm.subtitle.value.trim()) promoForm.subtitle.value = j.subtitle;
+                $('[data-topic]', filmPage).value = '';
+                filmKindApply('promo');
+                promoRows();
+                updateEstimates();
+                saveDraft();
+                notify(j.message, 'success');
+                statusText.textContent = '';
+                return;
+            }
+            filmKindApply('film');
             sceneContainer.replaceChildren();
             // Yazarin karakterleri (cinsiyet, yas, ses tarifi) listeye; ses kendiliginden secilir
             status.characters = {};
@@ -3206,7 +3223,7 @@
             j.scenes.forEach((s) => addScene(s));
             renderCharacters();
             if (j.title && !filmForm.title.value.trim()) filmForm.title.value = j.title;
-            $('[data-topic]', filmForm).value = '';
+            $('[data-topic]', filmPage).value = '';
             scenesNumber();
             applySceneMode();
             saveDraft();
@@ -3299,44 +3316,6 @@
     promoForm.addEventListener('change', (event) => {
         if (event.target.matches('[data-p="section"]')) promoRows();
         if (event.target.name === 'music') $('[data-promo-music-style]', promoForm).hidden = promoForm.music.value !== 'generate';
-    });
-
-    $('[data-promo-write]', promoForm).addEventListener('click', async (event) => {
-        const button = event.currentTarget;
-        const statusText = $('[data-promo-write-status]', promoForm);
-        // written scenes are replaced only on a second press
-        if (promoCollect().length && !button.dataset.approval) {
-            button.dataset.approval = '1';
-            button.textContent = 'Yes, rewrite them';
-            statusText.textContent = 'The current scenes will be replaced.';
-            setTimeout(() => {
-                delete button.dataset.approval;
-                button.textContent = 'Write the script';
-                if (!button.disabled) statusText.textContent = '';
-            }, 5000);
-            return;
-        }
-        delete button.dataset.approval;
-        button.textContent = 'Write the script';
-        button.disabled = true;
-        statusText.textContent = 'Writing… (progress in Queue)';
-        try {
-            const req = api('/api/write-promo', { method: 'POST', body: { brief: $('[data-promo-brief]', promoForm).value, url: promoForm.url.value, lang: promoForm.lang?.value, sceneCount: $('[data-promo-count]', promoForm).value } });
-            setTimeout(pollStatus, 400);
-            const j = await req;
-            promoList.replaceChildren();
-            j.scenes.forEach((s) => addPromoScene(s));
-            if (j.title && !promoForm.title.value.trim()) promoForm.title.value = j.title;
-            if (j.subtitle && !promoForm.subtitle.value.trim()) promoForm.subtitle.value = j.subtitle;
-            saveDraft();
-            notify(j.message, 'success');
-        } catch (e) {
-            notify(e.message, 'danger');
-        } finally {
-            statusText.textContent = '';
-            button.disabled = false;
-            pollStatus();
-        }
     });
 
     /* ── Müzik: sözleri panel yazsın ───────────────────────────────────── */
@@ -3599,7 +3578,7 @@
             m.lyrics.value = '';
         }
         if (type === 'film') {
-            $('[data-topic]', filmForm).value = '';
+            $('[data-topic]', filmPage).value = '';
             filmForm.title.value = '';
             sceneContainer.replaceChildren();
             addScene();
@@ -3614,8 +3593,10 @@
         }
         if (type === 'promo') {
             promoList.replaceChildren();
-            $('[data-promo-brief]', promoForm).value = '';
+            promoForm.title.value = '';
+            promoForm.subtitle.value = '';
             promoRows();
+            filmKindApply('film');
         }
         updateEstimates();
         saveDraft();
@@ -3647,6 +3628,7 @@
             t.film.scenes = scenesCollect();
             t.film.characters = status.characters;
             t.promo.scenes = $$('[data-promo-scene]', promoList).map((row) => Object.fromEntries($$('[data-p]', row).map((f) => [f.dataset.p, f.value])));
+            t.filmKind = status.filmKind;
             t.video.durationReady = $('[data-duration-preset]', videoForm).value;
             t.video.durationUnit = $('[data-duration-unit]', videoForm).value;
             t.videoSource = status.videoSource;
@@ -3688,6 +3670,7 @@
         if (Array.isArray(t.promo?.scenes)) t.promo.scenes.forEach((x) => addPromoScene(x));
         $('[data-promo-music-style]', promoForm).hidden = promoForm.music.value !== 'generate';
         promoRows();
+        filmKindApply(t.filmKind === 'promo' && promoCollect().length ? 'promo' : 'film');
         if (Array.isArray(t.editVideos) && t.editVideos.length) {
             status.editVideos = t.editVideos.filter((v) => v?.source);
             renderEditVideos();

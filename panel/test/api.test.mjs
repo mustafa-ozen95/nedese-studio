@@ -294,6 +294,45 @@ test('scene writer: visible with its progress in /status gorevler while running,
   }
 });
 
+// 11.10.2026 (user): "Ayrı sekme olmamalı demiştim. Tarif edileni yapmalı" - no Film / Promo choice: write-scenes reads
+// the description and a promo of the panel or of a web page comes back as a promo script, anything else as a film.
+test('write-scenes: a description that asks for a promo gets a promo script (the panel or the address), a story a film', async () => {
+  const p = await createPanel({ server: true });
+  try {
+    const b = { Authorization: `Bearer ${p.settingFile.apiKey}`, 'Content-Type': 'application/json' };
+    const read = [];
+    const promos = [];
+    p.setting.filmKind = async ({ topic }) => {
+      read.push(topic);
+      if (/example\.com/.test(topic)) return { promo: true, page: 'https://example.com' };
+      return /promo/i.test(topic) ? { promo: true, page: 'panel' } : { promo: false, page: '' };
+    };
+    p.setting.promoWriter = async ({ brief, panel, url, count, lang }) => {
+      promos.push({ brief, panel, url: panel ? 'its own address' : url, count, lang });
+      return { subtitle: 'Your own AI studio', scenes: Array.from({ length: count }, (_, i) => ({ caption: `c${i}`, narration: `n${i}`, section: 'chat' })) };
+    };
+    p.setting.sceneWriter = async ({ sceneCount }) => ({ title: 'Fox', scenes: Array.from({ length: sceneCount }, (_, i) => ({ narration: `a${i}`, image: 'g', motion: 'h' })) });
+    const write = (topic, sceneCount) => req(p.address, '/api/v1/write-scenes', { method: 'POST', headers: b, body: JSON.stringify({ topic, sceneCount, lang: 'en' }) });
+
+    let r = await write('A promo video of this panel for content creators', 5);
+    assert.equal(r.code, 200, JSON.stringify(r.json));
+    assert.deepEqual([r.json.kind, r.json.url, r.json.scenes.length, r.json.subtitle], ['promo', 'panel', 5, 'Your own AI studio']);
+    assert.deepEqual(promos[0], { brief: 'A promo video of this panel for content creators', panel: true, url: 'its own address', count: 5, lang: 'en' });
+
+    r = await write('A promo of https://example.com', 2);
+    assert.equal(r.code, 200, JSON.stringify(r.json));
+    assert.deepEqual([r.json.kind, r.json.url, r.json.scenes.length], ['promo', 'https://example.com/', 3], 'a promo has at least 3 scenes');
+
+    r = await write('A little fox lost in the forest', 4);
+    assert.equal(r.code, 200, JSON.stringify(r.json));
+    assert.deepEqual([r.json.kind, r.json.title, r.json.scenes.length], ['film', 'Fox', 4]);
+    assert.equal(promos.length, 2);
+    assert.equal(read.length, 3);
+  } finally {
+    await p.close();
+  }
+});
+
 test('lyric writer: prompt asks for sections by duration, response is tagged, API returns with the fake writer', async () => {
   const { lyricPrompt, parseLyricResponse, sectionPlan } = await import('../lib/lyricist.mjs');
   assert.match(sectionPlan(20), /^\[verse\] \(4 lines\) and \[chorus\]/);

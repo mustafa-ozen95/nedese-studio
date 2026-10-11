@@ -168,6 +168,23 @@ test('MCP: server definitions from inside the project only (panel, project, inst
   }
 });
 
+// 11.10.2026: a stdio server that stopped reading its input (it closed, or was killed when a data job was cancelled)
+// made the next write fail with EPIPE on a stream nobody listened to: an uncaught exception (seen in full test runs)
+test('MCP stdio: a write error on the server input (EPIPE) fails the waiting request and is not thrown out of the panel, the server is ended', { timeout: 20000 }, async () => {
+  const i = new McpClient({ name: 'fake', type: 'stdio', command: process.execPath, args: [FAKE_MCP], env: {} }, { timeTimeoutMs: 15000 });
+  try {
+    await i.start();
+    const waiting = i.req('tools/list');
+    const old = i.proc;
+    i.proc.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+    await assert.rejects(waiting, /MCP server "fake" closed \(write EPIPE\)/);
+    assert.equal(i.proc, null, 'the next use starts it again');
+    assert.ok(await new Promise((ok) => (old.exitCode !== null || old.signalCode !== null ? ok(true) : old.once('exit', () => ok(true)))), 'the old server is ended, not left running');
+  } finally {
+    i.close();
+  }
+});
+
 test('MCP time limits: per server from mcp.json, progress notifications keep a long tool call alive (stdio and streamable HTTP), a silent call ends at its limit, Stop cancels it', async () => {
   // Definitions: ms, or seconds when under 1000; tool calls get 10 minutes by default (generate_3d takes 1-3 min)
   const root = mkdtempSync(join(tmpdir(), 'mcp-limits-'));

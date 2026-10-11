@@ -873,56 +873,51 @@
                 <header class="page-head">
                     <div class="page-head__text">
                         <h1 id="b-tek-parca">Film</h1>
-                        <p class="page-head__subtitle" data-film-form="film">Write a topic or enter the scenes yourself; images, video, voice-over and music are combined into one film.</p>
-                        <p class="page-head__subtitle" data-film-form="promo" hidden>A promo video of this panel or of a web page: the script is read aloud, the screen is recorded and everything is cut to the beat with music, in 16:9 and 9:16.</p>
+                        <p class="page-head__subtitle">Describe it and the panel writes it: a film of images, video, voice-over and music, or a promo video of this panel or of a web page, cut to the beat. You can also enter a film's scenes yourself.</p>
                     </div>
                 </header>
 
-                <!-- A promo video is made here too (user 11.10.2026: no tab of its own) -->
-                <div class="mode-choice" data-film-type role="radiogroup" aria-label="What to make">
-                    <label class="mode-choice__option"><input type="radio" name="filmType" value="film" checked><span>Film</span></label>
-                    <label class="mode-choice__option"><input type="radio" name="filmType" value="promo"><span>Promo video</span></label>
-                </div>
+                <!-- One description (user 11.10.2026: no Film / Promo choice): what it asks for is written and shown below -->
+                <div class="split">
+                    <div class="split__main stack" data-film-page>
+                        <div class="mode-choice" data-scene-mode>
+                            <label class="mode-choice__option">
+                                <input type="radio" name="sceneMode" value="automatic" checked>
+                                <span>Write scenes for me</span>
+                            </label>
+                            <label class="mode-choice__option">
+                                <input type="radio" name="sceneMode" value="manual">
+                                <span>I'll write them</span>
+                            </label>
+                        </div>
 
-                <div class="split" data-film-form="film">
-                    <div class="split__main">
-                        <form class="stack" data-job-form="film" novalidate autocomplete="off">
-                            <div class="mode-choice" data-scene-mode>
-                                <label class="mode-choice__option">
-                                    <input type="radio" name="sceneMode" value="automatic" checked>
-                                    <span>Write scenes for me</span>
-                                </label>
-                                <label class="mode-choice__option">
-                                    <input type="radio" name="sceneMode" value="manual">
-                                    <span>I'll write them</span>
-                                </label>
-                            </div>
-
-                            <section class="panel" data-scene-writer>
-                                <div class="panel__body">
+                        <section class="panel" data-scene-writer>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <label class="field__label" for="t-konu">What should it be? <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="t-konu" data-topic rows="2" maxlength="2000" placeholder="A little fox lost in the forest finds its way home"></textarea>
+                                    <span class="field__hint">A story or any film, or a promo video of this panel or of a web page (write its address).</span>
+                                </div>
+                                <div class="form-grid">
                                     <div class="field">
-                                        <label class="field__label" for="t-konu">Topic <span class="required tag-note">required</span></label>
-                                        <textarea class="textarea" id="t-konu" data-topic rows="2" maxlength="2000" placeholder="A little fox lost in the forest finds its way home"></textarea>
-                                    </div>
-                                    <div class="form-grid">
-                                        <div class="field">
-                                            <label class="field__label" for="t-sahne-sayisi">Number of scenes</label>
-                                            <input class="input input--mono" type="number" id="t-sahne-sayisi" data-scene-count min="1" max="1000" step="1" value="5">
-                                            <span class="field__hint">Each scene is 5-15 s. More than 15 scenes are written in batches.</span>
-                                        </div>
-                                    </div>
-                                    <label class="check">
-                                        <input type="checkbox" data-speech checked>
-                                        <span>Characters speak too</span>
-                                    </label>
-                                    <span class="field__hint">Speaking characters with their own voice (female/male, by age); when off, narrator only.</span>
-                                    <div class="form-actions">
-                                        <span class="text-sm text-muted" data-scene-write-status></span>
-                                        <button type="button" class="btn btn--primary" data-scene-write>Write scenes</button>
+                                        <label class="field__label" for="t-sahne-sayisi">Number of scenes</label>
+                                        <input class="input input--mono" type="number" id="t-sahne-sayisi" data-scene-count min="1" max="1000" step="1" value="5">
+                                        <span class="field__hint">Each scene is 5-15 s. More than 15 scenes are written in batches.</span>
                                     </div>
                                 </div>
-                            </section>
+                                <label class="check">
+                                    <input type="checkbox" data-speech checked>
+                                    <span>Characters speak too</span>
+                                </label>
+                                <span class="field__hint">Speaking characters with their own voice (female/male, by age); when off, narrator only.</span>
+                                <div class="form-actions">
+                                    <span class="text-sm text-muted" data-scene-write-status></span>
+                                    <button type="button" class="btn btn--primary" data-scene-write>Write scenes</button>
+                                </div>
+                            </div>
+                        </section>
 
+                        <form class="stack" data-job-form="film" data-film-form="film" novalidate autocomplete="off">
                             <div class="stack" data-scene-area>
                                 <div data-scenes></div>
                                 <div class="row row--between row--wrap">
@@ -1077,34 +1072,15 @@
                                 <button type="submit" class="btn btn--primary">Make the film</button>
                             </div>
                         </form>
-                    </div>
 
-                    <aside class="split__side" data-side="film"></aside>
-                </div>
-
-                <div class="split" data-film-form="promo" hidden>
-                    <div class="split__main">
-                        <form class="stack" data-job-form="promo" novalidate autocomplete="off">
+                        <form class="stack" data-job-form="promo" data-film-form="promo" novalidate autocomplete="off" hidden>
                             <section class="panel">
                                 <div class="panel__body">
+                                    <p class="text-sm text-muted">A promo video: the script is read aloud, the screen is recorded and everything is cut to the beat with music.</p>
                                     <div class="field">
                                         <label class="field__label" for="p-url">Page</label>
                                         <input class="input" id="p-url" name="url" maxlength="500" value="panel" placeholder="panel or https://example.com">
                                         <span class="field__hint">"panel": this panel, every scene shows one of its sections. Another address: the page is scrolled scene by scene.</span>
-                                    </div>
-                                    <div class="field">
-                                        <label class="field__label" for="p-brief">What should the promo say? <span class="tag-note tag-note--optional">optional</span></label>
-                                        <textarea class="textarea" id="p-brief" data-promo-brief rows="2" maxlength="2000" placeholder="Everything it can do, for content creators"></textarea>
-                                    </div>
-                                    <div class="form-grid">
-                                        <div class="field">
-                                            <label class="field__label" for="p-count">Number of scenes</label>
-                                            <input class="input input--mono" type="number" id="p-count" data-promo-count min="3" max="20" step="1" value="10">
-                                        </div>
-                                    </div>
-                                    <div class="form-actions">
-                                        <span class="text-sm text-muted" data-promo-write-status></span>
-                                        <button type="button" class="btn" data-promo-write>Write the script</button>
                                     </div>
                                 </div>
                             </section>
@@ -1183,7 +1159,7 @@
                         </form>
                     </div>
 
-                    <aside class="split__side" data-side="promo"></aside>
+                    <aside class="split__side" data-side="film"></aside>
                 </div>
             </div>
         </section>

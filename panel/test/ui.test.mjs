@@ -17,7 +17,7 @@ import { Browser, browserPath } from '../lib/browser.mjs';
 import { LocalLlm } from '../lib/llm.mjs';
 import { CATALOG } from '../lib/models.mjs';
 
-const SECTIONS = ['image', 'video', 'voice', 'music', 'edit', 'edit/image', 'edit/audio', 'edit/video', 'model3d', 'film', 'film/promo', 'gallery', 'training', 'settings'];
+const SECTIONS = ['image', 'video', 'voice', 'music', 'edit', 'edit/image', 'edit/audio', 'edit/video', 'model3d', 'film', 'gallery', 'training', 'settings'];
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const FAKE_LLM = fileURLToPath(new URL('./fake-llm.mjs', import.meta.url));
 const freePort = () => new Promise((ok) => {
@@ -929,10 +929,18 @@ test('UI chat: the answer being written is back with its text after switching se
   }
 });
 
-// 11.10.2026 (user): no Promo tab and no Edit tabs. Film makes a promo video too (#film/promo); Edit has one file card:
-// the kind of the given file shows its form, several videos go to the video form in order and are sent as "sources".
-test('UI without tabs: Film | Promo video choice; Edit shows the form of the uploaded file and sends several videos (headless browser)', { skip: browserPath() ? false : 'Edge/Chrome not found' }, async () => {
+// 11.10.2026 (user): no Promo tab and no Edit tabs. Film has one description and makes what it asks for ("Ayrı sekme
+// olmamalı demiştim. Tarif edileni yapmalı": a Film | Promo video choice was still there); Edit has one file card: the
+// kind of the given file shows its form, several videos go to the video form in order and are sent as "sources".
+test('UI without tabs: Film makes what the description asks for (a film or a promo, no choice); Edit shows the form of the uploaded file and sends several videos (headless browser)', { skip: browserPath() ? false : 'Edge/Chrome not found' }, async () => {
   const p = await createPanel({ server: true });
+  const described = [];
+  p.setting.filmKind = async ({ topic }) => {
+    described.push(topic);
+    return /tanıtım|promo/i.test(topic) ? { promo: true, page: 'panel' } : { promo: false, page: '' };
+  };
+  p.setting.promoWriter = async ({ brief, panel, count }) => ({ subtitle: 'Your own AI studio', brief, panel, count, scenes: [{ caption: 'Ask, it *builds*', narration: 'Ask for anything.', section: 'chat' }, { caption: 'Pictures', narration: 'Describe a picture.', section: 'image', demo: 'a red fox' }, { caption: 'All yours', narration: 'On your own computer.', section: 'gallery' }] });
+  p.setting.sceneWriter = async ({ sceneCount }) => ({ title: 'Little Fox', scenes: Array.from({ length: sceneCount }, (_, i) => ({ narration: `Narration ${i + 1}`, image: `image ${i + 1}`, motion: 'slow push in' })) });
   const t = new Browser({ height: 900 });
   const errors = [];
   const until = async (expression, ms = 15000) => {
@@ -966,14 +974,26 @@ test('UI without tabs: Film | Promo video choice; Edit shows the form of the upl
     await t.open();
     collectErrors(t, errors);
     await openEnglish(t, `${p.address}/#film`);
-    const film = () => t.evaluate(`({ film: !document.querySelector('[data-job-form="film"]').closest('[data-film-form]').hidden, promo: !document.querySelector('[data-job-form="promo"]').closest('[data-film-form]').hidden, checked: document.querySelector('[data-film-type] input:checked')?.value })`);
-    assert.deepEqual(await film(), { film: true, promo: false, checked: 'film' });
-    assert.equal(await t.evaluate(`Boolean(document.querySelector('[data-sub-tab="promo"], [data-section="promo"]'))`), false, 'no Promo tab or section');
-    await t.evaluate(`(() => { const r = document.querySelector('[data-film-type] input[value="promo"]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-    assert.ok(await until(`location.hash === '#film/promo'`), 'the choice is in the address');
-    assert.deepEqual(await film(), { film: false, promo: true, checked: 'promo' });
-    await t.evaluate(`location.hash = '#film'`);
-    assert.ok(await until(`!document.querySelector('[data-job-form="film"]').closest('[data-film-form]').hidden`), 'back to the film form');
+    const film = () => t.evaluate(`({ film: !document.querySelector('[data-job-form="film"]').hidden, promo: !document.querySelector('[data-job-form="promo"]').hidden })`);
+    assert.deepEqual(await film(), { film: true, promo: false });
+    assert.equal(await t.evaluate(`Boolean(document.querySelector('[data-sub-tab="promo"], [data-section="promo"], [data-film-type], [name="filmType"]'))`), false, 'no Promo tab, section or choice');
+    const write = (topic) => t.evaluate(`(() => { document.querySelector('#t-konu').value = ${JSON.stringify(topic)}; document.querySelector('#t-sahne-sayisi').value = '5'; document.querySelector('[data-scene-write]').click(); return true; })()`);
+    // a promo of the panel, described: its script and its form
+    await write('Bu panelin tanıtım videosu, içerik üreticileri için');
+    assert.ok(await until(`document.querySelectorAll('[data-promo-scene]').length === 3`), 'the promo script is in the promo form');
+    assert.deepEqual(await film(), { film: false, promo: true });
+    assert.deepEqual(JSON.parse(await t.evaluate(`JSON.stringify([document.querySelector('[data-job-form="promo"]').url.value, document.querySelector('[data-job-form="promo"]').subtitle.value, [...document.querySelectorAll('[data-promo-scene] [data-p="caption"]')].map((x) => x.value), document.querySelector('#t-konu').value])`)),
+      ['panel', 'Your own AI studio', ['Ask, it *builds*', 'Pictures', 'All yours'], '']);
+    await t.evaluate(`document.querySelector('[data-job-form="promo"] button[type="submit"]').click(); true`);
+    await p.waitForState(() => [...p.queue.jobs.values()].some((job) => job.type === 'promo'));
+    const promo = [...p.queue.jobs.values()].find((job) => job.type === 'promo');
+    assert.deepEqual(promo.input.scenes.map((x) => x.section), ['chat', 'image', 'gallery']);
+    p.queue.cancel?.(promo.id);
+    // a story: a film, its scenes in the film form
+    await write('A little fox lost in the forest finds its way home');
+    assert.ok(await until(`!document.querySelector('[data-job-form="film"]').hidden && document.querySelectorAll('[data-scene]').length === 5`), JSON.stringify(await film()));
+    assert.deepEqual(await film(), { film: true, promo: false });
+    assert.deepEqual(described, ['Bu panelin tanıtım videosu, içerik üreticileri için', 'A little fox lost in the forest finds its way home']);
 
     await t.evaluate(`location.hash = '#edit'`);
     await wait(300);
