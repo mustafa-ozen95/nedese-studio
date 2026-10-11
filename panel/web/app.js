@@ -108,16 +108,32 @@
         noServer: false,
     };
 
-    async function api(path, { method = 'GET', body, raw, type } = {}) {
+    // A text model answer asked again after a dropped connection: this many times, once the page is visible again
+    const ASK_AGAIN = 5;
+    const visible = () => (document.hidden ? new Promise((ok) => document.addEventListener('visibilitychange', function seen() {
+        if (document.hidden) return;
+        document.removeEventListener('visibilitychange', seen);
+        ok();
+    })) : Promise.resolve());
+
+    async function api(path, { method = 'GET', body, raw, type, once = false } = {}) {
         // Sunucu Türkçe döner; çeviriyi dil.js yapar (X-Panel-Dil: tr).
         const headers = { Accept: 'application/json', 'X-Panel': '1', 'X-Panel-Lang': 'en' };
         if (body !== undefined) headers['Content-Type'] = 'application/json';
         if (raw !== undefined) headers['Content-Type'] = type || 'application/octet-stream';
+        // once: the server answers the same request id once (lyrics, scenes, promo script); a phone switching to another
+        // app drops the connection, the page asks again with the id and gets the answer the text model already wrote.
+        if (once) headers['X-Request-Id'] = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
         let r;
-        try {
-            r = await fetch(path, { method: method, headers: headers, body: body !== undefined ? JSON.stringify(body) : raw });
-        } catch {
-            throw new Error('Cannot reach the panel server: the panel.bat window may have been closed.');
+        for (let attempt = 0; ; attempt++) {
+            try {
+                r = await fetch(path, { method: method, headers: headers, body: body !== undefined ? JSON.stringify(body) : raw });
+                break;
+            } catch {
+                if (!once || attempt >= ASK_AGAIN) throw new Error('Cannot reach the panel server: the panel.bat window may have been closed.');
+                await visible();
+                await new Promise((ok) => setTimeout(ok, 1000 * (attempt + 1)));
+            }
         }
         let j = {};
         try {
@@ -3253,7 +3269,7 @@
         button.disabled = true;
         statusText.textContent = 'Writing… (progress in Queue)';
         try {
-            const req = api('/api/write-scenes', { method: 'POST', body: { topic, sceneCount: $('[data-scene-count]', filmPage).value, ratio: filmForm.ratio.value, speech: $('[data-speech]', filmPage)?.checked !== false, lang: filmForm.lang?.value } });
+            const req = api('/api/write-scenes', { method: 'POST', once: true, body: { topic, sceneCount: $('[data-scene-count]', filmPage).value, ratio: filmForm.ratio.value, speech: $('[data-speech]', filmPage)?.checked !== false, lang: filmForm.lang?.value } });
             // Yazim Kuyruk'ta yan gorev olarak gorunur (ilerleme, Iptal): durum hemen yoklanir
             setTimeout(pollStatus, 400);
             const j = await req;
@@ -3452,7 +3468,7 @@
         button.disabled = true;
         statusText.textContent = 'Writing… (10-30 s)';
         try {
-            const j = await api('/api/write-lyrics', { method: 'POST', body: { topic, style, lang: musicForm.lang.value, duration: musicForm.duration.value } });
+            const j = await api('/api/write-lyrics', { method: 'POST', once: true, body: { topic, style, lang: musicForm.lang.value, duration: musicForm.duration.value } });
             musicForm.lyrics.value = j.lyrics;
             musicForm.lyrics.dispatchEvent(new Event('input', { bubbles: true }));
             notify(j.message, 'success');

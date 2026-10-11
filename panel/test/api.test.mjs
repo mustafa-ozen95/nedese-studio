@@ -358,6 +358,57 @@ test('lyric writer: prompt asks for sections by duration, response is tagged, AP
   }
 });
 
+test('UI lyric writing: the headers go before the text model answers, spaces keep the request alive, errors in the body', async () => {
+  const p = await createPanel({ server: true });
+  try {
+    p.setting.keepAlive = 20;
+    let headersSeen;
+    const seen = new Promise((ok) => (headersSeen = ok));
+    // the fake writer answers only after the browser has the headers (a phone gave up after a minute without them)
+    p.setting.lyricWriter = async () => {
+      const early = await Promise.race([seen.then(() => true), new Promise((ok) => setTimeout(() => ok(false), 2000))]);
+      await new Promise((ok) => setTimeout(ok, 100));
+      return { lyrics: early ? '[verse]\nmerhaba' : 'headers came only with the answer' };
+    };
+    const u = new URL(p.address);
+    const headers = { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Panel': '1' };
+    const body = await new Promise((ok, red) => {
+      const r = request({ host: u.hostname, port: u.port, path: '/api/write-lyrics', method: 'POST', headers }, (y) => {
+        assert.equal(y.statusCode, 200);
+        headersSeen();
+        const parts = [];
+        y.on('data', (c) => parts.push(c));
+        y.on('end', () => ok(Buffer.concat(parts).toString('utf8')));
+      });
+      r.on('error', red);
+      r.end(JSON.stringify({ topic: 'Züre', lang: 'tr', duration: 60 }));
+    });
+    assert.match(body, /^ +\{/, 'spaces before the JSON');
+    assert.equal(JSON.parse(body).lyrics, '[verse]\nmerhaba');
+    const bad = await req(p.address, '/api/write-lyrics', { method: 'POST', headers, body: '{}' });
+    assert.equal(bad.code, 200);
+    assert.equal(bad.json.ok, false);
+    assert.match(bad.json.error, /^Write a topic or a style for the lyrics\./);
+    // the same request id asked again (the phone's connection dropped): the answer once, the writer not run twice
+    let written = 0;
+    p.setting.lyricWriter = async () => {
+      written++;
+      await new Promise((ok) => setTimeout(ok, 100));
+      return { lyrics: `[verse]\nwritten ${written}` };
+    };
+    const again = { ...headers, 'X-Request-Id': 'm1x2-abc123' };
+    const lyrics = JSON.stringify({ topic: 'Züre', lang: 'tr', duration: 60 });
+    const [first, second] = await Promise.all([req(p.address, '/api/write-lyrics', { method: 'POST', headers: again, body: lyrics }), req(p.address, '/api/write-lyrics', { method: 'POST', headers: again, body: lyrics })]);
+    const late = await req(p.address, '/api/write-lyrics', { method: 'POST', headers: again, body: lyrics });
+    assert.deepEqual([first.json.lyrics, second.json.lyrics, late.json.lyrics], ['[verse]\nwritten 1', '[verse]\nwritten 1', '[verse]\nwritten 1']);
+    assert.equal(written, 1);
+    const other = await req(p.address, '/api/write-lyrics', { method: 'POST', headers: { ...headers, 'X-Request-Id': 'm1x2-def456' }, body: lyrics });
+    assert.equal(other.json.lyrics, '[verse]\nwritten 2');
+  } finally {
+    await p.close();
+  }
+});
+
 test('PATCH /jobs/{id}: a new name for the cards (list, details, job record, database); empty name 400, unknown job 404', async () => {
   const p = await createPanel({ server: true });
   try {

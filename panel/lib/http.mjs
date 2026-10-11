@@ -57,6 +57,10 @@ const TYPES = {
 };
 
 const SAFE = /^[\w.-]+$/;
+// The UI routes that wait on the text model: the response is kept alive with a space every KEEP_ALIVE ms (keptAlive)
+const TEXT_MODEL = { keepAlive: true };
+const KEEP_ALIVE = 10_000;
+const ANSWER_KEPT = 10 * 60_000;
 
 export function createPanelServer({ setting, queue, comfy, mod, settingFile = null, downloader = null, llm = null, updater = null, restart = null }) {
   let port = setting.port;
@@ -95,14 +99,33 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
     ['POST', /^\/api\/model\/upload$/, async (req, url) => ({ ok: true, ...(await h.load3dModel(req, url.searchParams.get('name'))) })],
     ['POST', /^\/api\/data\/upload$/, async (req, url) => ({ ok: true, ...(await h.loadData(req, url.searchParams.get('name'))) })],
     ['POST', /^\/api\/music\/upload$/, async (req, url) => ({ ok: true, ...(await h.loadMusic(req, url.searchParams.get('name'))) })],
-    ['POST', /^\/api\/write-scenes$/, async (req) => ({ ok: true, ...(await h.writeScene(await readJson(req))) })],
+    ['POST', /^\/api\/write-scenes$/, async (req) => ({ ok: true, ...(await h.writeScene(await readJson(req))) }), TEXT_MODEL],
     ['POST', /^\/api\/task\/([\w-]+)\/cancel$/, async (_i, _u, [id]) => ({ ok: true, ...h.cancelTask(id) })],
-    ['POST', /^\/api\/write-lyrics$/, async (req) => ({ ok: true, ...(await h.writeLyric(await readJson(req))) })],
-    ['POST', /^\/api\/write-promo$/, async (req) => ({ ok: true, ...(await h.writePromoScript(await readJson(req))) })],
+    ['POST', /^\/api\/write-lyrics$/, async (req) => ({ ok: true, ...(await h.writeLyric(await readJson(req))) }), TEXT_MODEL],
+    ['POST', /^\/api\/write-promo$/, async (req) => ({ ok: true, ...(await h.writePromoScript(await readJson(req))) }), TEXT_MODEL],
     ['POST', /^\/api\/voices\/upload$/, async (req, url) => ({ ok: true, ...(await h.loadVoice(req, url.searchParams.get('name'), url.searchParams.get('voiceName'))) })],
     ['POST', /^\/api\/voices\/([\w-]+)\/delete$/, async (_i, _u, [id]) => ({ ok: true, ...(await h.deleteVoice(id)), retval: 'voice' })],
     ['POST', /^\/api\/comfy\/start$/, async () => ({ ok: true, ...(await h.startComfy()) })],
   ];
+
+  /**
+   * The answers of the text model routes by the request id the UI sends (X-Request-Id), kept ANSWER_KEPT ms: the
+   * UI asks again with the same id when its connection dropped and gets the running or finished answer, the text
+   * model does not write it twice. A phone that switched to another app while the lyrics were written lost the
+   * connection (11.10.2026): the lyrics were written in 15 s, the phone showed "Cannot reach the panel server".
+   */
+  const answers = new Map();
+  function answerOnce(id, run) {
+    const now = Date.now();
+    for (const [key, answer] of answers) if (now - answer.at > ANSWER_KEPT) answers.delete(key);
+    let answer = answers.get(id);
+    if (!answer) {
+      answer = { promise: run(), at: now };
+      answer.promise.catch(() => {});
+      answers.set(id, answer);
+    }
+    return answer.promise;
+  }
 
   function keyCorrect(req) {
     const b = String(req.headers.authorization ?? '');
@@ -493,7 +516,7 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
         return;
       }
     }
-    for (const [method, pattern, handler] of routes) {
+    for (const [method, pattern, handler, options] of routes) {
       if (method !== req.method) continue;
       const m = pattern.exec(path);
       if (!m) continue;
@@ -505,6 +528,12 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
         /application\/json/.test(req.headers['content-type'] ?? '') ||
         xPanel ||
         withKey;
+      if (options?.keepAlive && jsonWants) {
+        const run = () => handler(req, url, m.slice(1));
+        const id = String(req.headers['x-request-id'] ?? '');
+        await keptAlive(response, SAFE.test(id) && id.length <= 64 ? () => answerOnce(id, run) : run, setting.keepAlive ?? KEEP_ALIVE, errorCode);
+        return;
+      }
       try {
         const result = await handler(req, url, m.slice(1));
         if (jsonWants) json(response, 200, result);
@@ -633,6 +662,28 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
 function write(response, code, type, text) {
   response.writeHead(code, { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff' });
   response.end(text);
+}
+
+/**
+ * A UI request that waits on the text model (loading it took 59 s, the lyrics another 42 s): the headers go at once
+ * and a space every `interval` ms until the JSON (leading whitespace is valid JSON). A phone's browser gave up on a
+ * request with no response for about a minute: "Write lyrics" failed with "Cannot reach the panel server" although
+ * the lyrics were written (11.10.2026). The status is 200 either way, an error is { ok: false, error }.
+ */
+async function keptAlive(response, run, interval, errorCode) {
+  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+  response.flushHeaders();
+  const timer = setInterval(() => response.write(' '), interval);
+  let data;
+  try {
+    data = await run();
+  } catch (e) {
+    if (errorCode(e)[0] === 500) console.error(e);
+    data = { ok: false, error: friendlyError(e).message };
+  } finally {
+    clearInterval(timer);
+  }
+  response.end(JSON.stringify(translateData(data, response.req ? requestLanguage(response.req) : 'en')));
 }
 
 function json(response, code, data) {
