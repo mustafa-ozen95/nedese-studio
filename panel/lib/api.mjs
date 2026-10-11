@@ -142,12 +142,24 @@ export const JOB_TYPES = {
   },
   audioEdit: {
     name: 'Edit audio',
-    description: "Edits the given audio (or a video's sound) from a Turkish instruction. The instruction is turned into a list of operations (local text model) applied in order: cut, speed, pitch, noise removal, silence trimming, loudness, volume, echo, fades, converting to another library voice. A song described in another style (\"make it lo-fi\") goes on as Edit song, one to be sung in a library voice (\"sing it in Ada's voice\") as Sing in a voice: the job takes that type. The plan is in the job log; requests that cannot be done come back as a warning.",
+    description: "Edits the given audio (or a video's sound) from a Turkish instruction. The instruction is turned into a list of operations (local text model) applied in order: cut, speed, pitch, noise removal, silence trimming, loudness, volume, echo, fades, converting to another library voice. A song described in another style (\"make it lo-fi\") goes on as Edit song, one to be sung in a library voice (\"sing it in Ada's voice\") as Sing in a voice, one asked for as a video with a cover (\"make an mp4 with a cover for WhatsApp\") as Song with a cover: the job takes that type. The plan is in the job log; requests that cannot be done come back as a warning.",
     fields: [
       { name: 'source', type: 'string', required: true, description: 'Audio or video: "upload/…" (POST /uploads/record) or "job/<id>/<file>".' },
       { name: 'instruction', type: 'string', required: true, description: 'What to do (Turkish).' },
     ],
     example: { type: 'audioEdit', source: 'upload/20261004-120000-kayit-ses.m4a', instruction: 'Cut the first 3 seconds, clean up the noise, speed it up a bit' },
+  },
+  coverVideo: {
+    name: 'Song with a cover',
+    description: 'A video (MP4, 1080×1080, H.264 + AAC) of a song or any audio over a still square cover picture, to send where only videos play (WhatsApp, Instagram, YouTube). The cover is the given picture (cropped to a square from the centre), else drawn by the image model from prompt, else from the song\'s own style, title and lyrics. Outputs: cover.mp4 and the drawn cover.png. Also reached from Edit audio with an instruction such as "make an mp4 with a cover".',
+    fields: [
+      { name: 'source', type: 'string', required: true, description: 'Song or audio: "upload/…" (POST /uploads/record) or "job/<id>/<file>" (e.g. music.mp3 from the gallery).' },
+      { name: 'picture', type: 'string', required: false, description: 'Cover picture (PNG/JPEG/WebP; "upload/…" or "job/<id>/<file>"); empty: one is drawn.' },
+      { name: 'prompt', type: 'string', required: false, description: 'What the drawn cover shows (English works best); empty: from the song.' },
+      { name: 'title', type: 'string', required: false, description: 'Short name shown on the job, gallery and chat cards (at most 120 characters).' },
+      { name: 'seed', type: 'integer', required: false, description: 'Seed of the cover picture.' },
+    ],
+    example: { type: 'coverVideo', source: 'job/20261004-010613-music-5e4c/music.mp3', prompt: 'A lone woman under a streetlight on a rainy night, warm melancholic colours' },
   },
   videoEdit: {
     name: 'Edit video',

@@ -72,7 +72,7 @@
         return `${iki(t.getDate())}.${iki(t.getMonth() + 1)} ${iki(t.getHours())}:${iki(t.getMinutes())}`;
     }
 
-    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', beatEdit: 'Beat cut', replace: 'Replace a person', promo: 'Promo video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
+    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', beatEdit: 'Beat cut', replace: 'Replace a person', coverVideo: 'Song with a cover', promo: 'Promo video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
     // Is turu adi: once arayuzun bildigi (cevrilebilir), yoksa sunucunun gonderdigi, o da yoksa "İş".
     const typeName = (job) => TYPE_NAME[job?.type] ?? job?.typeName ?? 'Job';
     const STATUS_NAME = {
@@ -939,7 +939,7 @@
     }
 
     // A section's Recent panel holds every job type made there (an edit's description may hand it over to another type)
-    const LAST_GROUPS = { edit: ['edit', 'audioEdit', 'videoEdit', 'song', 'sing', 'beatEdit', 'replace'], film: ['film', 'promo'] };
+    const LAST_GROUPS = { edit: ['edit', 'audioEdit', 'videoEdit', 'song', 'sing', 'coverVideo', 'beatEdit', 'replace'], film: ['film', 'promo'] };
 
     function renderLast(type, jobs) {
         const container = $(`[data-last="${type}"]`);

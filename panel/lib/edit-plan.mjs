@@ -3,7 +3,7 @@
  * a list of the allowed operations (the local text model). The answer is checked:
  * an unknown operation is dropped, numbers are limited. Applied with ffmpeg (jobs/audio-edit.mjs, jobs/video-edit.mjs).
  * The operation and field names in the prompt are the names the plan keeps (steps / operation / start ...).
- * Some operations are another job type's work (restyle, sing, beatCut: HANDOVER): such a plan holds only that step and
+ * Some operations are another job type's work (restyle, sing, coverVideo, beatCut: HANDOVER): such a plan holds only that step and
  * the edit job hands itself over to that type.
  */
 import { UserError } from './errors.mjs';
@@ -46,6 +46,10 @@ const VOICE_OPERATIONS = {
     description: 'sing {voice, octave}: ONLY when the file is a song with vocals: the song is sung again in a library voice (melody, words and instruments stay; changeVoice is for speech); voice = one of the ids below; octave -12 | 0 | 12, omit for automatic. Only if singAvailable is true',
     validate: (a, b) => (b.canSing && b.voices?.some((s) => s.id === a.voice) ? { voice: a.voice, octave: [-12, 0, 12].includes(Number(a.octave)) && a.octave !== null && a.octave !== '' ? Number(a.octave) : null } : null),
   },
+  coverVideo: {
+    description: 'coverVideo {prompt}: make a video (MP4) of the audio over a still square cover picture, to share where only videos play (WhatsApp, Instagram, YouTube; "kapaklı mp4", "videoya çevir"); prompt = one English sentence describing the cover picture from the user\'s words and the song (its style, title and lyrics in File.song when given): subject, mood, colours; text on the cover only if the user asks for it. Only if coverAvailable is true',
+    validate: (a, b) => (b.canCover ? { prompt: typeof a.prompt === 'string' && a.prompt.trim() ? a.prompt.trim().slice(0, 1000) : null } : null),
+  },
 };
 
 const VIDEO_OPERATIONS = {
@@ -86,7 +90,7 @@ const VIDEO_OPERATIONS = {
 };
 
 /** The operations that are another job type's work: the plan keeps only that step. */
-export const HANDOVER = new Set(['restyle', 'sing', 'beatCut', 'replacePerson']);
+export const HANDOVER = new Set(['restyle', 'sing', 'coverVideo', 'beatCut', 'replacePerson']);
 
 export const OPERATIONS = { voice: VOICE_OPERATIONS, video: VIDEO_OPERATIONS };
 
