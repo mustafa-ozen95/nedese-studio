@@ -6,8 +6,8 @@ The input picture projected onto the front of a Pixal3D model (Blender, no windo
   front, its horizontal field of view estimated by MoGe-2. Its colours are decoded from a voxel grid, small details of a
   full-body figure are lost: a woman's eyes came out white, without irises (11.10.2026). The picture is projected back
   onto the surfaces the camera sees and blended into the base colour texture.
-- Each texel's position and normal are baked (Cycles, emission), its visibility with a light at the camera (a diffuse
-  bake with the normal maps off: cosine x shadow). The weight falls off where the surface turns away from the camera,
+- Each texel's position and normal are baked (Cycles, emission), its visibility with a light at the camera (a plain
+  white diffuse surface baked: cosine x shadow). The weight falls off where the surface turns away from the camera,
   the generated colours stay at the sides and the back.
 - The models are written back in place, their other maps unchanged.
 - The result is printed on the last line as "RESULT {json}" (models: [{file, size, share, seconds} or {file, skipped}]).
@@ -113,18 +113,25 @@ def bake_geometry(body, size, socket):
 
 
 def bake_light(body, size):
-    """The direct diffuse light from the camera per texel, the normal maps off (cosine x shadow)."""
+    """The direct diffuse light from the camera per texel (cosine x shadow): the surface is a plain white diffuse
+    BSDF while it bakes. With the model's own material (its metallic map, normal map) texels the camera sees got no
+    diffuse light: the black rings Pixal3D generated around a woman's eyes (11.10.2026) were taken as hidden and
+    stayed as black shards."""
     tree = body.active_material.node_tree
-    cut = [(l.from_socket, l.to_socket) for l in tree.links if l.to_socket.name == 'Normal']
-    for link in [l for l in tree.links if l.to_socket.name == 'Normal']:
-        tree.links.remove(link)
+    outputs = [n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL']
+    output = next((n for n in outputs if n.is_active_output), outputs[0])
+    surface = next((l.from_socket for l in tree.links if l.to_node == output and l.to_socket.name == 'Surface'), None)
+    diffuse = tree.nodes.new('ShaderNodeBsdfDiffuse')
+    diffuse.inputs['Color'].default_value = (1, 1, 1, 1)
+    tree.links.new(diffuse.outputs['BSDF'], output.inputs['Surface'])
     bake = bpy.context.scene.render.bake
     bake.use_pass_direct, bake.use_pass_indirect, bake.use_pass_color = True, False, False
     try:
         return bake_into(body, size, lambda: bpy.ops.object.bake(type='DIFFUSE', pass_filter={'DIRECT'}))[..., 0]
     finally:
-        for a, b in cut:
-            tree.links.new(a, b)
+        if surface is not None:
+            tree.links.new(surface, output.inputs['Surface'])
+        tree.nodes.remove(diffuse)
 
 
 def project(body, node, photo, mask, distance):
