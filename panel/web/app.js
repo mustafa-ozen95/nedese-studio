@@ -2225,8 +2225,11 @@
                 ...(i ? [el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-video-up': i, title: 'Move up', 'aria-label': 'Move up', text: '↑' })] : []),
                 el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-video-remove': i, text: 'Remove' })))));
         const watch = $('[data-video-edit-watch]', videoEditForm);
-        const url = list[0]?.url;
+        // the first frame shows before it plays: the preview picture, else #t (Safari draws no frame without it)
+        const url = list[0]?.url ? (list[0].poster ? list[0].url : `${list[0].url}#t=0.1`) : '';
         watch.hidden = !url;
+        if (list[0]?.poster) watch.poster = list[0].poster;
+        else watch.removeAttribute('poster');
         if (!url) watch.removeAttribute('src');
         else if (watch.getAttribute('src') !== url) watch.src = url;
         saveDraft();
@@ -2234,7 +2237,7 @@
 
     function addEditVideo(v) {
         if (!v?.source) return;
-        if (!status.editVideos.some((x) => x.source === v.source)) status.editVideos.push({ source: v.source, name: v.name ?? '', url: v.url ?? '' });
+        if (!status.editVideos.some((x) => x.source === v.source)) status.editVideos.push({ source: v.source, name: v.name ?? '', url: v.url ?? '', poster: v.poster ?? '' });
         renderEditVideos();
         editKindApply('video');
     }
@@ -2655,6 +2658,7 @@
         const both = pickerType === 'editMedia';
         const videoMu = pickerType === 'videoEdit' || pickerType === 'model3d' || both;
         $('#voice-picker-title').textContent = both ? 'Pick audio or a video from the gallery' : videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
+        $('[data-voice-picker-note]', voicePicker).textContent = both ? 'Videos and films, music and voice-overs, and your uploads.' : videoMu ? 'Videos, films, edited videos and uploaded videos.' : 'Generated music, voice-overs and uploaded music.';
         const list = $('[data-voice-picker-list]', voicePicker);
         list.replaceChildren(el('p', { class: 'text-sm text-muted', text: 'Loading…' }));
         try {
@@ -2664,7 +2668,7 @@
                 const [v, t, d, b, y] = await Promise.all([api('/api/v1/gallery?type=video'), api('/api/v1/gallery?type=film'), api('/api/v1/gallery?type=videoEdit'), api('/api/v1/gallery?type=beatEdit'), api('/api/v1/uploads')]);
                 for (const job of [...v.gallery, ...t.gallery, ...d.gallery, ...b.gallery]) {
                     const c = job.outputs.find((x) => x.type === 'video');
-                    if (c) items.push({ source: c.source, url: c.url, name: job.title, type: 'Video', duration: c.duration, dateText: job.creation, video: true });
+                    if (c) items.push({ source: c.source, url: c.url, poster: c.previewUrl ?? null, name: job.title, type: job.type === 'film' ? 'Film' : 'Video', duration: c.duration, dateText: job.creation, video: true });
                 }
                 for (const x of y.uploads.filter((x) => x.type === 'record' && /.(mp4|mov|mkv|webm|avi|m4v|3gp)$/i.test(x.source))) items.push({ source: x.source, url: x.url, name: x.name, type: 'Uploaded', video: true });
                 // Edit's file card: the sounds after the videos
@@ -2706,13 +2710,23 @@
                 el('p', { class: 'empty__title', text: 'No audio' }),
                 el('p', { class: 'empty__text', text: 'Generate some in the Music or Voice section first.' })));
         } else {
-            list.replaceChildren(...d.items.map((o) => el('div', { class: 'voice-picker__row' },
-                el('div', { class: 'row row--between' },
+            // Videos are tiles with their picture (a tap picks one); sounds are rows with a player and Select
+            const meta = (o) => [o.type, o.duration ? `${number(o.duration)} s` : null].filter(Boolean).join(' · ');
+            const videos = d.items.filter((o) => o.video);
+            list.replaceChildren(
+                ...(videos.length ? [el('div', { class: 'picker' }, ...videos.map((o) => el('button', { type: 'button', class: 'picker__item', title: o.name || '', 'data-voice-select-item': JSON.stringify(o) },
+                    el('span', { class: 'picker__thumb' },
+                        // an upload has no preview picture: its first frame (#t: Safari draws no frame for preload alone)
+                        o.poster ? el('img', { src: o.poster, alt: '', loading: 'lazy' }) : el('video', { src: `${o.url}#t=0.1`, preload: 'metadata', muted: true, playsinline: true }),
+                        o.duration ? el('span', { class: 'media__badge', text: `${number(o.duration)} s` }) : null),
+                    el('span', { class: 'truncate', translate: 'no', text: o.name || '—' }),
+                    el('span', { class: 'text-sm text-muted', text: o.type }))))] : []),
+                ...d.items.filter((o) => !o.video).map((o) => el('div', { class: 'voice-picker__row' },
                     el('span', { class: 'line-title truncate', translate: 'no', title: o.name, text: o.name || '—' }),
-                    el('span', { class: 'code', text: [o.type, o.duration ? `${number(o.duration)} s` : null].filter(Boolean).join(' · ') })),
-                el('div', { class: 'row' },
-                    o.video ? el('video', { controls: true, preload: 'metadata', playsinline: true, class: 'picker-video', src: o.url }) : el('audio', { controls: true, preload: 'none', src: o.url }),
-                    el('button', { type: 'button', class: 'btn btn--sm btn--primary', 'data-voice-select-item': JSON.stringify(o), text: 'Select' })))));
+                    el('span', { class: 'text-sm text-muted', text: meta(o) }),
+                    el('div', { class: 'row' },
+                        el('audio', { controls: true, preload: 'none', src: o.url }),
+                        el('button', { type: 'button', class: 'btn btn--sm btn--primary', 'data-voice-select-item': JSON.stringify(o), text: 'Select' })))));
         }
         const nav = pagination(d, (n) => {
             status.voicePickerPage = n;
@@ -2729,7 +2743,7 @@
         if (target === 'music') {
             configureMusic({ source: o.source, name: o.name });
         } else if (target === 'editMedia' || target === 'videoEdit') {
-            if (o.video) addEditVideo({ source: o.source, name: o.name, url: o.url });
+            if (o.video) addEditVideo({ source: o.source, name: o.name, url: o.url, poster: o.poster });
             else configureFileField('audioEdit', { source: o.source, name: o.name, url: o.url });
         } else if (target === 'model3d') {
             configureM3Video({ source: o.source, name: o.name, url: o.url });

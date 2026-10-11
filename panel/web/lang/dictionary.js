@@ -1299,6 +1299,8 @@ globalThis.NedeseDictionary = {
         "Image from gallery": "Galeriden görsel",
         "Audio or video from gallery": "Galeriden ses ya da video",
         "Pick audio or a video from the gallery": "Galeriden ses ya da video seç",
+        "Videos and films, music and voice-overs, and your uploads.": "Videolar ve filmler, müzikler ve seslendirmeler, yüklediklerin.",
+        "Videos, films, edited videos and uploaded videos.": "Videolar, filmler, düzenlenmiş ve yüklenmiş videolar.",
         "Not an image, a sound or a video: {0}": "Görsel, ses ya da video değil: {0}",
         "What to make": "Ne yapılacak",
         "An image, a sound or a video (several videos are cut together to the beat). Then write what should change.": "Bir görsel, ses ya da video (birden çok video ritme göre birlikte kesilir). Sonra neyin değişeceğini yazın.",

@@ -238,7 +238,7 @@ export async function run(ctx) {
   if (plan.impossible) ctx.log(`Not possible: ${plan.impossible}`);
   const first = plan.steps[0];
   if (first.operation === 'beatCut') {
-    ctx.handOver('beatEdit', { sources: g.sources ?? [g.source], music: g.music ? 'file' : 'made', musicFile: g.music, size: first.size, pace: first.pace, length: first.length });
+    ctx.handOver('beatEdit', { sources: g.sources ?? [g.source], music: g.music ? 'file' : 'made', musicFile: g.music, size: first.size, pace: first.pace, length: first.length, title: g.instruction.slice(0, 120) });
   }
 
   // 2. The passes: filter steps in a row in one ffmpeg pass (a retry skips a finished pass)

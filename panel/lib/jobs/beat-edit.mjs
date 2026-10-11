@@ -57,12 +57,14 @@ export function validate(g, { mod, setting }) {
     // 0: as long as the videos (at most 30 s) or the music
     length: number(g.length, 'Length', { min: 0, max: 180, defaultValue: 0 }),
     seed: seed(g.seed),
+    // an edit handed over by its description keeps the description as its title
+    title: text(g.title, 'Title', { required: false, max: 120 }) || null,
   };
 }
 
 export function summary(g) {
   const n = g.sources.length;
-  return { title: 'Beat cut', detail: [n === 1 ? '1 video' : `${n} videos`, g.size === 'source' ? 'source size' : g.size, { made: 'beat music', generate: 'music model', file: 'your music' }[g.music], { calm: 'calm', medium: 'medium pace', fast: 'fast' }[g.pace]].join(' · ') };
+  return { title: g.title || 'Beat cut', detail: [n === 1 ? '1 video' : `${n} videos`, g.size === 'source' ? 'source size' : g.size, { made: 'beat music', generate: 'music model', file: 'your music' }[g.music], { calm: 'calm', medium: 'medium pace', fast: 'fast' }[g.pace]].join(' · ') };
 }
 
 /** Width, height (as shown: a phone's rotation counted) and length of a video. */

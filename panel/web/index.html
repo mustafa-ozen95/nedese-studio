@@ -155,7 +155,7 @@
                                         <span class="text-sm text-muted" data-video-edit-name>No video selected</span>
                                     </div>
                                     <div class="stack" data-video-edit-list></div>
-                                    <video controls preload="none" playsinline class="edit-video" data-video-edit-watch hidden></video>
+                                    <video controls preload="metadata" playsinline class="edit-video" data-video-edit-watch hidden></video>
                                     <span class="field__hint">Add more videos to cut them together to the beat of music.</span>
                                 </div>
                                 <div class="field">
@@ -2255,7 +2255,7 @@
         <header class="modal__header">
             <div>
                 <h2 class="modal__title" id="voice-picker-title">Choose audio from gallery</h2>
-                <p class="text-sm text-muted">Generated music, voice-overs and uploaded music.</p>
+                <p class="text-sm text-muted" data-voice-picker-note>Generated music, voice-overs and uploaded music.</p>
             </div>
             <button type="button" class="modal__close" data-modal-close aria-label="Close">×</button>
         </header>

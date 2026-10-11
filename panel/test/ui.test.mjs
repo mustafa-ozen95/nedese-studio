@@ -929,6 +929,21 @@ test('UI without tabs: Film | Promo video choice; Edit shows the form of the upl
     assert.deepEqual(asked, [['cut them to the beat for Reels', 2]]);
     assert.equal(done.type, 'beatEdit');
     assert.ok(await until(`Boolean(document.querySelector('[data-side="edit"] [data-last="edit"] [data-preview="${job.id}"]'))`), 'the montage is in the recent edits');
+
+    // 11.10.2026 (user, phone): the gallery picker showed every video as a black box with a play button in a long row.
+    // Now a video is a tile with its picture (the preview image; an upload's first frame) and a tap picks it.
+    await t.evaluate(`document.querySelector('[data-voice-picker="editMedia"]').click(); true`);
+    assert.ok(await until(`document.querySelectorAll('#modal-voice-picker .picker__item').length >= 3`), 'the montage and the two uploads are tiles');
+    const tiles = await t.evaluate(`[...document.querySelectorAll('#modal-voice-picker .picker__item')].map((b) => ({ name: b.querySelector('.truncate').textContent, img: b.querySelector('.picker__thumb img')?.getAttribute('src') ?? null, frame: b.querySelector('.picker__thumb video')?.getAttribute('src') ?? null, controls: Boolean(b.querySelector('video[controls]')) }))`);
+    const montage = tiles.find((x) => x.img);
+    assert.ok(montage && /\.jpg$/.test(montage.img), `the montage shows its preview picture: ${JSON.stringify(tiles)}`);
+    assert.equal(montage.name, 'cut them to the beat for Reels', 'the handed over edit keeps its description as its title');
+    assert.ok(tiles.filter((x) => x.frame).every((x) => /\.mp4#t=0\.1$/.test(x.frame)), 'an upload shows its first frame');
+    assert.ok(tiles.every((x) => !x.controls), 'no player in a tile');
+    assert.equal(await t.evaluate(`document.querySelector('[data-voice-picker-note]').textContent`), 'Videos and films, music and voice-overs, and your uploads.');
+    assert.ok(await t.evaluate(`document.querySelector('#modal-voice-picker .voice-picker__row [data-voice-select-item]') !== null`), 'the sound is a row with Select');
+    await t.evaluate(`document.querySelector('#modal-voice-picker .picker__item').click(); true`);
+    assert.ok(await until(`document.querySelector('#modal-voice-picker').hidden`), 'a tap picks the video and closes the window');
     assert.deepEqual(errors, []);
   } finally {
     await t.close();
