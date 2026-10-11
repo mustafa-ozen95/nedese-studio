@@ -28,7 +28,6 @@ export const PROMO_SIZES = ['desktop', 'phone'];
 export const MUSIC_MODES = ['made', 'generate', 'none'];
 // the music model's style when none is given (instrumental, steady, the tempo is given separately)
 const DEFAULT_STYLE = 'modern upbeat electronic pop, punchy drums, bright synths, driving bass, instrumental, energetic product commercial';
-const RADIO = (v) => `[data-edit-type] label:has(input[value="${v}"])`;
 
 /**
  * What a section of this panel shows (phone: the video is a phone's): steps of the page video without captions (the
@@ -60,17 +59,15 @@ export const PANEL_SECTIONS = {
     { do: 'hover', target: '[data-last="film"] .media', seconds: 2 },
   ] },
   edit: { about: 'Edit: change an image with one sentence', steps: ({ demo }) => [
-    { do: 'open', url: '#edit', seconds: 1 },
-    { do: 'click', target: RADIO('image'), seconds: 0.6 },
+    { do: 'open', url: '#edit/image', seconds: 1.6 },
     { do: 'type', target: '[data-job-form="edit"] [name="prompt"]', text: demo || 'Turn the sky into a sunset' },
   ] },
-  song: { about: 'Song edit: give a song a new style', steps: () => [
-    { do: 'open', url: '#edit', seconds: 0.8 },
-    { do: 'click', target: RADIO('song'), seconds: 1.6 },
+  song: { about: 'Song edit: give a song a new style or sing it in your voice', steps: ({ demo }) => [
+    { do: 'open', url: '#edit/audio', seconds: 1.4 },
+    { do: 'type', target: '[data-job-form="audioEdit"] [name="instruction"]', text: demo || 'Make it lo-fi with soft piano' },
   ] },
   videoEdit: { about: 'Audio and video edit: cut and shape a recording or a video with words', steps: ({ demo }) => [
-    { do: 'open', url: '#edit', seconds: 0.8 },
-    { do: 'click', target: RADIO('video'), seconds: 1 },
+    { do: 'open', url: '#edit/video', seconds: 1.8 },
     { do: 'type', target: '[data-job-form="videoEdit"] [name="instruction"]', text: demo || 'Make it vertical, add a caption' },
   ] },
   model3d: { about: '3D: a 3D model from an image, turned around, an STL for a 3D printer', jobs: 'model3d', steps: ({ phone }) => [

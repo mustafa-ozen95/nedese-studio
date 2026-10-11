@@ -142,7 +142,7 @@ export const JOB_TYPES = {
   },
   audioEdit: {
     name: 'Edit audio',
-    description: "Edits the given audio (or a video's sound) from a Turkish instruction. The instruction is turned into a list of operations (local text model) applied in order: cut, speed, pitch, noise removal, silence trimming, loudness, volume, echo, fades, converting to another library voice. The plan is in the job log; requests that cannot be done come back as a warning.",
+    description: "Edits the given audio (or a video's sound) from a Turkish instruction. The instruction is turned into a list of operations (local text model) applied in order: cut, speed, pitch, noise removal, silence trimming, loudness, volume, echo, fades, converting to another library voice. A song described in another style (\"make it lo-fi\") goes on as Edit song, one to be sung in a library voice (\"sing it in Ada's voice\") as Sing in a voice: the job takes that type. The plan is in the job log; requests that cannot be done come back as a warning.",
     fields: [
       { name: 'source', type: 'string', required: true, description: 'Audio or video: "upload/…" (POST /uploads/record) or "job/<id>/<file>".' },
       { name: 'instruction', type: 'string', required: true, description: 'What to do (Turkish).' },
@@ -151,9 +151,10 @@ export const JOB_TYPES = {
   },
   videoEdit: {
     name: 'Edit video',
-    description: 'Edits the given video from a Turkish instruction (ffmpeg): cut, speed/slow motion, rotate, mirror, vertical/square crop, size, mute/lower sound, add text, colour, black and white, fade, reverse, frame rate; adds music if muzik is given. The plan is in the job log; requests that cannot be done come back as a warning.',
+    description: 'Edits the given video from a Turkish instruction (ffmpeg): cut, speed/slow motion, rotate, mirror, vertical/square crop, size, mute/lower sound, add text, colour, black and white, fade, reverse, frame rate; adds music if music is given. A montage to the beat ("cut it to the music") or several videos (sources) go on as a Beat cut (the given music, else beat music): the job takes that type. The plan is in the job log; requests that cannot be done come back as a warning.',
     fields: [
-      { name: 'source', type: 'string', required: true, description: 'Video: "upload/…" (POST /uploads/record) or "job/<id>/<file>" (from the gallery).' },
+      { name: 'source', type: 'string', required: false, description: 'Video: "upload/…" (POST /uploads/record) or "job/<id>/<file>" (from the gallery). Required unless sources is given.' },
+      { name: 'sources', type: 'array', required: false, description: 'Several videos (2-30, same format as source) in order: they are cut together to the beat.' },
       { name: 'instruction', type: 'string', required: true, description: 'What to do (Turkish).' },
       { name: 'music', type: 'string', required: false, description: 'Music to add (audio or video file); used if the instruction says "add music".' },
     ],

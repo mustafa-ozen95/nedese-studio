@@ -338,8 +338,9 @@ button.media {
     min-width: 0;
 }
 
-/* Düzenle: tür seçimi (Görsel | Şarkı | …) page başlığının subında */
-.edit-type {
+/* Edit's file card and Film's "Film | Promo video" choice under the page head */
+.edit-pick,
+[data-film-type] {
     margin-bottom: var(--space-4);
 }
 

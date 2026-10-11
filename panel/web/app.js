@@ -88,8 +88,8 @@
     const RETRY_STATUSES = ['error', 'cancelled', 'interrupted', 'paused'];
     const retryButton = (job, button) => actionForm({ path: `/api/job/${job.id}/retry`, tag: job.status === 'paused' ? 'Resume' : 'Retry', button });
     const pauseButton = (job, button) => actionForm({ path: `/api/job/${job.id}/pause`, tag: 'Pause', title: 'Pause job', approval: 'Training will stop and the GPU and RAM will be freed. "Resume" continues from the last completed step (an unfinished step is redone).', button });
-    const SECTIONS = ['chat', 'image', 'video', 'voice', 'music', 'edit', 'model3d', 'film', 'promo', 'training', 'gallery', 'settings'];
-    const SINGLE = ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d', 'promo'];
+    const SECTIONS = ['chat', 'image', 'video', 'voice', 'music', 'edit', 'model3d', 'film', 'training', 'gallery', 'settings'];
+    const SINGLE = ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d'];
     const SPEECH_RATE = 13; // Türkçe anlatım, karakter/sn (Chatterbox, cfg 0,5): tahmin için
 
     const status = {
@@ -315,8 +315,14 @@
             if (a.dataset.subTab === section) a.setAttribute('aria-current', 'page');
             else a.removeAttribute('aria-current');
         });
-        const side = $(`[data-side="${section}"]`);
+        // Film makes a promo video too (#film/promo); Edit shows the form of the file's kind (#edit/image|audio|video)
+        if (section === 'film') filmTypeApply(sub === 'promo' ? 'promo' : 'film');
+        if (section === 'edit' && ['image', 'audio', 'video'].includes(sub)) editKindApply(sub);
+        const side = $(`[data-side="${section === 'film' && sub === 'promo' ? 'promo' : section}"]`);
         if (side && section !== 'settings' && queuePanel.parentElement !== side) side.prepend(queuePanel);
+        // the film section's Recent panel goes with the queue to the aside shown
+        const recentFilms = $('[data-last="film"]')?.closest('.panel');
+        if (section === 'film' && recentFilms && recentFilms.parentElement !== side) side.append(recentFilms);
         if (changed) $('[data-page]').scrollTop = 0;
         if (changed) $('.topbar')?.classList.remove('topbar--scrolled');
         if (changed) document.dispatchEvent(new CustomEvent('nedese:section', { detail: { section } }));
@@ -337,7 +343,7 @@
         const name = trainingTabName ?? ($(`[data-sub-tab="${section}"]`) ?? $(`[data-section-link="${section}"]`))?.textContent ?? '';
         document.title = `${name} · Nedese Studio`;
         if (section === 'gallery') {
-            status.galleryFilter = ['image', 'video', 'voice', 'music', 'film', 'promo', 'model3d', 'error'].includes(sub) ? sub : '';
+            status.galleryFilter = ['image', 'video', 'voice', 'music', 'film', 'model3d', 'error'].includes(sub) ? sub : '';
             $$('[data-filter]').forEach((a) => {
                 if (a.dataset.filter === status.galleryFilter) a.setAttribute('aria-current', 'page');
                 else a.removeAttribute('aria-current');
@@ -416,7 +422,10 @@
         updateEstimates();
         finishedAnnounce(d);
         status.last = d.last;
-        for (const type of Object.keys(TYPE_NAME)) renderLast(type, d.last.filter((job) => job.type === type).slice(0, 4));
+        for (const box of $$('[data-last]')) {
+            const types = LAST_GROUPS[box.dataset.last] ?? [box.dataset.last];
+            renderLast(box.dataset.last, d.last.filter((job) => types.includes(job.type)).slice(0, 4));
+        }
         if (status.section === 'gallery' && d.version !== status.galleryVersion) {
             status.galleryVersion = d.version;
             loadGallery();
@@ -913,6 +922,9 @@
     function signature(jobs) {
         return jobs.map((job) => `${job.id}:${job.status}:${job.outputs.length}:${job.summary?.title ?? ''}`).join('|');
     }
+
+    // A section's Recent panel holds every job type made there (an edit's description may hand it over to another type)
+    const LAST_GROUPS = { edit: ['edit', 'audioEdit', 'videoEdit', 'song', 'sing', 'beatEdit'], film: ['film', 'promo'] };
 
     function renderLast(type, jobs) {
         const container = $(`[data-last="${type}"]`);
@@ -1442,8 +1454,6 @@
             choice.value = previous;
         });
         fillVoiceChoices(s.voices);
-        fillSingVoices(s.voices);
-        $('[data-sing-missing]').hidden = Boolean(s.hasSing);
         renderVoiceLibrary(s.voices);
         applyVoiceEngine(s.voiceEngine);
         applyM3Blender(s.hasBlender);
@@ -1564,7 +1574,6 @@
             const j = await api('/api/voices');
             if (status.options) status.options.voices = j.voices;
             fillVoiceChoices(j.voices);
-            fillSingVoices(j.voices);
             renderVoiceLibrary(j.voices);
             renderCharacters();
         } catch (e) {
@@ -2104,6 +2113,7 @@
         else picture.removeAttribute('src');
         const clear = $('[data-slot-clear]', slot);
         if (clear) clear.hidden = !k;
+        if (n === 0 && k) editKindApply('image');
         saveDraft();
     }
 
@@ -2130,96 +2140,35 @@
         });
     }
 
-    /* Düzenle türü: Görsel | Şarkı (her biri kendi formu); yenileyince varsayılana döner. */
-    function editTypeApply() {
-        const type = $('[data-edit-type] input:checked')?.value ?? 'image';
+    /*
+     * Edit has no tabs (user 11.10.2026): the kind of the given file shows its form (image, audio, video); before a
+     * file is given only the file card shows. A song in another style, singing in a voice and a beat cut are asked for
+     * in the description: the job hands itself over (lib/edit-plan.mjs).
+     */
+    function editKindApply(kind) {
+        status.editKind = kind;
         $$('[data-edit-form]').forEach((f) => {
-            f.hidden = f.dataset.editForm !== type;
+            f.hidden = f.dataset.editForm !== kind;
         });
-        // the recent edits of the chosen kind (a beat cut showed the image edits)
-        const box = $('[data-side="edit"] [data-last]');
-        const jobType = $(`[data-edit-form="${type}"]`)?.dataset.jobForm ?? 'edit';
-        if (box && box.dataset.last !== jobType) {
-            box.dataset.last = jobType;
-            delete status.lastSignature[jobType];
-            renderLast(jobType, (status.last ?? []).filter((job) => job.type === jobType).slice(0, 4));
-        }
     }
-    $('[data-edit-type]').addEventListener('change', editTypeApply);
-    editTypeApply();
 
-    // A file field's name: the empty text ("No song selected") is the panel's and translated, a file name is not
+    /* Film: a film or a promo video (no tab of its own, user 11.10.2026); the choice is in the address (#film/promo). */
+    function filmTypeApply(type) {
+        const root = $('[data-section="film"]');
+        $$('[data-film-form]', root).forEach((n) => {
+            n.hidden = n.dataset.filmForm !== type;
+        });
+        const radio = $(`[data-film-type] input[value="${type}"]`, root);
+        if (radio) radio.checked = true;
+    }
+    $('[data-film-type]').addEventListener('change', (event) => {
+        location.hash = event.target.value === 'promo' ? '#film/promo' : '#film';
+    });
+
+    // A file field's name: the empty text ("No video selected") is the panel's and translated, a file name is not
     function showName(node, name, empty) {
         node.translate = !name;
         node.textContent = name ?? empty;
-    }
-
-    /* Şarkı düzenle: kaynak şarkı (yüklenen ya da galeriden) */
-    const songForm = $('[data-job-form="song"]');
-
-    function configureSong(m) {
-        songForm.source.value = m?.source ?? '';
-        showName($('[data-song-name]', songForm), m?.name, 'No song selected');
-        const listen = $('[data-song-listen]', songForm);
-        listen.hidden = !m?.url;
-        if (m?.url) listen.src = m.url;
-        else listen.removeAttribute('src');
-        saveDraft();
-    }
-
-    $('[data-song-upload]', songForm).addEventListener('change', async (event) => {
-        const file = event.target.files?.[0];
-        event.target.value = '';
-        if (!file) return;
-        try {
-            const j = await api(`/api/music/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
-            configureSong(j.music);
-            notify(j.message, 'success');
-        } catch (e) {
-            notify(e.message, 'danger');
-        }
-    });
-
-    /* Sing in a voice: the song (uploaded or from the gallery) and a voice from the library */
-    const singForm = $('[data-job-form="sing"]');
-
-    function configureSing(m) {
-        singForm.source.value = m?.source ?? '';
-        showName($('[data-sing-name]', singForm), m?.name, 'No song selected');
-        const listen = $('[data-sing-listen]', singForm);
-        listen.hidden = !m?.url;
-        if (m?.url) listen.src = m.url;
-        else listen.removeAttribute('src');
-        saveDraft();
-        updateEstimates();
-    }
-    // the estimate is per second of song: known once the player has read the length
-    $('[data-sing-listen]', singForm).addEventListener('loadedmetadata', updateEstimates);
-
-    $('[data-sing-upload]', singForm).addEventListener('change', async (event) => {
-        const file = event.target.files?.[0];
-        event.target.value = '';
-        if (!file) return;
-        try {
-            $('[data-sing-name]', singForm).textContent = `Uploading: ${file.name}`;
-            const j = await api(`/api/music/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
-            configureSing(j.music);
-            notify(j.message, 'success');
-        } catch (e) {
-            configureSing(null);
-            notify(e.message, 'danger');
-        }
-    });
-
-    /* The voice list: library voices only (the converter needs a recording to copy the timbre from) */
-    function fillSingVoices(voices) {
-        const choice = $('[data-sing-voice]', singForm);
-        const previous = choice.value;
-        choice.replaceChildren(...(voices.length
-            ? voices.map((s) => el('option', { value: `ref:${s.id}`, translate: 'no', text: s.name }))
-            : [el('option', { value: '', text: 'The voice library is empty' })]));
-        if (voices.some((s) => `ref:${s.id}` === previous)) choice.value = previous;
-        else if (voices.length) choice.value = `ref:${(voices.find((s) => s.ownVoice) ?? voices.find((s) => s.defaultValue) ?? voices[0]).id}`;
     }
 
     /* Ses düzenle / Video düzenle: dosya alanları (gizli girdi + ad + önizleme) */
@@ -2227,7 +2176,6 @@
     const videoEditForm = $('[data-job-form="videoEdit"]');
     const FILE_FIELDS = {
         audioEdit: { form: voiceEditForm, prefix: 'audio-edit', free: 'No audio selected', preview: 'data-audio-edit-listen' },
-        videoEdit: { form: videoEditForm, prefix: 'video-edit', free: 'No video selected', preview: 'data-video-edit-watch' },
         videoMusic: { form: videoEditForm, prefix: 'video-music', free: 'No music', preview: null },
     };
 
@@ -2241,10 +2189,11 @@
             if (d?.url) o.src = d.url;
             else o.removeAttribute('src');
         }
+        if (target === 'audioEdit' && d) editKindApply('audio');
         saveDraft();
     }
 
-    for (const [target, path] of [['audioEdit', '/api/record/upload'], ['videoEdit', '/api/record/upload'], ['videoMusic', '/api/music/upload']]) {
+    for (const [target, path] of [['audioEdit', '/api/record/upload'], ['videoMusic', '/api/music/upload']]) {
         const a = FILE_FIELDS[target];
         $(`[data-${a.prefix}-upload]`, a.form).addEventListener('change', async (event) => {
             const file = event.target.files?.[0];
@@ -2263,80 +2212,89 @@
     }
     $('[data-video-music-clear]', videoEditForm).addEventListener('click', () => configureFileField('videoMusic', null));
 
-    /* Beat cut: the videos in order (uploaded or from the gallery) and the music */
-    const beatForm = $('[data-job-form="beatEdit"]');
-    status.beatVideos = [];
+    /* Edit video: one video or several in order (several are cut together to the beat) */
+    status.editVideos = [];
 
-    function renderBeatVideos() {
-        $('[data-beat-list]', beatForm).replaceChildren(...status.beatVideos.map((v, i) => el('div', { class: 'row row--between row--wrap' },
-            el('span', { class: 'text-sm truncate', translate: 'no', title: v.name, text: `${i + 1}. ${v.name || v.source}` }),
+    function renderEditVideos() {
+        const list = status.editVideos;
+        videoEditForm.source.value = list[0]?.source ?? '';
+        $('[data-video-edit-name]', videoEditForm).hidden = list.length > 0;
+        $('[data-video-edit-list]', videoEditForm).replaceChildren(...list.map((v, i) => el('div', { class: 'row row--between row--wrap' },
+            el('span', { class: 'text-sm truncate', translate: 'no', title: v.name, text: `${list.length > 1 ? `${i + 1}. ` : ''}${v.name || v.source}` }),
             el('div', { class: 'row' },
-                el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-beat-up': i, title: 'Move up', 'aria-label': 'Move up', text: '↑' }),
-                el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-beat-remove': i, text: 'Remove' })))));
+                ...(i ? [el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-video-up': i, title: 'Move up', 'aria-label': 'Move up', text: '↑' })] : []),
+                el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-video-remove': i, text: 'Remove' })))));
+        const watch = $('[data-video-edit-watch]', videoEditForm);
+        const url = list[0]?.url;
+        watch.hidden = !url;
+        if (!url) watch.removeAttribute('src');
+        else if (watch.getAttribute('src') !== url) watch.src = url;
         saveDraft();
     }
 
-    function addBeatVideo(v) {
-        if (!v?.source || status.beatVideos.some((x) => x.source === v.source)) return;
-        status.beatVideos.push({ source: v.source, name: v.name ?? '' });
-        renderBeatVideos();
+    function addEditVideo(v) {
+        if (!v?.source) return;
+        if (!status.editVideos.some((x) => x.source === v.source)) status.editVideos.push({ source: v.source, name: v.name ?? '', url: v.url ?? '' });
+        renderEditVideos();
+        editKindApply('video');
     }
 
-    function configureBeatMusic(d) {
-        $('[data-beat-music-field]', beatForm).value = d?.source ?? '';
-        showName($('[data-beat-music-name]', beatForm), d?.name, 'No music');
-        saveDraft();
-    }
-
-    function beatMusicMode() {
-        const mode = beatForm.music.value;
-        $('[data-beat-music-file]', beatForm).hidden = mode !== 'file';
-        $('[data-beat-music-style]', beatForm).hidden = mode !== 'generate';
-    }
-
-    beatForm.addEventListener('click', (event) => {
-        const up = event.target.closest('[data-beat-up]');
-        const remove = event.target.closest('[data-beat-remove]');
-        if (up && Number(up.dataset.beatUp) > 0) {
-            const i = Number(up.dataset.beatUp);
-            [status.beatVideos[i - 1], status.beatVideos[i]] = [status.beatVideos[i], status.beatVideos[i - 1]];
-            renderBeatVideos();
+    videoEditForm.addEventListener('click', (event) => {
+        const up = event.target.closest('[data-video-up]');
+        const remove = event.target.closest('[data-video-remove]');
+        if (up) {
+            const i = Number(up.dataset.videoUp);
+            [status.editVideos[i - 1], status.editVideos[i]] = [status.editVideos[i], status.editVideos[i - 1]];
+            renderEditVideos();
         } else if (remove) {
-            status.beatVideos.splice(Number(remove.dataset.beatRemove), 1);
-            renderBeatVideos();
+            status.editVideos.splice(Number(remove.dataset.videoRemove), 1);
+            renderEditVideos();
         }
     });
-    beatForm.addEventListener('change', (event) => {
-        if (event.target.name === 'music') beatMusicMode();
-    });
-    $('[data-beat-upload]', beatForm).addEventListener('change', async (event) => {
-        const files = [...(event.target.files ?? [])];
-        event.target.value = '';
-        const statusText = $('[data-beat-status]', beatForm);
+
+    /** A dropped or picked file's kind by its type (or its extension when the browser gives none). */
+    function mediaKind(file) {
+        if (/^image\//.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name)) return 'image';
+        if (/^video\//.test(file.type) || /\.(mp4|mov|mkv|webm|avi|m4v|3gp)$/i.test(file.name)) return 'video';
+        if (/^audio\//.test(file.type) || /\.(wav|mp3|m4a|aac|ogg|opus|flac|wma)$/i.test(file.name)) return 'audio';
+        return null;
+    }
+
+    /** Uploads Edit's files: an image to the image form, a sound to the audio form, videos to the video list. */
+    async function editFiles(files, statusText) {
         for (const file of files) {
+            const kind = mediaKind(file);
             try {
+                if (kind === 'image') {
+                    const g = await loadImage(file);
+                    if (g) configureSlot(0, g);
+                    continue;
+                }
+                if (!kind) {
+                    notify(`Not an image, a sound or a video: ${file.name}`, 'danger');
+                    continue;
+                }
                 statusText.textContent = `Uploading: ${file.name}`;
-                const j = await api(`/api/record/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
-                addBeatVideo(j.record);
+                const j = await api(`/api/${kind === 'audio' ? 'music' : 'record'}/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
+                if (kind === 'video') addEditVideo(j.record);
+                else configureFileField('audioEdit', j.music);
             } catch (e) {
                 notify(e.message, 'danger');
             }
         }
         statusText.textContent = '';
-    });
-    $('[data-beat-music-upload]', beatForm).addEventListener('change', async (event) => {
-        const file = event.target.files?.[0];
+    }
+
+    const editPick = $('[data-edit-pick]');
+    $('[data-edit-pick-upload]', editPick).addEventListener('change', (event) => {
+        const files = [...(event.target.files ?? [])];
         event.target.value = '';
-        if (!file) return;
-        try {
-            $('[data-beat-music-name]', beatForm).textContent = `Uploading: ${file.name}`;
-            const j = await api(`/api/music/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
-            configureBeatMusic(j.music);
-            notify(j.message, 'success');
-        } catch (e) {
-            configureBeatMusic(null);
-            notify(e.message, 'danger');
-        }
+        editFiles(files, $('[data-edit-pick-status]', editPick));
+    });
+    $('[data-video-edit-upload]', videoEditForm).addEventListener('change', (event) => {
+        const files = [...(event.target.files ?? [])];
+        event.target.value = '';
+        editFiles(files, $('[data-video-edit-name]', videoEditForm));
     });
 
     /* 3D model: kaynak görsel ya da videodan kare (TRELLIS.2); Blender yoksa yalnız GLB. */
@@ -2693,9 +2651,10 @@
         const trigger = event.target.closest('[data-voice-picker]');
         if (!trigger) return;
         const pickerType = trigger.dataset.voicePicker;
-        status.voicePickerTarget = pickerType === 'scene' ? trigger.closest('[data-scene]') : ['song', 'sing', 'audioEdit', 'videoEdit', 'videoMusic', 'model3d', 'beatVideo', 'beatMusic'].includes(pickerType) ? pickerType : 'music';
-        const videoMu = pickerType === 'videoEdit' || pickerType === 'model3d' || pickerType === 'beatVideo';
-        $('#voice-picker-title').textContent = videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
+        status.voicePickerTarget = pickerType === 'scene' ? trigger.closest('[data-scene]') : ['audioEdit', 'videoEdit', 'videoMusic', 'model3d', 'editMedia'].includes(pickerType) ? pickerType : 'music';
+        const both = pickerType === 'editMedia';
+        const videoMu = pickerType === 'videoEdit' || pickerType === 'model3d' || both;
+        $('#voice-picker-title').textContent = both ? 'Pick audio or a video from the gallery' : videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
         const list = $('[data-voice-picker-list]', voicePicker);
         list.replaceChildren(el('p', { class: 'text-sm text-muted', text: 'Loading…' }));
         try {
@@ -2708,19 +2667,16 @@
                     if (c) items.push({ source: c.source, url: c.url, name: job.title, type: 'Video', duration: c.duration, dateText: job.creation, video: true });
                 }
                 for (const x of y.uploads.filter((x) => x.type === 'record' && /.(mp4|mov|mkv|webm|avi|m4v|3gp)$/i.test(x.source))) items.push({ source: x.source, url: x.url, name: x.name, type: 'Uploaded', video: true });
+                // Edit's file card: the sounds after the videos
+                if (both) items.push(...(await audioItems()));
                 status.voicePickerList = items;
                 status.voicePickerPage = 1;
                 renderVoicePicker();
                 return;
             }
-            const [m, s, y] = await Promise.all([api('/api/v1/gallery?type=music'), api('/api/v1/gallery?type=voice'), api('/api/v1/uploads')]);
-            for (const job of [...m.gallery, ...s.gallery]) {
-                const c = job.outputs.find((x) => x.type === 'voice');
-                if (c) items.push({ source: c.source, url: c.url, name: job.title, type: job.type === 'music' ? 'Music' : 'Voice', duration: c.duration, dateText: job.creation });
-            }
-            for (const x of y.uploads.filter((x) => x.type === 'music')) items.push({ source: x.source, url: x.url, name: x.name, type: 'Uploaded' });
+            items.push(...(await audioItems()));
             // Sahne anlatımında önce sesler, film müziğinde önce müzikler.
-            if (status.voicePickerTarget !== 'music' && status.voicePickerTarget !== 'sing') items.sort((a, b) => (a.type === 'Voice' ? -1 : 0) - (b.type === 'Voice' ? -1 : 0));
+            if (status.voicePickerTarget !== 'music') items.sort((a, b) => (a.type === 'Voice' ? -1 : 0) - (b.type === 'Voice' ? -1 : 0));
             status.voicePickerList = items;
             status.voicePickerPage = 1;
             renderVoicePicker();
@@ -2728,6 +2684,18 @@
             list.replaceChildren(el('p', { class: 'field__error', text: e.message }));
         }
     });
+
+    /** The gallery's music and voice outputs and the uploaded sounds (an edited sound too: an edit of an edit). */
+    async function audioItems() {
+        const items = [];
+        const [m, s, e, y] = await Promise.all([api('/api/v1/gallery?type=music'), api('/api/v1/gallery?type=voice'), api('/api/v1/gallery?type=audioEdit'), api('/api/v1/uploads')]);
+        for (const job of [...m.gallery, ...s.gallery, ...e.gallery]) {
+            const c = job.outputs.find((x) => x.type === 'voice');
+            if (c) items.push({ source: c.source, url: c.url, name: job.title, type: job.type === 'music' ? 'Music' : 'Voice', duration: c.duration, dateText: job.creation });
+        }
+        for (const x of y.uploads.filter((x) => x.type === 'music')) items.push({ source: x.source, url: x.url, name: x.name, type: 'Uploaded' });
+        return items;
+    }
 
     function renderVoicePicker() {
         const list = $('[data-voice-picker-list]', voicePicker);
@@ -2760,16 +2728,11 @@
         const target = status.voicePickerTarget;
         if (target === 'music') {
             configureMusic({ source: o.source, name: o.name });
-        } else if (target === 'song') {
-            configureSong({ source: o.source, name: o.name, url: o.url });
-        } else if (target === 'sing') {
-            configureSing({ source: o.source, name: o.name, url: o.url });
+        } else if (target === 'editMedia' || target === 'videoEdit') {
+            if (o.video) addEditVideo({ source: o.source, name: o.name, url: o.url });
+            else configureFileField('audioEdit', { source: o.source, name: o.name, url: o.url });
         } else if (target === 'model3d') {
             configureM3Video({ source: o.source, name: o.name, url: o.url });
-        } else if (target === 'beatVideo') {
-            addBeatVideo({ source: o.source, name: o.name });
-        } else if (target === 'beatMusic') {
-            configureBeatMusic({ source: o.source, name: o.name });
         } else if (typeof target === 'string' && FILE_FIELDS[target]) {
             configureFileField(target, { source: o.source, name: o.name, url: o.url });
         } else if (target instanceof HTMLElement) {
@@ -3449,9 +3412,6 @@
         estimateWrite('voice', (o[`voice/${quality}`] ?? 0) * (s.text.value.length / 100));
         const mz = $('[data-job-form="music"]');
         estimateWrite('music', (o.music ?? 0) * Number(mz.duration.value || 60));
-        // the separation and conversion take about the same per second of song
-        const singLength = $('[data-sing-listen]', singForm).duration;
-        estimateWrite('sing', Number.isFinite(singLength) ? (o.sing ?? 0) * singLength : 0);
         const m3 = o[`model3d/${m3Form.quality.value}`];
         const m3Blender = m3Form.intro.checked || ['fbx', 'obj', 'stl'].some((b) => m3Form[`format_${b}`].checked) ? (o.blender3d ?? 0) : 0;
         estimateWrite('model3d', m3 ? m3 + (m3Form.complete.checked ? (o.edit ?? 60) : 0) + (status.options.hasBlender ? m3Blender : 0) : 0);
@@ -3534,11 +3494,8 @@
             delete data.size_desktop;
             delete data.size_phone;
         }
-        if (type === 'beatEdit') {
-            data.sources = status.beatVideos.map((v) => v.source);
-            if (data.music !== 'file') delete data.musicFile;
-            if (data.length === '') delete data.length;
-        }
+        // several videos are cut together to the beat (the job hands itself over to a Beat cut)
+        if (type === 'videoEdit' && status.editVideos.length > 1) data.sources = status.editVideos.map((v) => v.source);
         if (type === 'video') {
             data.duration = videoDuration();
             if (data.start === 'text') delete data.source;
@@ -3585,7 +3542,6 @@
     function cleanForm(type) {
         if (type === 'image') imageForm.prompt.value = '';
         if (type === 'edit') editForm.prompt.value = '';
-        if (type === 'song') songForm.style.value = '';
         if (type === 'audioEdit') voiceEditForm.instruction.value = '';
         if (type === 'videoEdit') videoEditForm.instruction.value = '';
         if (type === 'video') {
@@ -3611,10 +3567,6 @@
             applyMusicMode();
             scenesNumber();
             applySceneMode();
-        }
-        if (type === 'beatEdit') {
-            status.beatVideos = [];
-            renderBeatVideos();
         }
         if (type === 'promo') {
             promoList.replaceChildren();
@@ -3656,7 +3608,7 @@
             t.videoSource = status.videoSource;
             t.m3Image = status.m3Image;
             t.m3Video = status.m3Video;
-            t.beatVideos = status.beatVideos;
+            t.editVideos = status.editVideos;
             try {
                 localStorage.setItem(DRAFT, JSON.stringify(t));
             } catch {
@@ -3693,9 +3645,10 @@
         if (Array.isArray(t.promo?.scenes)) t.promo.scenes.forEach((x) => addPromoScene(x));
         $('[data-promo-music-style]', promoForm).hidden = promoForm.music.value !== 'generate';
         promoRows();
-        if (Array.isArray(t.beatVideos)) t.beatVideos.forEach(addBeatVideo);
-        if (t.beatEdit?.musicFile) showName($('[data-beat-music-name]', beatForm), t.beatEdit.musicFile.split('/').pop(), 'No music');
-        beatMusicMode();
+        if (Array.isArray(t.editVideos) && t.editVideos.length) {
+            status.editVideos = t.editVideos.filter((v) => v?.source);
+            renderEditVideos();
+        }
         if (t.videoSource?.source) configureSource(t.videoSource);
         if (t.m3Image?.source) configureM3Image(t.m3Image);
         if (t.m3Video?.source) configureM3Video(t.m3Video);
@@ -3729,10 +3682,8 @@
         $('[data-side="voice"]').append(lastPanel('voice', 'Recent voice-overs'));
         $('[data-side="music"]').append(lastPanel('music', 'Recent music'));
         $('[data-side="edit"]').append(lastPanel('edit', 'Recent edits'));
-        editTypeApply();
         $('[data-side="model3d"]').append(lastPanel('model3d', 'Recent 3D models'));
         $('[data-side="film"]').append(lastPanel('film', 'Recent films'));
-        $('[data-side="promo"]').append(lastPanel('promo', 'Recent promos'));
         applyRoute();
         try {
             await loadOptions();

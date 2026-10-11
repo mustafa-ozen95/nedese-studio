@@ -2,6 +2,7 @@
  * Edit audio: edits the given audio (or a video's audio) by an instruction. The text model turns the instruction into
  * a list of operations (lib/edit-plan.mjs) and the steps run one after another with ffmpeg; "changeVoice" uses the
  * Chatterbox voice conversion (voice\convert.py). The plan is saved in the job: a retry does not ask again.
+ * A song described in another style ("restyle") goes on as a song edit, one to be sung in a voice ("sing") as Sing in a voice.
  */
 import { copyFileSync, existsSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,6 +14,18 @@ import { hasText } from '../text-model.mjs';
 import { listVoices, voicePath } from '../voices.mjs';
 import { text, voiceExtractionError } from './common.mjs';
 import { recordPath } from './clone.mjs';
+import { validate as songValidate } from './song.mjs';
+import { validate as singValidate } from './sing.mjs';
+
+/** Does that job type take this source (installed, the right kind of file)? */
+const accepts = (check) => {
+  try {
+    check();
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 export const name = 'Edit audio';
 
@@ -73,7 +86,9 @@ export async function run(ctx) {
     const duration = await measureDuration(ctx.setting.ffprobe, original);
     const a = await streams(ctx.setting.ffprobe, original).catch(() => ({ streams: [] }));
     const voices = listVoices(ctx.setting.voiceLibrary).map((s) => ({ id: s.id, name: s.name }));
-    const info = { duration, voices, summary: { durationSec: Math.round(duration * 10) / 10, channel: a.streams[0]?.channels ?? null } };
+    const canRestyle = accepts(() => songValidate({ source: g.source, style: 'x' }, { mod: ctx.mod, setting: ctx.setting }));
+    const canSing = voices.length > 0 && accepts(() => singValidate({ source: g.source, voice: `ref:${voices[0].id}` }, { setting: ctx.setting }));
+    const info = { duration, voices, canRestyle, canSing, summary: { durationSec: Math.round(duration * 10) / 10, channel: a.streams[0]?.channels ?? null, songEditAvailable: canRestyle, singAvailable: canSing } };
     const planner = ctx.setting.editPlan ?? plan;
     ctx.job.plan = await planner({ type: 'voice', instruction: g.instruction, info, signal: ctx.signal });
     ctx.save();
@@ -81,6 +96,10 @@ export async function run(ctx) {
   const plan = ctx.job.plan;
   ctx.log(`Plan: ${plan.description || plan.steps.map((a) => a.operation).join(', ')}`);
   if (plan.impossible) ctx.log(`Not possible: ${plan.impossible}`);
+  const first = plan.steps[0];
+  const title = g.instruction.slice(0, 120);
+  if (first.operation === 'restyle') ctx.handOver('song', { source: g.source, style: first.style, strength: first.strength, title });
+  if (first.operation === 'sing') ctx.handOver('sing', { source: g.source, voice: `ref:${first.voice}`, shift: first.octave, title });
 
   // 2. The steps in order
   let current = original;

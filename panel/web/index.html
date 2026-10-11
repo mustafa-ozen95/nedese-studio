@@ -76,7 +76,6 @@
             <a href="#film" class="tabs__link" data-sub-tab="film">Film</a>
             <a href="#edit" class="tabs__link" data-sub-tab="edit">Edit</a>
             <a href="#model3d" class="tabs__link" data-sub-tab="model3d">3D</a>
-            <a href="#promo" class="tabs__link" data-sub-tab="promo">Promo</a>
         </nav>
 
         <!-- ── DÜZENLE (verdiğiniz görseli talimatla düzenleme) ───────────────── -->
@@ -89,22 +88,29 @@
                     </div>
                 </header>
 
-                <div class="mode-choice edit-type" data-edit-type role="radiogroup" aria-label="What to edit">
-                    <label class="mode-choice__option"><input type="radio" name="editType" value="image" checked><span>Image</span></label>
-                    <label class="mode-choice__option"><input type="radio" name="editType" value="song"><span>Song</span></label>
-                    <label class="mode-choice__option"><input type="radio" name="editType" value="sing"><span>Sing in a voice</span></label>
-                    <label class="mode-choice__option"><input type="radio" name="editType" value="voice"><span>Voice</span></label>
-                    <label class="mode-choice__option"><input type="radio" name="editType" value="video"><span>Video</span></label>
-                    <label class="mode-choice__option"><input type="radio" name="editType" value="beat"><span>Beat cut</span></label>
-                </div>
+                <!-- No tabs (user 11.10.2026): the file picks the form; a song in another style, singing in a voice and a beat cut come from the description -->
+                <section class="panel edit-pick" data-edit-pick aria-labelledby="edit-pick-title">
+                    <div class="panel__body">
+                        <div class="field">
+                            <span class="field__label" id="edit-pick-title">Your file</span>
+                            <div class="row row--wrap">
+                                <label class="btn btn--sm btn--primary">Upload<input type="file" accept="image/*,audio/*,video/*" multiple data-edit-pick-upload hidden></label>
+                                <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="edit:0">Image from gallery</button>
+                                <button type="button" class="btn btn--sm" data-voice-picker="editMedia" data-modal-open="modal-voice-picker">Audio or video from gallery</button>
+                                <span class="text-sm text-muted" data-edit-pick-status></span>
+                            </div>
+                            <span class="field__hint">An image, a sound or a video (several videos are cut together to the beat). Then write what should change.</span>
+                        </div>
+                    </div>
+                </section>
 
                 <div class="split">
                     <div class="split__main">
-                        <form class="panel" data-job-form="audioEdit" data-edit-form="voice" novalidate autocomplete="off" hidden>
+                        <form class="panel" data-job-form="audioEdit" data-edit-form="audio" novalidate autocomplete="off" hidden>
                             <header class="panel__head">
                                 <div>
                                     <h2 class="panel__title">Edit audio</h2>
-                                    <p class="text-sm text-muted">Give your audio (or a video's sound) and write what to do.</p>
+                                    <p class="text-sm text-muted">Give your audio (or a video's sound) and write what to do, a song too.</p>
                                 </div>
                             </header>
                             <div class="panel__body">
@@ -123,7 +129,7 @@
                                     <label class="field__label" for="sd-talimat">What should be done? <span class="required tag-note">required</span></label>
                                     <textarea class="textarea" id="sd-talimat" name="instruction" rows="4" required
                                               placeholder="E.g. cut the first 3 seconds, remove the noise, speed it up a little"></textarea>
-                                    <span class="field__hint">Possible: cutting, speed, higher/lower voice, noise removal, shortening long silences, loudness, echo, fade in/out, converting the voice to another voice from the library.</span>
+                                    <span class="field__hint">Possible: cutting, speed, higher/lower voice, noise removal, shortening long silences, loudness, echo, fade in/out, converting the voice to another voice from the library. A song: play it in another style ("make it lo-fi with soft piano") or have it sung in a voice from your library ("sing it in my voice").</span>
                                 </div>
                                 <div class="form-actions">
                                     <span class="text-sm text-muted" data-estimate="audioEdit"></span>
@@ -144,17 +150,19 @@
                                     <span class="field__label">Video <span class="required tag-note">required</span></span>
                                     <input type="hidden" name="source" data-video-edit-field>
                                     <div class="row row--wrap">
-                                        <label class="btn btn--sm">Upload<input type="file" accept="video/*" data-video-edit-upload hidden></label>
+                                        <label class="btn btn--sm">Upload<input type="file" accept="video/*" multiple data-video-edit-upload hidden></label>
                                         <button type="button" class="btn btn--sm" data-voice-picker="videoEdit" data-modal-open="modal-voice-picker">Pick from gallery</button>
                                         <span class="text-sm text-muted" data-video-edit-name>No video selected</span>
                                     </div>
+                                    <div class="stack" data-video-edit-list></div>
                                     <video controls preload="none" playsinline class="edit-video" data-video-edit-watch hidden></video>
+                                    <span class="field__hint">Add more videos to cut them together to the beat of music.</span>
                                 </div>
                                 <div class="field">
                                     <label class="field__label" for="vd-talimat">What should be done? <span class="required tag-note">required</span></label>
                                     <textarea class="textarea" id="vd-talimat" name="instruction" rows="4" required
                                               placeholder="E.g. make it vertical for Instagram, take the first 15 seconds, write &quot;New season&quot; at the bottom, fade out at the end"></textarea>
-                                    <span class="field__hint">Available: cut, speed and slow motion, rotate, mirror, vertical/square crop, resize, mute/lower audio, add text, color, black and white, fade, reverse, frame rate, add music.</span>
+                                    <span class="field__hint">Available: cut, speed and slow motion, rotate, mirror, vertical/square crop, resize, mute/lower audio, add text, color, black and white, fade, reverse, frame rate, add music; or a montage cut to the beat of music ("cut it to the beat for Reels").</span>
                                 </div>
                                 <details class="fine-setting">
                                     <summary class="fine-setting__title">Fine settings</summary>
@@ -168,7 +176,7 @@
                                                 <button type="button" class="btn btn--sm btn--ghost" data-video-music-clear>Remove</button>
                                                 <span class="text-sm text-muted" data-video-music-name>No music</span>
                                             </div>
-                                            <span class="field__hint">If the instruction says "add music", this music is placed under the video.</span>
+                                            <span class="field__hint">If the instruction says "add music", this music is placed under the video; a beat cut is cut to it.</span>
                                         </div>
                                     </div>
                                 </details>
@@ -179,197 +187,7 @@
                             </div>
                         </form>
 
-                        <form class="panel" data-job-form="beatEdit" data-edit-form="beat" novalidate autocomplete="off" hidden>
-                            <header class="panel__head">
-                                <div>
-                                    <h2 class="panel__title">Beat cut</h2>
-                                    <p class="text-sm text-muted">Give one or more videos: their liveliest parts are cut to the beat of the music.</p>
-                                </div>
-                            </header>
-                            <div class="panel__body">
-                                <div class="field">
-                                    <span class="field__label">Videos <span class="required tag-note">required</span></span>
-                                    <div class="row row--wrap">
-                                        <label class="btn btn--sm">Upload<input type="file" accept="video/*" multiple data-beat-upload hidden></label>
-                                        <button type="button" class="btn btn--sm" data-voice-picker="beatVideo" data-modal-open="modal-voice-picker">Pick from gallery</button>
-                                        <span class="text-sm text-muted" data-beat-status></span>
-                                    </div>
-                                    <div class="stack" data-beat-list></div>
-                                    <span class="field__hint">Used in this order; their own sound is left out.</span>
-                                </div>
-                                <div class="field">
-                                    <span class="field__label">Music</span>
-                                    <div class="mode-choice mode-choice--small" data-beat-music>
-                                        <label class="mode-choice__option"><input type="radio" name="music" value="made" checked><span>Beat music</span></label>
-                                        <label class="mode-choice__option"><input type="radio" name="music" value="generate"><span>Music model</span></label>
-                                        <label class="mode-choice__option"><input type="radio" name="music" value="file"><span>My music</span></label>
-                                    </div>
-                                    <div class="row row--wrap" data-beat-music-file hidden>
-                                        <input type="hidden" name="musicFile" data-beat-music-field>
-                                        <label class="btn btn--sm">Upload<input type="file" accept="audio/*,video/*" data-beat-music-upload hidden></label>
-                                        <button type="button" class="btn btn--sm" data-voice-picker="beatMusic" data-modal-open="modal-voice-picker">Pick from gallery</button>
-                                        <span class="text-sm text-muted" data-beat-music-name>No music</span>
-                                    </div>
-                                    <div data-beat-music-style hidden>
-                                        <textarea class="textarea" name="musicStyle" rows="2" aria-label="Music style" placeholder="Leave empty for energetic electronic pop (e.g. epic orchestral trailer, no vocals)"></textarea>
-                                    </div>
-                                    <span class="field__hint">The tempo of the music is measured and every cut lands on its beat; a quiet intro is skipped.</span>
-                                </div>
-                                <div class="form-grid">
-                                    <div class="field">
-                                        <label class="field__label" for="bc-size">Size</label>
-                                        <select class="select" id="bc-size" name="size">
-                                            <option value="source">Like the first video</option>
-                                            <option value="9:16">9:16 (phone)</option>
-                                            <option value="16:9">16:9 (wide)</option>
-                                            <option value="1:1">1:1 (square)</option>
-                                        </select>
-                                    </div>
-                                    <div class="field">
-                                        <label class="field__label" for="bc-pace">Pace</label>
-                                        <select class="select" id="bc-pace" name="pace">
-                                            <option value="calm">Calm (a shot per bar)</option>
-                                            <option value="medium" selected>Medium (two beats)</option>
-                                            <option value="fast">Fast (every beat)</option>
-                                        </select>
-                                    </div>
-                                    <div class="field">
-                                        <label class="field__label" for="bc-length">Length (s) <span class="tag-note tag-note--optional">optional</span></label>
-                                        <input class="input input--mono" type="number" id="bc-length" name="length" min="0" max="180" step="1" placeholder="Auto">
-                                        <span class="field__hint">Empty: as long as the videos, at most 30 s.</span>
-                                    </div>
-                                </div>
-                                <div class="form-actions">
-                                    <span class="text-sm text-muted" data-estimate="beatEdit"></span>
-                                    <button type="submit" class="btn btn--primary">Cut to the beat</button>
-                                </div>
-                            </div>
-                        </form>
-
-                        <form class="panel" data-job-form="song" data-edit-form="song" novalidate autocomplete="off" hidden>
-                            <header class="panel__head">
-                                <div>
-                                    <h2 class="panel__title">Edit song</h2>
-                                    <p class="text-sm text-muted">Re-interprets your song in a new style (remix / cover). ACE-Step 1.5.</p>
-                                </div>
-                            </header>
-                            <div class="panel__body">
-                                <div class="field">
-                                    <span class="field__label">Song <span class="required tag-note">required</span></span>
-                                    <input type="hidden" name="source" data-song-field>
-                                    <div class="row row--wrap">
-                                        <label class="btn btn--sm">Upload<input type="file" accept="audio/*,video/*" data-song-upload hidden></label>
-                                        <button type="button" class="btn btn--sm" data-voice-picker="song" data-modal-open="modal-voice-picker">Pick from gallery</button>
-                                        <span class="text-sm text-muted" data-song-name>No song selected</span>
-                                    </div>
-                                    <audio controls preload="none" data-song-listen hidden></audio>
-                                    <span class="field__hint">Up to 10 minutes. Audio or video (MP3, WAV, M4A, MP4, MOV…); the video's sound is used.</span>
-                                </div>
-
-                                <div class="field">
-                                    <label class="field__label" for="sk-tarz">New style <span class="required tag-note">required</span></label>
-                                    <textarea class="textarea" id="sk-tarz" name="style" rows="3" required
-                                              placeholder="E.g. lo-fi hip hop, soft piano, vinyl crackle, calm"></textarea>
-                                    <span class="field__hint">Genre, instruments and mood. English gives the best result.</span>
-                                </div>
-
-                                <div class="field">
-                                    <span class="field__label">How much should it change?</span>
-                                    <div class="mode-choice mode-choice--small">
-                                        <label class="mode-choice__option"><input type="radio" name="strength" value="little"><span>Little</span></label>
-                                        <label class="mode-choice__option"><input type="radio" name="strength" value="medium" checked><span>Medium</span></label>
-                                        <label class="mode-choice__option"><input type="radio" name="strength" value="much"><span>A lot</span></label>
-                                    </div>
-                                    <span class="field__hint">Little: instruments and sound change, the melody stays. A lot: the song is freely re-interpreted.</span>
-                                </div>
-
-                                <details class="fine-setting">
-                                    <summary class="fine-setting__title">Fine settings</summary>
-                                    <div class="fine-setting__content stack">
-                                        <div class="field">
-                                            <label class="field__label" for="sk-sozler">New lyrics <span class="tag-note tag-note--optional">optional</span></label>
-                                            <textarea class="textarea" id="sk-sozler" name="lyrics" rows="5" placeholder="[verse]&#10;…&#10;[chorus]&#10;…"></textarea>
-                                            <span class="field__hint">Empty means an instrumental version. Write with [verse], [chorus] tags.</span>
-                                        </div>
-                                        <div class="form-grid">
-                                            <div class="field">
-                                                <label class="field__label" for="sk-bpm">Tempo (BPM) <span class="tag-note tag-note--optional">optional</span></label>
-                                                <input type="number" class="input" id="sk-bpm" name="bpm" min="40" max="220" value="110">
-                                            </div>
-                                            <div class="field">
-                                                <label class="field__label" for="sk-dil">Lyrics language <span class="tag-note tag-note--optional">optional</span></label>
-                                                <select class="select" id="sk-dil" name="lang"><option value="tr">Turkish</option><option value="en">English</option></select>
-                                            </div>
-                                            <div class="field">
-                                                <label class="field__label" for="sk-tohum">Seed <span class="tag-note tag-note--optional">optional</span></label>
-                                                <input type="number" class="input" id="sk-tohum" name="seed" min="0" placeholder="Random">
-                                                <span class="field__hint">The same number gives the same result.</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </details>
-
-                                <div class="form-actions">
-                                    <span class="text-sm text-muted" data-estimate="song"></span>
-                                    <button type="submit" class="btn btn--primary">Edit</button>
-                                </div>
-                            </div>
-                        </form>
-
-                        <form class="panel" data-job-form="sing" data-edit-form="sing" novalidate autocomplete="off" hidden>
-                            <header class="panel__head">
-                                <div>
-                                    <h2 class="panel__title">Sing in a voice</h2>
-                                    <p class="text-sm text-muted">The same song, sung in a voice from your library (e.g. your own voice). The melody, words and instruments stay. YingMusic-SVC.</p>
-                                </div>
-                            </header>
-                            <div class="panel__body">
-                                <p class="text-sm field__error" data-sing-missing hidden>Not installed: download "Singing voice (YingMusic-SVC)" in Settings › Models.</p>
-                                <div class="field">
-                                    <span class="field__label">Song <span class="required tag-note">required</span></span>
-                                    <input type="hidden" name="source" data-sing-field>
-                                    <div class="row row--wrap">
-                                        <label class="btn btn--sm">Upload<input type="file" accept="audio/*,video/*" data-sing-upload hidden></label>
-                                        <button type="button" class="btn btn--sm" data-voice-picker="sing" data-modal-open="modal-voice-picker">Pick from gallery</button>
-                                        <span class="text-sm text-muted" data-sing-name>No song selected</span>
-                                    </div>
-                                    <audio controls preload="metadata" data-sing-listen hidden></audio>
-                                    <span class="field__hint">Up to 10 minutes, with vocals. Audio or video; the video's sound is used.</span>
-                                </div>
-
-                                <div class="field">
-                                    <label class="field__label" for="sv-ses">Voice <span class="required tag-note">required</span></label>
-                                    <select class="select" id="sv-ses" name="voice" data-sing-voice></select>
-                                    <span class="field__hint">Voices from the library. For your own voice, record it first in Voice › My voice.</span>
-                                </div>
-
-                                <div class="field">
-                                    <span class="field__label">Octave</span>
-                                    <div class="mode-choice mode-choice--small">
-                                        <label class="mode-choice__option"><input type="radio" name="shift" value="" checked><span>Automatic</span></label>
-                                        <label class="mode-choice__option"><input type="radio" name="shift" value="-12"><span>Lower</span></label>
-                                        <label class="mode-choice__option"><input type="radio" name="shift" value="0"><span>As sung</span></label>
-                                        <label class="mode-choice__option"><input type="radio" name="shift" value="12"><span>Higher</span></label>
-                                    </div>
-                                    <span class="field__hint">Automatic picks it from the two voices (a man singing a woman's song an octave lower). The music keeps its key.</span>
-                                </div>
-
-                                <div class="field">
-                                    <label class="checkbox">
-                                        <input type="checkbox" name="backing" value="1" checked>
-                                        <span>Backing vocals in the new voice too</span>
-                                    </label>
-                                    <span class="field__hint">Off: only the lead vocal changes, the backing vocals stay as they were.</span>
-                                </div>
-
-                                <div class="form-actions">
-                                    <span class="text-sm text-muted" data-estimate="sing"></span>
-                                    <button type="submit" class="btn btn--primary">Sing</button>
-                                </div>
-                            </div>
-                        </form>
-
-                        <form class="panel" data-job-form="edit" data-edit-form="image" novalidate autocomplete="off">
+                        <form class="panel" data-job-form="edit" data-edit-form="image" novalidate autocomplete="off" hidden>
                             <header class="panel__head">
                                 <div>
                                     <h2 class="panel__title">Edit image</h2>
@@ -1066,11 +884,18 @@
                 <header class="page-head">
                     <div class="page-head__text">
                         <h1 id="b-tek-parca">Film</h1>
-                        <p class="page-head__subtitle">Write a topic or enter the scenes yourself; images, video, voice-over and music are combined into one film.</p>
+                        <p class="page-head__subtitle" data-film-form="film">Write a topic or enter the scenes yourself; images, video, voice-over and music are combined into one film.</p>
+                        <p class="page-head__subtitle" data-film-form="promo" hidden>A promo video of this panel or of a web page: the script is read aloud, the screen is recorded and everything is cut to the beat with music, in 16:9 and 9:16.</p>
                     </div>
                 </header>
 
-                <div class="split">
+                <!-- A promo video is made here too (user 11.10.2026: no tab of its own) -->
+                <div class="mode-choice" data-film-type role="radiogroup" aria-label="What to make">
+                    <label class="mode-choice__option"><input type="radio" name="filmType" value="film" checked><span>Film</span></label>
+                    <label class="mode-choice__option"><input type="radio" name="filmType" value="promo"><span>Promo video</span></label>
+                </div>
+
+                <div class="split" data-film-form="film">
                     <div class="split__main">
                         <form class="stack" data-job-form="film" novalidate autocomplete="off">
                             <div class="mode-choice" data-scene-mode>
@@ -1267,20 +1092,8 @@
 
                     <aside class="split__side" data-side="film"></aside>
                 </div>
-            </div>
-        </section>
 
-        <!-- ── PROMO: a promo video of the panel or a page, cut to the beat (user 10.10.2026) ── -->
-        <section data-section="promo" aria-labelledby="b-promo" hidden>
-            <div class="page__inner page__inner--wide">
-                <header class="page-head">
-                    <div class="page-head__text">
-                        <h1 id="b-promo">Promo</h1>
-                        <p class="page-head__subtitle">A promo video of this panel or of a web page: the script is read aloud, the screen is recorded and everything is cut to the beat with music, in 16:9 and 9:16.</p>
-                    </div>
-                </header>
-
-                <div class="split">
+                <div class="split" data-film-form="promo" hidden>
                     <div class="split__main">
                         <form class="stack" data-job-form="promo" novalidate autocomplete="off">
                             <section class="panel">
@@ -1881,7 +1694,6 @@
                     <a href="#gallery/voice" class="tabs__link" data-filter="voice">Voice</a>
                     <a href="#gallery/music" class="tabs__link" data-filter="music">Music</a>
                     <a href="#gallery/film" class="tabs__link" data-filter="film">Film</a>
-                    <a href="#gallery/promo" class="tabs__link" data-filter="promo">Promo</a>
                     <a href="#gallery/model3d" class="tabs__link" data-filter="model3d">3D</a>
                     <a href="#gallery/error" class="tabs__link" data-filter="error">Failed</a>
                 </nav>

@@ -3,6 +3,8 @@
  * a list of the allowed operations (the local text model). The answer is checked:
  * an unknown operation is dropped, numbers are limited. Applied with ffmpeg (jobs/audio-edit.mjs, jobs/video-edit.mjs).
  * The operation and field names in the prompt are the names the plan keeps (steps / operation / start ...).
+ * Some operations are another job type's work (restyle, sing, beatCut: HANDOVER): such a plan holds only that step and
+ * the edit job hands itself over to that type.
  */
 import { UserError } from './errors.mjs';
 import { runText, hasText } from './text-model.mjs';
@@ -15,6 +17,9 @@ const limit = (v, min, max, defaultValue) => {
 const DIRECTIONS = ['horizontal', 'vertical'];
 const POSITIONS = ['top', 'middle', 'bottom'];
 const MUSIC_LEVELS = ['light', 'middle', 'distinct'];
+const STRENGTHS = ['little', 'medium', 'much'];
+const PACES = ['calm', 'medium', 'fast'];
+const SIZES = ['source', '16:9', '9:16', '1:1'];
 const cutRange = (a, b) => ({ start: limit(a.start, 0, b.duration, 0), end: a.end == null ? null : limit(a.end, 0, b.duration, b.duration) });
 const fadeRange = (a) => ({ in: limit(a.in, 0, 10, 0), out: limit(a.out, 0, 10, 0) });
 
@@ -32,6 +37,14 @@ const VOICE_OPERATIONS = {
   changeVoice: {
     description: 'changeVoice {voice}: convert the speaking voice into another voice from the library (words and intonation are kept); voice = one of the ids below',
     validate: (a, b) => (b.voices?.some((s) => s.id === a.voice) ? { voice: a.voice } : null),
+  },
+  restyle: {
+    description: 'restyle {style, strength}: ONLY when the file is a song or music: play it again in another music style (e.g. "lo-fi hip hop, mellow piano"; style in English); strength "little" (instruments change, the melody stays) | "medium" | "much" (free re-interpretation). Only if songEditAvailable is true',
+    validate: (a, b) => (b.canRestyle && typeof a.style === 'string' && a.style.trim() ? { style: a.style.trim().slice(0, 500), strength: STRENGTHS.includes(a.strength) ? a.strength : 'medium' } : null),
+  },
+  sing: {
+    description: 'sing {voice, octave}: ONLY when the file is a song with vocals: the song is sung again in a library voice (melody, words and instruments stay; changeVoice is for speech); voice = one of the ids below; octave -12 | 0 | 12, omit for automatic. Only if singAvailable is true',
+    validate: (a, b) => (b.canSing && b.voices?.some((s) => s.id === a.voice) ? { voice: a.voice, octave: [-12, 0, 12].includes(Number(a.octave)) && a.octave !== null && a.octave !== '' ? Number(a.octave) : null } : null),
   },
 };
 
@@ -57,16 +70,24 @@ const VIDEO_OPERATIONS = {
     description: 'music {level}: put the music file given by the user under the video; level "light" | "middle" | "distinct" (only if musicFileGiven is true)',
     validate: (a, b) => (b.hasMusic ? { level: MUSIC_LEVELS.includes(a.level) ? a.level : 'middle' } : null),
   },
+  beatCut: {
+    description: 'beatCut {pace, size, length}: re-edit the video(s) into a montage cut to the beat of music (the given music file, else beat music is made); pace "calm" | "medium" | "fast"; size "source" | "16:9" | "9:16" | "1:1"; length in seconds (0 = automatic)',
+    validate: (a) => ({ pace: PACES.includes(a.pace) ? a.pace : 'medium', size: SIZES.includes(a.size) ? a.size : 'source', length: limit(a.length, 0, 180, 0) }),
+  },
 };
+
+/** The operations that are another job type's work: the plan keeps only that step. */
+export const HANDOVER = new Set(['restyle', 'sing', 'beatCut']);
 
 export const OPERATIONS = { voice: VOICE_OPERATIONS, video: VIDEO_OPERATIONS };
 
 function system(type, info) {
   const operations = OPERATIONS[type];
-  const voices = type === 'voice' && info.voices?.length ? `\nVoices in the library (ids for changeVoice): ${info.voices.map((s) => `${s.id} = "${s.name}"`).join('; ')}` : '';
+  const voices = type === 'voice' && info.voices?.length ? `\nVoices in the library (ids for changeVoice and sing): ${info.voices.map((s) => `${s.id} = "${s.name}"`).join('; ')}` : '';
+  const several = info.sourceCount > 1 ? `\n${info.sourceCount} videos are given: only beatCut can be done with them.` : '';
   return `You are a ${type === 'voice' ? 'voice' : 'video'} editing planner. Convert the user's instruction (Turkish or English) into an ORDERED list of the operations below.
 Only these operations exist:
-${Object.values(operations).map((x) => `- ${x.description}`).join('\n')}${voices}
+${Object.values(operations).map((x) => `- ${x.description}`).join('\n')}${voices}${several}
 File: ${JSON.stringify(info.summary)}
 Rules: Return JSON only, no other text. Format:
 {"steps":[{"operation":"<name>", ...fields}], "description":"<what will be done, one sentence in the language of the instruction>", "impossible":"<if part of the request cannot be done with these operations, a short note in the language of the instruction; otherwise empty>"}
@@ -96,7 +117,14 @@ export function parsePlan(type, text, info) {
     if (a.operation === 'cut') now = { ...now, duration: Math.max(0, (d.end ?? now.duration) - d.start) };
     else if (a.operation === 'speed' && d.ratio > 0) now = { ...now, duration: now.duration / d.ratio };
   }
-  const impossible = String(j.impossible ?? '').trim();
+  let impossible = String(j.impossible ?? '').trim();
+  // another job type's work goes alone (it starts from the original file); several videos can only be cut together
+  const handover = steps.find((a) => HANDOVER.has(a.operation)) ?? (info.sourceCount > 1 ? { operation: 'beatCut', ...operations.beatCut.validate({}, info) } : null);
+  if (handover) {
+    const dropped = steps.filter((a) => a !== handover).map((a) => a.operation);
+    if (dropped.length) impossible = [impossible, `not done together with ${handover.operation}: ${dropped.join(', ')}`].filter(Boolean).join('; ');
+    return { steps: [handover], description: String(j.description ?? '').trim().slice(0, 300), impossible };
+  }
   if (!steps.length) throw new UserError(impossible ? `This request cannot be done: ${impossible}` : 'No applicable edit was found in the instruction.');
   return { steps: steps.slice(0, 20), description: String(j.description ?? '').trim().slice(0, 300), impossible };
 }

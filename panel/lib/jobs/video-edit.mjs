@@ -4,6 +4,7 @@
  * operations (lib/edit-plan.mjs); filter steps in a row share one ffmpeg pass (crf 18), cut / audio / music get a
  * pass of their own.
  * Music can be added only when the user gave a music file. The plan is saved in the job (for a retry).
+ * A video (or several) described as a montage to the beat ("beatCut") goes on as a Beat cut.
  */
 import { copyFileSync, existsSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
@@ -19,6 +20,7 @@ export const name = 'Edit video';
 // ffmpeg only: the graphics card guard does not hold this job back.
 export const gpuNotNeeded = true;
 const VIDEO_EXTENSION = /\.(mp4|mov|mkv|webm|avi|m4v|3gp)$/i;
+const MAX_SOURCES = 30;
 const X264 = ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p'];
 // The font: Arial on Windows (Turkish letters); ':' is escaped in the filter path.
 const TEXT_TYPE = process.platform === 'win32' ? 'C\\:/Windows/Fonts/arial.ttf' : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
@@ -27,16 +29,18 @@ const TEXT_Y = { top: 'h*0.07', middle: '(h-th)/2', bottom: 'h-th-h*0.08' };
 
 export function validate(g, { setting }) {
   if (!hasText() && !setting.editPlan) throw new UserError('The instruction interpreter (text model) is not on this machine; video editing is unavailable.');
-  const source = String(g.source ?? '').trim();
-  if (!source) throw new UserError('Pick the video to edit.');
-  if (!VIDEO_EXTENSION.test(recordPath(setting.outputRoot, source))) throw new UserError('Pick a video file (MP4, MOV, MKV, WebM…).');
+  // one video (source) or several in order (sources: they can only be cut together to the beat)
+  const list = (Array.isArray(g.sources) && g.sources.length ? g.sources : [g.source]).map((s) => String(s ?? '').trim()).filter(Boolean);
+  if (!list.length) throw new UserError('Pick the video to edit.');
+  if (list.length > MAX_SOURCES) throw new UserError(`At most ${MAX_SOURCES} videos.`);
+  for (const s of list) if (!VIDEO_EXTENSION.test(recordPath(setting.outputRoot, s))) throw new UserError('Pick a video file (MP4, MOV, MKV, WebM…).');
   const music = String(g.music ?? '').trim();
   if (music) musicPath(setting.outputRoot, music);
-  return { source, instruction: text(g.instruction, 'Instruction', { max: 2000 }), music: music || null };
+  return { source: list[0], ...(list.length > 1 ? { sources: list } : {}), instruction: text(g.instruction, 'Instruction', { max: 2000 }), music: music || null };
 }
 
 export function summary(g) {
-  return { title: g.instruction, detail: `Video editing by instruction${g.music ? ' · with music' : ''}` };
+  return { title: g.instruction, detail: `Video editing by instruction${g.sources ? ` · ${g.sources.length} videos` : ''}${g.music ? ' · with music' : ''}` };
 }
 
 /** The steps that need a pass of their own (input cut, the audio stream, the music mix); the others join the filter chain. */
@@ -224,7 +228,7 @@ export async function run(ctx) {
     ctx.progress({ percent: 3, stage: 'Understanding the instruction' });
     const b = await videoInfo(ctx.setting.ffprobe, source);
     if (b.duration > 3 * 3600) throw new UserError('The video is longer than 3 hours.');
-    const info = { duration: b.duration, hasMusic: Boolean(music), summary: { durationSec: Math.round(b.duration * 10) / 10, width: b.width, height: b.height, fps: b.fps, hasVoice: b.voice, musicFileGiven: Boolean(music) } };
+    const info = { duration: b.duration, hasMusic: Boolean(music), sourceCount: g.sources?.length ?? 1, summary: { durationSec: Math.round(b.duration * 10) / 10, width: b.width, height: b.height, fps: b.fps, hasVoice: b.voice, musicFileGiven: Boolean(music) } };
     const planner = ctx.setting.editPlan ?? plan;
     ctx.job.plan = await planner({ type: 'video', instruction: g.instruction, info, signal: ctx.signal });
     ctx.save();
@@ -232,6 +236,10 @@ export async function run(ctx) {
   const plan = ctx.job.plan;
   ctx.log(`Plan: ${plan.description || plan.steps.map((a) => a.operation).join(', ')}`);
   if (plan.impossible) ctx.log(`Not possible: ${plan.impossible}`);
+  const first = plan.steps[0];
+  if (first.operation === 'beatCut') {
+    ctx.handOver('beatEdit', { sources: g.sources ?? [g.source], music: g.music ? 'file' : 'made', musicFile: g.music, size: first.size, pace: first.pace, length: first.length });
+  }
 
   // 2. The passes: filter steps in a row in one ffmpeg pass (a retry skips a finished pass)
   let current = source;

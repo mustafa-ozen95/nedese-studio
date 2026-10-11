@@ -46,6 +46,15 @@ export const HIDDEN_TYPES = ['speech'];
 /** Does the job leave the graphics card alone (runner.gpuNotNeeded: true, or a function of the job's input)? */
 const noGpu = (runner, job) => (typeof runner?.gpuNotNeeded === 'function' ? Boolean(runner.gpuNotNeeded(job.input)) : Boolean(runner?.gpuNotNeeded));
 
+/** Thrown by ctx.handOver: the job goes on as another type (runJob catches it). */
+class HandOver extends Error {
+  constructor(type, input) {
+    super(`Handed over to ${type}`);
+    this.type = type;
+    this.input = input;
+  }
+}
+
 export class Queue {
   /**
    * setting: what the settings setup returns; comfy: the ComfyUI client; mod: the exports of comfy.mjs;
@@ -654,8 +663,28 @@ export class Queue {
     this.log(job.id, free >= threshold ? `Enough RAM (${free.toFixed(1)} GB); job starting.` : `RAM still low (${free.toFixed(1)} GB); starting the job anyway.`);
   }
 
+  /**
+   * A runner that finds the job is another type's work (a video edit described as "cut to the beat") hands it over:
+   * the job takes the new type and input (checked by that runner) and goes on in the same slot and folder.
+   */
+  retype(job, { type, input }) {
+    const c = Object.hasOwn(this.runners, type) ? this.runners[type] : undefined;
+    if (!c) throw new Error(`Unknown job type to hand over to: ${type}`);
+    const clean = c.validate(input ?? {}, { mod: this.mod, setting: this.setting });
+    this.log(job.id, `Handed over: ${this.runners[job.type]?.name ?? job.type} → ${c.name}`);
+    job.handedFrom = job.type;
+    job.type = type;
+    job.input = clean;
+    job.summary = c.summary?.(clean) ?? {};
+    job.outputs = [];
+    job.progress = { percent: 0, stage: 'Starting' };
+    this.save(job);
+    this.changed();
+    return c;
+  }
+
   async runJob(job, { side = false } = {}) {
-    const c = this.runners[job.type];
+    let c = this.runners[job.type];
     const control = new AbortController();
     const slot = { job, control };
     if (side) this.side.set(job.id, slot);
@@ -671,21 +700,29 @@ export class Queue {
     this.log(job.id, `Started (${this.setting.machine})`);
     const ctx = this.context(job, control.signal);
     try {
-      if (!noGpu(c, job)) {
-        // An idle text model (e.g. the last query of a yielding collection) does not hold RAM and VRAM: released before
-        // the checks. Otherwise the RAM watchdog waited for nothing with "close the browsers" (05.10.2026: Gemma 11 GB
-        // VRAM + ~5 GB RAM). With the gpuShare fine setting off (a big card) the text model stays on the card.
-        if (fineSetting('gpuShare')) {
-          // a chat answer being written finishes first (its next step waits for this job): the job says why it waits
-          const told = this.llm?.ongoing > 0;
-          if (told) ctx.progress({ detail: 'The text model is finishing an answer; then the job starts' });
-          await this.llm?.releaseGpu?.();
-          if (told) ctx.progress({ detail: '' });
+      for (;;) {
+        if (!noGpu(c, job)) {
+          // An idle text model (e.g. the last query of a yielding collection) does not hold RAM and VRAM: released before
+          // the checks. Otherwise the RAM watchdog waited for nothing with "close the browsers" (05.10.2026: Gemma 11 GB
+          // VRAM + ~5 GB RAM). With the gpuShare fine setting off (a big card) the text model stays on the card.
+          if (fineSetting('gpuShare')) {
+            // a chat answer being written finishes first (its next step waits for this job): the job says why it waits
+            const told = this.llm?.ongoing > 0;
+            if (told) ctx.progress({ detail: 'The text model is finishing an answer; then the job starts' });
+            await this.llm?.releaseGpu?.();
+            if (told) ctx.progress({ detail: '' });
+          }
+          await this.waitGpuPosition(job, ctx, control.signal);
+          await this.waitRam(job, ctx, control.signal);
         }
-        await this.waitGpuPosition(job, ctx, control.signal);
-        await this.waitRam(job, ctx, control.signal);
+        try {
+          await c.run(ctx);
+          break;
+        } catch (e) {
+          if (!(e instanceof HandOver) || control.signal.aborted) throw e;
+          c = this.retype(job, e); // the new type's checks (graphics card, RAM) run before it
+        }
       }
-      await c.run(ctx);
       if (control.signal.aborted) throw new CancelError();
       job.status = 'done';
       job.progress = { percent: 100, stage: 'Done' };
@@ -784,6 +821,10 @@ export class Queue {
       signal,
       log: (m) => this.log(job.id, m),
       save: () => this.save(job),
+      // the description asks for another job type's work: the job goes on as that type (never returns)
+      handOver: (type, input) => {
+        throw new HandOver(type, input);
+      },
       progress: (d) => {
         job.progress = { ...job.progress, ...d, percent: Math.max(0, Math.min(100, Math.round((d.percent ?? job.progress?.percent ?? 0) * 10) / 10)) };
         if (d.stage && d.stage !== job.progress.lastStage) {

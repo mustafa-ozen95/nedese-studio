@@ -10,14 +10,14 @@ import assert from 'node:assert/strict';
 import { createServer as netServer } from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
 import { Browser, browserPath } from '../lib/browser.mjs';
 import { LocalLlm } from '../lib/llm.mjs';
 import { CATALOG } from '../lib/models.mjs';
 
-const SECTIONS = ['image', 'video', 'voice', 'music', 'edit', 'model3d', 'film', 'promo', 'gallery', 'training', 'settings'];
+const SECTIONS = ['image', 'video', 'voice', 'music', 'edit', 'edit/image', 'edit/audio', 'edit/video', 'model3d', 'film', 'film/promo', 'gallery', 'training', 'settings'];
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const FAKE_LLM = fileURLToPath(new URL('./fake-llm.mjs', import.meta.url));
 const freePort = () => new Promise((ok) => {
@@ -68,7 +68,7 @@ test('UI: sections, training fields, video models and the language toggle work w
     }
     assert.deepEqual([...leftovers], [], 'Turkish text left on the English page');
     // the Text section is gone (user decision 09.10.2026: the chat does its work): not in the menu, no page for it
-    assert.deepEqual(await t.evaluate("[...document.querySelectorAll('[data-sub-tab]')].map((a) => a.dataset.subTab)"), ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d', 'promo'], 'Production tabs');
+    assert.deepEqual(await t.evaluate("[...document.querySelectorAll('[data-sub-tab]')].map((a) => a.dataset.subTab)"), ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d'], 'Production tabs');
     assert.equal(await t.evaluate("Boolean(document.querySelector('[data-section=text], [data-text-form], a[href=\"#text\"]'))"), false, 'something of the Text section is left');
     // Egitim: her alan (yontem, temel listesi, ipucu, alan bloklari degisir)
     const fields = await t.evaluate(`(async () => {
@@ -164,15 +164,13 @@ test('UI with measured timings (film too): the estimates are written, the recent
     await t.evaluate(`location.hash = '#image'`);
     assert.ok(await until(`document.querySelectorAll('[data-last="image"] .gallery-card').length === 1`), 'the recent images panel shows the finished image');
 
-    // the recent edits follow the kind of edit (10.10.2026: the beat cut tab showed the image edits)
+    // Edit's one Recent panel holds every kind of edit (11.10.2026: a description may hand an edit over to a Beat cut)
     mkdirSync(join(p.setting.outputRoot, 'trial'), { recursive: true });
     execFileSync(p.setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x120:r=30:d=3', '-c:v', 'libx264', '-preset', 'ultrafast', join(p.setting.outputRoot, 'trial', 'a.mp4')]);
     const beat = await p.waitUntilDone(p.queue.add('beatEdit', { sources: ['job/trial/a.mp4'], length: 4 }).id);
     assert.equal(beat.status, 'done', beat.error);
     await t.evaluate(`location.hash = '#edit'`);
-    assert.ok(await until(`Boolean(document.querySelector('[data-side="edit"] [data-last="edit"]'))`), 'image edits first');
-    await t.evaluate(`(() => { const r = document.querySelector('[data-edit-type] input[value="beat"]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-    assert.ok(await until(`Boolean(document.querySelector('[data-side="edit"] [data-last="beatEdit"] [data-preview="${beat.id}"]'))`), 'the beat cut tab shows the beat cut');
+    assert.ok(await until(`Boolean(document.querySelector('[data-side="edit"] [data-last="edit"] [data-preview="${beat.id}"]'))`), 'the recent edits show the beat cut');
     assert.deepEqual(errors, []);
   } finally {
     await t.close();
@@ -201,8 +199,8 @@ test('UI rename: the job window renames the job; the recent card and the window 
     // 10.10.2026: the type before the title was one text with it ("Image · "), so it stayed English in the queue and
     // the window; the empty file fields ("No song selected") were translate=no for the file name and stayed English
     assert.ok((await t.evaluate(`document.querySelector('#preview-title').textContent`)).startsWith('Görsel · '), await t.evaluate(`document.querySelector('#preview-title').textContent`));
-    assert.deepEqual(await t.evaluate(`['song', 'sing', 'audio-edit', 'video-edit', 'video-music', 'm3v'].map((k) => document.querySelector('[data-' + k + '-name]').textContent)`),
-      ['Şarkı seçilmedi', 'Şarkı seçilmedi', 'Ses seçilmedi', 'Video seçilmedi', 'Müzik yok', 'Video seçilmedi']);
+    assert.deepEqual(await t.evaluate(`['audio-edit', 'video-edit', 'video-music', 'm3v'].map((k) => document.querySelector('[data-' + k + '-name]').textContent)`),
+      ['Ses seçilmedi', 'Video seçilmedi', 'Müzik yok', 'Video seçilmedi']);
     await t.evaluate(`document.querySelector('#modal-preview [data-rename]').click(); true`);
     assert.equal(await t.evaluate(`document.querySelector('[data-rename-form] input').value`), 'a red fox walking in the snowy forest');
     await t.evaluate(`(() => { const f = document.querySelector('[data-rename-form]'); f.title.value = 'Karda yürüyen tilki'; f.requestSubmit(); return true; })()`);
@@ -846,6 +844,94 @@ test('UI chat: the answer being written is back with its text after switching se
     delete process.env.FAKE_LLM_STREAM_MS;
     await t.close();
     await llm.close();
+    await p.close();
+  }
+});
+
+// 11.10.2026 (user): no Promo tab and no Edit tabs. Film makes a promo video too (#film/promo); Edit has one file card:
+// the kind of the given file shows its form, several videos go to the video form in order and are sent as "sources".
+test('UI without tabs: Film | Promo video choice; Edit shows the form of the uploaded file and sends several videos (headless browser)', { skip: browserPath() ? false : 'Edge/Chrome not found' }, async () => {
+  const p = await createPanel({ server: true });
+  const t = new Browser({ height: 900 });
+  const errors = [];
+  const until = async (expression, ms = 15000) => {
+    for (const end = Date.now() + ms; Date.now() < end; await wait(100)) if (await t.evaluate(expression)) return true;
+    return false;
+  };
+  const trial = join(p.setting.outputRoot, 'trial');
+  mkdirSync(trial, { recursive: true });
+  const make = (name, args) => {
+    execFileSync(p.setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', ...args, join(trial, name)]);
+    return readFileSync(join(trial, name)).toString('base64');
+  };
+  const files = {
+    'a.mp4': make('a.mp4', ['-f', 'lavfi', '-i', 'testsrc2=s=160x120:r=30:d=2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p']),
+    'b.mp4': make('b.mp4', ['-f', 'lavfi', '-i', 'rgbtestsrc=s=160x120:r=30:d=2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p']),
+    'song.wav': make('song.wav', ['-f', 'lavfi', '-i', 'sine=f=440:d=2']),
+    'photo.png': make('photo.png', ['-f', 'lavfi', '-i', 'testsrc2=s=160x120', '-frames:v', '1']),
+  };
+  const TYPES = { mp4: 'video/mp4', wav: 'audio/wav', png: 'image/png' };
+  // the files as if picked in the card's file input (the browser's own upload path)
+  const pick = (input, names) => t.evaluate(`(() => {
+    const d = new DataTransfer();
+    for (const [name, data, type] of ${JSON.stringify(names.map((n) => [n, files[n], TYPES[n.split('.').pop()]]))}) d.items.add(new File([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))], name, { type }));
+    const i = document.querySelector('${input}');
+    i.files = d.files;
+    i.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  const shown = () => t.evaluate(`[...document.querySelectorAll('[data-edit-form]')].filter((f) => !f.hidden).map((f) => f.dataset.editForm)`);
+  try {
+    await t.open();
+    collectErrors(t, errors);
+    await openEnglish(t, `${p.address}/#film`);
+    const film = () => t.evaluate(`({ film: !document.querySelector('[data-job-form="film"]').closest('[data-film-form]').hidden, promo: !document.querySelector('[data-job-form="promo"]').closest('[data-film-form]').hidden, checked: document.querySelector('[data-film-type] input:checked')?.value })`);
+    assert.deepEqual(await film(), { film: true, promo: false, checked: 'film' });
+    assert.equal(await t.evaluate(`Boolean(document.querySelector('[data-sub-tab="promo"], [data-section="promo"]'))`), false, 'no Promo tab or section');
+    await t.evaluate(`(() => { const r = document.querySelector('[data-film-type] input[value="promo"]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+    assert.ok(await until(`location.hash === '#film/promo'`), 'the choice is in the address');
+    assert.deepEqual(await film(), { film: false, promo: true, checked: 'promo' });
+    await t.evaluate(`location.hash = '#film'`);
+    assert.ok(await until(`!document.querySelector('[data-job-form="film"]').closest('[data-film-form]').hidden`), 'back to the film form');
+
+    await t.evaluate(`location.hash = '#edit'`);
+    await wait(300);
+    assert.deepEqual(await shown(), [], 'no form before a file is given');
+    assert.equal(await t.evaluate(`Boolean(document.querySelector('[data-edit-type]'))`), false, 'no Edit tabs');
+    await pick('[data-edit-pick-upload]', ['photo.png']);
+    assert.ok(await until(`!document.querySelector('[data-job-form="edit"]').closest('[data-edit-form]').hidden`), `image form: ${await shown()}`);
+    await pick('[data-edit-pick-upload]', ['song.wav']);
+    assert.ok(await until(`/song/.test(document.querySelector('[data-audio-edit-name]').textContent)`), 'the sound is in the audio form');
+    assert.deepEqual(await shown(), ['audio']);
+    await pick('[data-edit-pick-upload]', ['a.mp4', 'b.mp4']);
+    assert.ok(await until(`document.querySelectorAll('[data-video-edit-list] [data-video-remove]').length === 2`), 'both videos are listed');
+    assert.deepEqual(await shown(), ['video']);
+    // the second one first, then the description
+    await t.evaluate(`document.querySelector('[data-video-up="1"]').click(); true`);
+    const order = await t.evaluate(`window.NedesePanel.status.editVideos.map((v) => v.name)`);
+    assert.deepEqual(order.map((n) => n.replace(/^.*?(a|b)\.mp4$/, '$1')), ['b', 'a'], order.join());
+    // the text model's plan for the description (the real planner is tested in edit-handover.test.mjs)
+    const asked = [];
+    p.setting.editPlan = async ({ instruction, info }) => {
+      asked.push([instruction, info.sourceCount]);
+      return { steps: [{ operation: 'beatCut', pace: 'fast', size: '9:16', length: 2 }], description: 'beat cut', impossible: '' };
+    };
+    const before = new Set(p.queue.jobs.keys());
+    await t.evaluate(`(() => { const f = document.querySelector('[data-job-form="videoEdit"]'); f.instruction.value = 'cut them to the beat for Reels'; window.__toasts = []; new MutationObserver(() => window.__toasts.push(document.querySelector('[data-toast-host], .toast-host').textContent)).observe(document.querySelector('[data-toast-host], .toast-host'), { childList: true, subtree: true, characterData: true }); f.requestSubmit(); return true; })()`);
+    let job;
+    for (const end = Date.now() + 15000; !job && Date.now() < end; await wait(100)) job = [...p.queue.jobs.values()].find((j) => !before.has(j.id));
+    assert.ok(job, `the job was queued: ${await t.evaluate(`(() => { const f = document.querySelector('[data-job-form="videoEdit"]'); return JSON.stringify({ valid: f.checkValidity(), bad: [...f.elements].filter((e) => !e.checkValidity()).map((e) => e.name + ':' + e.validationMessage), instr: f.instruction.value, toast: window.__toasts }); })()`)}`);
+    assert.equal(job.id.includes('videoEdit'), true, job.id);
+    assert.deepEqual(job.input.sources.map((s) => s.replace(/^.*?(a|b)\.mp4$/, '$1')), ['b', 'a'], 'the videos go in the order shown');
+    // the description hands the edit over to a Beat cut, which makes the montage
+    const done = await p.waitUntilDone(job.id, 120000);
+    assert.equal(done.status, 'done', done.error ?? '');
+    assert.deepEqual(asked, [['cut them to the beat for Reels', 2]]);
+    assert.equal(done.type, 'beatEdit');
+    assert.ok(await until(`Boolean(document.querySelector('[data-side="edit"] [data-last="edit"] [data-preview="${job.id}"]'))`), 'the montage is in the recent edits');
+    assert.deepEqual(errors, []);
+  } finally {
+    await t.close();
     await p.close();
   }
 });
