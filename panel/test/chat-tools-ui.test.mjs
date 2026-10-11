@@ -33,6 +33,8 @@ test('UI files in the chat (phone 402 px): a PDF and a file without extension pi
     assert.equal(await t.evaluate(`${composer}.length`), 0, 'the composer is empty again');
     const chips = "[...document.querySelectorAll('.message--user .message__files a.file-chip')].map((a) => [a.querySelector('.file-chip__type').textContent, a.querySelector('.file-chip__name').textContent, new URL(a.href).pathname.replace(/\\/\\d{8}-\\d{6}-/, '/<time>-'), a.target])";
     const expected = [['PDF', 'Q3 report.pdf', '/file/upload/<time>-file-q3-report.pdf', '_blank'], ['File', 'README', '/file/upload/<time>-file-readme', '_blank']];
+    // the sent message is drawn again with its links once the chat is saved (under load after the answer shows)
+    await until(`JSON.stringify(${chips}) === ${JSON.stringify(JSON.stringify(expected))}`, 10000);
     assert.deepEqual(await t.evaluate(chips), expected);
     // the link opens the file itself
     const href = await t.evaluate("document.querySelector('.message--user .message__files a.file-chip').href");

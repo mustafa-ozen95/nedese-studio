@@ -2657,8 +2657,8 @@
         status.voicePickerTarget = pickerType === 'scene' ? trigger.closest('[data-scene]') : ['audioEdit', 'videoEdit', 'videoMusic', 'model3d', 'editMedia'].includes(pickerType) ? pickerType : 'music';
         const both = pickerType === 'editMedia';
         const videoMu = pickerType === 'videoEdit' || pickerType === 'model3d' || both;
-        $('#voice-picker-title').textContent = both ? 'Pick audio or a video from the gallery' : videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
-        $('[data-voice-picker-note]', voicePicker).textContent = both ? 'Videos and films, music and voice-overs, and your uploads.' : videoMu ? 'Videos, films, edited videos and uploaded videos.' : 'Generated music, voice-overs and uploaded music.';
+        $('#voice-picker-title').textContent = both ? 'Pick from the gallery' : videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
+        $('[data-voice-picker-note]', voicePicker).textContent = both ? 'Images, videos and films, music and voice-overs, and your uploads.' : videoMu ? 'Videos, films, edited videos and uploaded videos.' : 'Generated music, voice-overs and uploaded music.';
         const list = $('[data-voice-picker-list]', voicePicker);
         list.replaceChildren(el('p', { class: 'text-sm text-muted', text: 'Loading…' }));
         try {
@@ -2671,8 +2671,13 @@
                     if (c) items.push({ source: c.source, url: c.url, poster: c.previewUrl ?? null, name: job.title, type: job.type === 'film' ? 'Film' : 'Video', duration: c.duration, dateText: job.creation, video: true });
                 }
                 for (const x of y.uploads.filter((x) => x.type === 'record' && /.(mp4|mov|mkv|webm|avi|m4v|3gp)$/i.test(x.source))) items.push({ source: x.source, url: x.url, name: x.name, type: 'Uploaded', video: true });
-                // Edit's file card: the sounds after the videos
-                if (both) items.push(...(await audioItems()));
+                // Edit's file card (one button, user 11.10.2026): images, videos and sounds together, newest first
+                if (both) {
+                    const [g, sounds] = await Promise.all([api('/api/images'), audioItems()]);
+                    for (const x of g.images) items.push({ source: x.source, url: x.url, poster: x.previewUrl ?? x.url, name: x.name, type: 'Image', width: x.width, height: x.height, dateText: x.dateText, image: true });
+                    items.push(...sounds);
+                    items.sort((a, b) => stampOf(b).localeCompare(stampOf(a)));
+                }
                 status.voicePickerList = items;
                 status.voicePickerPage = 1;
                 renderVoicePicker();
@@ -2688,6 +2693,13 @@
             list.replaceChildren(el('p', { class: 'field__error', text: e.message }));
         }
     });
+
+    /** Sorting key of a gallery item: its date, else the stamp in its job or upload name (YYYYMMDD-HHMMSS). */
+    function stampOf(o) {
+        if (o.dateText) return new Date(o.dateText).toISOString();
+        const m = String(o.source ?? '').match(/(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
+        return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}` : '';
+    }
 
     /** The gallery's music and voice outputs and the uploaded sounds (an edited sound too: an edit of an edit). */
     async function audioItems() {
@@ -2707,21 +2719,21 @@
         status.voicePickerPage = d.page;
         if (!d.total) {
             list.replaceChildren(el('div', { class: 'empty' },
-                el('p', { class: 'empty__title', text: 'No audio' }),
-                el('p', { class: 'empty__text', text: 'Generate some in the Music or Voice section first.' })));
+                el('p', { class: 'empty__title', text: status.voicePickerTarget === 'editMedia' ? 'Nothing in the gallery yet' : 'No audio' }),
+                el('p', { class: 'empty__text', text: status.voicePickerTarget === 'editMedia' ? 'Make something first or upload a file.' : 'Generate some in the Music or Voice section first.' })));
         } else {
-            // Videos are tiles with their picture (a tap picks one); sounds are rows with a player and Select
+            // Images and videos are tiles with their picture (a tap picks one); sounds are rows with a player and Select
             const meta = (o) => [o.type, o.duration ? `${number(o.duration)} s` : null].filter(Boolean).join(' · ');
-            const videos = d.items.filter((o) => o.video);
+            const videos = d.items.filter((o) => o.video || o.image);
             list.replaceChildren(
                 ...(videos.length ? [el('div', { class: 'picker' }, ...videos.map((o) => el('button', { type: 'button', class: 'picker__item', title: o.name || '', 'data-voice-select-item': JSON.stringify(o) },
                     el('span', { class: 'picker__thumb' },
                         // an upload has no preview picture: its first frame (#t: Safari draws no frame for preload alone)
-                        o.poster ? el('img', { src: o.poster, alt: '', loading: 'lazy' }) : el('video', { src: `${o.url}#t=0.1`, preload: 'metadata', muted: true, playsinline: true }),
+                        o.poster || o.image ? el('img', { src: o.poster ?? o.url, alt: '', loading: 'lazy' }) : el('video', { src: `${o.url}#t=0.1`, preload: 'metadata', muted: true, playsinline: true }),
                         o.duration ? el('span', { class: 'media__badge', text: `${number(o.duration)} s` }) : null),
                     el('span', { class: 'truncate', translate: 'no', text: o.name || '—' }),
                     el('span', { class: 'text-sm text-muted', text: o.type }))))] : []),
-                ...d.items.filter((o) => !o.video).map((o) => el('div', { class: 'voice-picker__row' },
+                ...d.items.filter((o) => !o.video && !o.image).map((o) => el('div', { class: 'voice-picker__row' },
                     el('span', { class: 'line-title truncate', translate: 'no', title: o.name, text: o.name || '—' }),
                     el('span', { class: 'text-sm text-muted', text: meta(o) }),
                     el('div', { class: 'row' },
@@ -2743,7 +2755,8 @@
         if (target === 'music') {
             configureMusic({ source: o.source, name: o.name });
         } else if (target === 'editMedia' || target === 'videoEdit') {
-            if (o.video) addEditVideo({ source: o.source, name: o.name, url: o.url, poster: o.poster });
+            if (o.image) configureSlot(0, { source: o.source, url: o.url, previewUrl: o.poster, name: o.name, width: o.width, height: o.height });
+            else if (o.video) addEditVideo({ source: o.source, name: o.name, url: o.url, poster: o.poster });
             else configureFileField('audioEdit', { source: o.source, name: o.name, url: o.url });
         } else if (target === 'model3d') {
             configureM3Video({ source: o.source, name: o.name, url: o.url });
