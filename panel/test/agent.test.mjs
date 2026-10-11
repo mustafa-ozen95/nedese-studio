@@ -888,6 +888,10 @@ test('lasting notes: ids, update and search, delete by id (a text deletes one no
     assert.ok(lines.join('\n').length <= 4000);
     const older = /\n\[(\d+) older notes are not shown here: search_memory finds them\]/.exec(block);
     assert.equal(Number(older?.[1]) + lines.length, 122);
+    // writing code: Karpathy's four rules, only where code can be written (a network session has no file tools)
+    assert.match(prompt, /Code \(Karpathy's four rules\): 1\. think before coding.*2\. simplicity first.*3\. surgical changes.*4\. goal-driven/);
+    const network = a.create({ full: false });
+    assert.doesNotMatch(a.systemPrompt(network, a.activeTools(network)), /Karpathy/);
   } finally {
     await o.close();
   }
