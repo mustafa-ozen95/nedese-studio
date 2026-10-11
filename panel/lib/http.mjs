@@ -557,10 +557,14 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
       return;
     }
     const download = url.searchParams.get('download') === '1';
-    serveStatic(req, response, file, { download, cache: false });
+    serveStatic(req, response, file, { download, cache: false, sandbox: true });
   }
 
-  function serveStatic(req, response, file, { download = false, cache = false } = {}) {
+  /**
+   * sandbox: a made or uploaded file (an attachment can be any HTML or SVG): opened on its own it runs in a unique origin
+   * without scripts, so it cannot drive the panel's API (security audit 11.10.2026). Images, video and sound are unchanged.
+   */
+  function serveStatic(req, response, file, { download = false, cache = false, sandbox = false } = {}) {
     let info;
     try {
       info = statSync(file);
@@ -579,6 +583,7 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': cache ? 'max-age=300' : 'no-cache',
       'Last-Modified': info.mtime.toUTCString(),
+      ...(sandbox ? { 'Content-Security-Policy': 'sandbox' } : {}),
     };
     if (download) headers['Content-Disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(file.split(sep).pop())}`;
     const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');

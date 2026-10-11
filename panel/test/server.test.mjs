@@ -106,6 +106,18 @@ test('UI, API and security', async () => {
     const images = JSON.parse((await req(p.address, '/api/images')).body).images;
     assert.ok(images.some((x) => x.source === g.source));
 
+    // A chat attachment of any type (security audit 11.10.2026): an HTML or SVG file opened from /file/ must not run its
+    // script on the panel's origin (it could drive the panel API and the agent's commands). Served in a sandbox.
+    for (const [name, content] of [['page.html', '<script>fetch("/api/v1/jobs")</script>'], ['logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>']]) {
+      const up = await req(p.address, `/api/v1/uploads/file?name=${name}`, { method: 'POST', headers: { 'X-Panel': '1', Origin: `http://${host}` }, body: Buffer.from(content) });
+      assert.equal(up.code, 200, up.body.toString());
+      const served = await req(p.address, JSON.parse(up.body).file.url);
+      assert.equal(served.code, 200);
+      assert.match(served.headers['content-security-policy'] ?? '', /\bsandbox\b/, `${name}: no script on the panel's origin`);
+    }
+    // the panel's own pages are not sandboxed
+    assert.equal((await req(p.address, '/')).headers['content-security-policy'], undefined);
+
     // ComfyUI baslat: calisiyorsa dokunmaz.
     const b = JSON.parse((await req(p.address, '/api/comfy/start', { method: 'POST', headers: { 'X-Panel': '1' } })).body);
     assert.equal(b.message, 'ComfyUI is already running.');
