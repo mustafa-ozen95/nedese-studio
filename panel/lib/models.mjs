@@ -16,8 +16,9 @@ export const FOLDERS = {
   loras: 'LoRA (speed-up, style)',
   text_encoders: 'Text encoders',
   vae: 'VAE',
-  clip_vision: 'Vision encoders (3D)',
+  clip_vision: 'Vision encoders (3D, replacing a person)',
   background_removal: 'Background removal',
+  pose: 'Pose detection (replacing a person)',
   geometry_estimation: 'Geometry estimation',
   upscale_models: 'Upscaling (1080p video)',
   audio_encoders: 'Audio encoders (lip sync)',
@@ -31,7 +32,7 @@ const MODEL_FIELDS = { unet_name: 'diffusion_models', ckpt_name: 'checkpoints', 
 const CLASS_FIELDS = { CLIPVisionLoader: { clip_name: 'clip_vision' }, LoadMoGeModel: { model_name: 'geometry_estimation' }, ModelPatchLoader: { name: 'model_patches' } };
 const FILE_NAME = /^[\w.-]+$/;
 
-export const GENERATOR_NAMES = { qwenJob: 'Image: Qwen-Image 2512', fluxJob: 'Image: FLUX.2 klein', wan14Job: 'Video: Wan 2.2 A14B', wanJob: 'Video: Wan 2.2 5B', musicJob: 'Music: ACE-Step 1.5', songEditJob: 'Song editing: ACE-Step 1.5', editJob: 'Image editing: Qwen-Image-Edit', trellis2Job: '3D model: TRELLIS.2', lipJob: 'Lip sync: InfiniteTalk', mouthJob: 'Mouth correction: LatentSync', singJob: 'Singing in a voice: YingMusic-SVC' };
+export const GENERATOR_NAMES = { qwenJob: 'Image: Qwen-Image 2512', fluxJob: 'Image: FLUX.2 klein', wan14Job: 'Video: Wan 2.2 A14B', wanJob: 'Video: Wan 2.2 5B', musicJob: 'Music: ACE-Step 1.5', songEditJob: 'Song editing: ACE-Step 1.5', editJob: 'Image editing: Qwen-Image-Edit', trellis2Job: '3D model: TRELLIS.2', lipJob: 'Lip sync: InfiniteTalk', mouthJob: 'Mouth correction: LatentSync', singJob: 'Singing in a voice: YingMusic-SVC', replaceJob: 'Replacing a person: Wan 2.2 Animate' };
 
 /**
  * The default model set (setup.bat -Models all, Settings "Download default models"): every catalog entry except the
@@ -201,6 +202,14 @@ export const CATALOG = [
   { id: 'pixal3d', group: 'TRELLIS.2 (3D model)', name: 'Pixal3D int8', folder: 'diffusion_models', file: 'pixal3d_int8_convrot.safetensors', url: `${HF}/Comfy-Org/Pixal3D/resolve/main/diffusion_models/pixal3d_int8_convrot.safetensors`, size: 5584555824, sha256: '4621eac3b715484f79303c7152af641fe0b2b14f4d0e3d394fd6922d00f955ec', note: 'Image to 3D, same pipeline as TRELLIS.2; better face and fine detail (high quality).' },
   { id: 'moge2', group: 'TRELLIS.2 (3D model)', name: 'MoGe-2 camera angle (Pixal3D)', folder: 'geometry_estimation', file: 'moge_2_vitl_normal_fp16.safetensors', url: `${HF}/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors`, size: 661859924, sha256: 'cb1a692d03235671e959e81360d7b4d9f44aefadb1f852d6ca6aa17799d5e31f' },
   { id: 'birefnet', group: 'TRELLIS.2 (3D model)', name: 'BiRefNet background removal', folder: 'background_removal', file: 'birefnet.safetensors', url: `${HF}/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors`, size: 444473596, sha256: '9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154' },
+  // Replacing a person in a video (Edit > video + a photo): Wan 2.2 Animate 14B (Apache 2.0) replacement mode; UMT5, the
+  // Wan 2.1 VAE, the lightx2v LoRA (lip sync) and BiRefNet above are shared. Pose: DWPose (Apache 2.0) as TorchScript,
+  // read by tools/comfy-nodes/nedese_animate.
+  { id: 'animate-q4', group: 'Wan 2.2 Animate (replacing a person)', name: 'Wan 2.2 Animate 14B Q4_K_M', folder: 'diffusion_models', file: 'Wan2.2-Animate-14B-Q4_K_M.gguf', url: `${HF}/QuantStack/Wan2.2-Animate-14B-GGUF/resolve/main/Wan2.2-Animate-14B-Q4_K_M.gguf`, size: 11496331072, sha256: '43d720f243c3cdf5346ca05b525ec662f89bc5ebeb8e998dc347b840406cdfa6', note: 'The person in a video replaced by the person in a photo; the 4 files below, UMT5, the Wan 2.1 VAE, the lightx2v LoRA and BiRefNet are also required.' },
+  { id: 'animate-clip-vision', group: 'Wan 2.2 Animate (replacing a person)', name: 'CLIP vision H (the photo)', folder: 'clip_vision', file: 'clip_vision_h.safetensors', url: `${HF}/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors`, size: 1264219396, sha256: '64a7ef761bfccbadbaa3da77366aac4185a6c58fa5de5f589b42a65bcc21f161' },
+  { id: 'animate-relight', group: 'Wan 2.2 Animate (replacing a person)', name: 'Wan Animate relight LoRA (the scene\'s light on the new person)', folder: 'loras', file: 'WanAnimate_relight_lora_fp16_resized_from_128_to_dynamic_22.safetensors', url: `${HF}/Kijai/WanVideo_comfy/resolve/main/LoRAs/Wan22_relight/WanAnimate_relight_lora_fp16_resized_from_128_to_dynamic_22.safetensors`, size: 272805784, sha256: '5e723593ee0b4f6202061ae9d84edd3661de8ee9afa237b5dd29db623e203df0' },
+  { id: 'animate-yolox', group: 'Wan 2.2 Animate (replacing a person)', name: 'YOLOX-L person detector (DWPose)', folder: 'pose', file: 'yolox_l.torchscript.pt', url: `${HF}/hr16/yolox-onnx/resolve/main/yolox_l.torchscript.pt`, size: 217697649, sha256: '80bc14b13c260c24b3014cd42c02994bf52296ab8fa2d80a60b6afe08c93ef42', user: ['replaceJob'] },
+  { id: 'animate-dwpose', group: 'Wan 2.2 Animate (replacing a person)', name: 'DWPose whole-body pose (RTMPose)', folder: 'pose', file: 'dw-ll_ucoco_384_bs5.torchscript.pt', url: `${HF}/hr16/DWPose-TorchScript-BatchSize5/resolve/main/dw-ll_ucoco_384_bs5.torchscript.pt`, size: 135059124, sha256: 'd86a0b2b59fddc0901a7076e9f59c9f8602602133ed72511c693fd11eea23d91', user: ['replaceJob'] },
   { id: 'upscale-span2x', group: 'Video 1080p upscaling', name: '2xNomosUni SPAN (2x, CC-BY-4.0, Philip Hofmann)', folder: 'upscale_models', file: '2xNomosUni_span_multijpg.safetensors', url: `${HF}/Phips/2xNomosUni_span_multijpg/resolve/main/2xNomosUni_span_multijpg.safetensors`, size: 4461056, sha256: 'bee2a9c082f2b8f6e7f5db504b36593c24a1a959511f587114c399ca58b9c92c' },
 ];
 

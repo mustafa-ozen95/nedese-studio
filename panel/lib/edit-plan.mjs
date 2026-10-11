@@ -74,10 +74,14 @@ const VIDEO_OPERATIONS = {
     description: 'beatCut {pace, size, length}: re-edit the video(s) into a montage cut to the beat of music (the given music file, else beat music is made); pace "calm" | "medium" | "fast"; size "source" | "16:9" | "9:16" | "1:1"; length in seconds (0 = automatic)',
     validate: (a) => ({ pace: PACES.includes(a.pace) ? a.pace : 'medium', size: SIZES.includes(a.size) ? a.size : 'source', length: limit(a.length, 0, 180, 0) }),
   },
+  replacePerson: {
+    description: 'replacePerson {prompt}: ONLY if photoGiven is true: the person in the video is replaced by the person in the given photo (the motion, the background and the sound stay); prompt = one short English sentence of what that person does in the video (e.g. "an old fisherman in a red hat talking and smiling")',
+    validate: (a, b) => (b.hasPhoto ? { prompt: typeof a.prompt === 'string' ? a.prompt.trim().slice(0, 500) : '' } : null),
+  },
 };
 
 /** The operations that are another job type's work: the plan keeps only that step. */
-export const HANDOVER = new Set(['restyle', 'sing', 'beatCut']);
+export const HANDOVER = new Set(['restyle', 'sing', 'beatCut', 'replacePerson']);
 
 export const OPERATIONS = { voice: VOICE_OPERATIONS, video: VIDEO_OPERATIONS };
 

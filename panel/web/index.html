@@ -98,7 +98,7 @@
                                 <button type="button" class="btn btn--sm" data-voice-picker="editMedia" data-modal-open="modal-voice-picker">Pick from gallery</button>
                                 <span class="text-sm text-muted" data-edit-pick-status></span>
                             </div>
-                            <span class="field__hint">An image, a sound or a video (several videos are cut together to the beat). Then write what should change.</span>
+                            <span class="field__hint">An image, a sound or a video (several videos are cut together to the beat; a video with a photo of a person: that person takes the place of the one in the video). Then write what should change.</span>
                         </div>
                     </div>
                 </section>
@@ -158,10 +158,21 @@
                                     <span class="field__hint">Add more videos to cut them together to the beat of music.</span>
                                 </div>
                                 <div class="field">
+                                    <span class="field__label">Photo of a person <span class="tag-note tag-note--optional">optional</span></span>
+                                    <input type="hidden" name="picture" data-video-photo-field>
+                                    <div class="row row--wrap">
+                                        <label class="btn btn--sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp" data-video-photo-upload hidden></label>
+                                        <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="videoPhoto">Pick from gallery</button>
+                                        <button type="button" class="btn btn--sm btn--ghost" data-video-photo-clear hidden>Remove</button>
+                                    </div>
+                                    <img class="edit-photo" alt="" data-video-photo-picture hidden>
+                                    <span class="field__hint">To put this person in place of the one in the video: write e.g. "put the person in the photo in place of the man". Their motion, the background and the sound stay.</span>
+                                </div>
+                                <div class="field">
                                     <label class="field__label" for="vd-talimat">What should be done? <span class="required tag-note">required</span></label>
                                     <textarea class="textarea" id="vd-talimat" name="instruction" rows="4" required
                                               placeholder="E.g. make it vertical for Instagram, take the first 15 seconds, write &quot;New season&quot; at the bottom, fade out at the end"></textarea>
-                                    <span class="field__hint">Available: cut, speed and slow motion, rotate, mirror, vertical/square crop, resize, mute/lower audio, add text, color, black and white, fade, reverse, frame rate, add music; or a montage cut to the beat of music ("cut it to the beat for Reels").</span>
+                                    <span class="field__hint">Available: cut, speed and slow motion, rotate, mirror, vertical/square crop, resize, mute/lower audio, add text, color, black and white, fade, reverse, frame rate, add music; or a montage cut to the beat of music ("cut it to the beat for Reels"); with a photo of a person, that person in place of the one in the video.</span>
                                 </div>
                                 <details class="fine-setting">
                                     <summary class="fine-setting__title">Fine settings</summary>

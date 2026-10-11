@@ -333,6 +333,67 @@ export function lipJob({ picture, motions = null, voice1, voice2, mask1 = null, 
 }
 
 /**
+ * One window of replacing the person in a video with the person of a photo: Wan 2.2 Animate 14B (GGUF Q4_K_M,
+ * Apache 2.0) in replacement mode + lightx2v (6 steps, cfg 1) + the relight LoRA (the new person takes the scene's
+ * light). clip: a video in ComfyUI input at 16 fps, already width x height, `frame` (4n + 1) frames. The custom node
+ * NedeseReplacePrep (tools/comfy-nodes) gives the pose, face, background and person mask of its frames; BiRefNet
+ * the foreground. picture: the person's photo (already padded to width x height: the node crops to fill). motions:
+ * in a later window the previous window's last 5 output frames (uploaded file names); the clip then starts with the
+ * frames they stand for and the first 5 output frames are dropped.
+ */
+export function replaceJob({ clip, picture, motions = null, text, seed, width = 832, height = 480, frame = 77, prefix }) {
+  const g = {
+    1: { class_type: 'UnetLoaderGGUF', inputs: { unet_name: 'Wan2.2-Animate-14B-Q4_K_M.gguf' } },
+    2: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['1', 0], lora_name: 'lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors', strength_model: 1 } },
+    3: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['2', 0], lora_name: 'WanAnimate_relight_lora_fp16_resized_from_128_to_dynamic_22.safetensors', strength_model: 1 } },
+    4: { class_type: 'ModelSamplingSD3', inputs: { model: ['3', 0], shift: 8 } },
+    5: { class_type: 'CLIPLoader', inputs: { clip_name: 'umt5_xxl_fp8_e4m3fn_scaled.safetensors', type: 'wan', device: 'default' } },
+    6: { class_type: 'VAELoader', inputs: { vae_name: 'wan_2.1_vae.safetensors' } },
+    7: { class_type: 'CLIPTextEncode', inputs: { clip: ['5', 0], text: text } },
+    8: { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['7', 0] } },
+    9: { class_type: 'LoadImage', inputs: { image: picture } },
+    10: { class_type: 'CLIPVisionLoader', inputs: { clip_name: 'clip_vision_h.safetensors' } },
+    11: { class_type: 'CLIPVisionEncode', inputs: { clip_vision: ['10', 0], image: ['9', 0], crop: 'none' } },
+    12: { class_type: 'LoadVideo', inputs: { file: clip } },
+    13: { class_type: 'GetVideoComponents', inputs: { video: ['12', 0] } },
+    14: { class_type: 'LoadBackgroundRemovalModel', inputs: { bg_removal_name: 'birefnet.safetensors' } },
+    15: { class_type: 'RemoveBackground', inputs: { bg_removal_model: ['14', 0], image: ['13', 0] } },
+    16: { class_type: 'NedeseReplacePrep', inputs: { images: ['13', 0], foreground: ['15', 0], grow: 20, block: 32 } },
+  };
+  let previous = null;
+  if (motions?.length) {
+    motions.forEach((h, i) => {
+      g[100 + i] = { class_type: 'LoadImage', inputs: { image: h } };
+    });
+    previous = ['100', 0];
+    for (let i = 1; i < motions.length; i++) {
+      g[150 + i] = { class_type: 'ImageBatch', inputs: { image1: previous, image2: [String(100 + i), 0] } };
+      previous = [String(150 + i), 0];
+    }
+  }
+  Object.assign(g, {
+    20: {
+      class_type: 'WanAnimateToVideo',
+      inputs: {
+        positive: ['7', 0], negative: ['8', 0], vae: ['6', 0], width: width, height: height, length: frame, batch_size: 1,
+        clip_vision_output: ['11', 0], reference_image: ['9', 0], pose_video: ['16', 0], face_video: ['16', 1],
+        background_video: ['16', 2], character_mask: ['16', 3], continue_motion_max_frames: 5, video_frame_offset: 0,
+        ...(previous ? { continue_motion: previous } : {}),
+      },
+    },
+    21: {
+      class_type: 'KSampler',
+      inputs: { model: ['4', 0], positive: ['20', 0], negative: ['20', 1], latent_image: ['20', 2], seed: seed, steps: 6, cfg: 1, sampler_name: 'euler', scheduler: 'simple', denoise: 1 },
+    },
+    22: { class_type: 'TrimVideoLatent', inputs: { samples: ['21', 0], trim_amount: ['20', 3] } },
+    23: { class_type: 'VAEDecode', inputs: { samples: ['22', 0], vae: ['6', 0] } },
+  });
+  if (previous) g[24] = { class_type: 'ImageFromBatch', inputs: { image: ['23', 0], batch_index: motions.length, length: frame - motions.length } };
+  g[25] = { class_type: 'SaveImage', inputs: { images: [previous ? '24' : '23', 0], filename_prefix: prefix } };
+  return g;
+}
+
+/**
  * ACE-Step 1.5 Turbo: metinden muzik (Comfy-Org sablonu audio_ace_step_1_5_split ile ayni).
  * tarz: tur/enstruman/duygu tarifi (Ingilizce en iyi); sozler: bossa "[Instrumental]" (sozsuz).
  * sure saniye (en cok 1000); 8 adim, cfg 1, AuraFlow kaydirma 3; cikti MP3 (V0).

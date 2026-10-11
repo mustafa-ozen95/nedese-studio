@@ -4,7 +4,8 @@
  * operations (lib/edit-plan.mjs); filter steps in a row share one ffmpeg pass (crf 18), cut / audio / music get a
  * pass of their own.
  * Music can be added only when the user gave a music file. The plan is saved in the job (for a retry).
- * A video (or several) described as a montage to the beat ("beatCut") goes on as a Beat cut.
+ * A video (or several) described as a montage to the beat ("beatCut") goes on as a Beat cut; with a photo of a person,
+ * the person in the video replaced by them ("replacePerson") goes on as Replace a person.
  */
 import { copyFileSync, existsSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
@@ -13,7 +14,7 @@ import { streams, runFfmpeg, makePreview } from '../ffmpeg.mjs';
 import { UserError } from '../errors.mjs';
 import { plan as makePlan } from '../edit-plan.mjs';
 import { hasText } from '../text-model.mjs';
-import { text, musicPath, MUSIC_LEVEL } from './common.mjs';
+import { text, musicPath, sourcePath, MUSIC_LEVEL } from './common.mjs';
 import { recordPath } from './clone.mjs';
 
 export const name = 'Edit video';
@@ -36,11 +37,14 @@ export function validate(g, { setting }) {
   for (const s of list) if (!VIDEO_EXTENSION.test(recordPath(setting.outputRoot, s))) throw new UserError('Pick a video file (MP4, MOV, MKV, WebM…).');
   const music = String(g.music ?? '').trim();
   if (music) musicPath(setting.outputRoot, music);
-  return { source: list[0], ...(list.length > 1 ? { sources: list } : {}), instruction: text(g.instruction, 'Instruction', { max: 2000 }), music: music || null };
+  // a photo of a person: the person in the video can be replaced by them
+  const picture = String(g.picture ?? '').trim();
+  if (picture) sourcePath(setting.outputRoot, picture);
+  return { source: list[0], ...(list.length > 1 ? { sources: list } : {}), instruction: text(g.instruction, 'Instruction', { max: 2000 }), music: music || null, ...(picture ? { picture } : {}) };
 }
 
 export function summary(g) {
-  return { title: g.instruction, detail: `Video editing by instruction${g.sources ? ` · ${g.sources.length} videos` : ''}${g.music ? ' · with music' : ''}` };
+  return { title: g.instruction, detail: `Video editing by instruction${g.sources ? ` · ${g.sources.length} videos` : ''}${g.music ? ' · with music' : ''}${g.picture ? ' · with a photo' : ''}` };
 }
 
 /** The steps that need a pass of their own (input cut, the audio stream, the music mix); the others join the filter chain. */
@@ -228,7 +232,7 @@ export async function run(ctx) {
     ctx.progress({ percent: 3, stage: 'Understanding the instruction' });
     const b = await videoInfo(ctx.setting.ffprobe, source);
     if (b.duration > 3 * 3600) throw new UserError('The video is longer than 3 hours.');
-    const info = { duration: b.duration, hasMusic: Boolean(music), sourceCount: g.sources?.length ?? 1, summary: { durationSec: Math.round(b.duration * 10) / 10, width: b.width, height: b.height, fps: b.fps, hasVoice: b.voice, musicFileGiven: Boolean(music) } };
+    const info = { duration: b.duration, hasMusic: Boolean(music), hasPhoto: Boolean(g.picture), sourceCount: g.sources?.length ?? 1, summary: { durationSec: Math.round(b.duration * 10) / 10, width: b.width, height: b.height, fps: b.fps, hasVoice: b.voice, musicFileGiven: Boolean(music), photoGiven: Boolean(g.picture) } };
     const planner = ctx.setting.editPlan ?? makePlan;
     ctx.job.plan = await planner({ type: 'video', instruction: g.instruction, info, signal: ctx.signal });
     ctx.save();
@@ -240,6 +244,7 @@ export async function run(ctx) {
   if (first.operation === 'beatCut') {
     ctx.handOver('beatEdit', { sources: g.sources ?? [g.source], music: g.music ? 'file' : 'made', musicFile: g.music, size: first.size, pace: first.pace, length: first.length, title: g.instruction.slice(0, 120) });
   }
+  if (first.operation === 'replacePerson') ctx.handOver('replace', { source: g.source, picture: g.picture, prompt: first.prompt, title: g.instruction.slice(0, 120) });
 
   // 2. The passes: filter steps in a row in one ffmpeg pass (a retry skips a finished pass)
   let current = source;

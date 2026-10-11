@@ -235,7 +235,7 @@ local:
   audio_encoders: audio_encoders/
   model_patches: model_patches/
 "@
-foreach ($k in @('checkpoints', 'diffusion_models', 'text_encoders', 'vae', 'loras', 'upscale_models', 'clip_vision', 'background_removal', 'geometry_estimation', 'audio_encoders', 'model_patches', 'voice')) { New-Item -ItemType Directory -Force (Join-Path $Root "models\$k") | Out-Null }
+foreach ($k in @('checkpoints', 'diffusion_models', 'text_encoders', 'vae', 'loras', 'upscale_models', 'clip_vision', 'background_removal', 'geometry_estimation', 'audio_encoders', 'model_patches', 'pose', 'voice')) { New-Item -ItemType Directory -Force (Join-Path $Root "models\$k") | Out-Null }
 Set-Content -Path (Join-Path $Portable 'ComfyUI\extra_model_paths.yaml') -Value $yaml -Encoding ASCII
 Set-Content -Path (Join-Path $Root 'extra_model_paths.yaml') -Value $yaml -Encoding ASCII
 Done 'Model folders ready.'

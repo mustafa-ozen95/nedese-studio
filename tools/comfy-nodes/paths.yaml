@@ -1,0 +1,5 @@
+# Nedese Studio's own ComfyUI nodes and the folders they read (start_comfyui.bat passes this file with
+# --extra-model-paths-config; paths are relative to this folder).
+nedese:
+  custom_nodes: .
+  pose: ../../models/pose

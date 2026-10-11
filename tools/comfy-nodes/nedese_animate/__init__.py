@@ -1,0 +1,321 @@
+"""
+Nedese Studio: the person in a video replaced by the person in a photo (Wan 2.2 Animate, replacement mode).
+
+NedeseReplacePrep turns the frames of a video (and the foreground mask of the background removal model) into what
+WanAnimateToVideo needs: the pose video (the person's body drawn OpenPose style on black), the face video (the face
+cropped square and scaled to 512 x 512 in every frame), the background video (the person's area blacked out) and
+the character mask (that area grown and made blocky, so a person of another build or hair fits in).
+
+Pose: DWPose (IDEA-Research, Apache-2.0) as TorchScript on the GPU: YOLOX-L finds the people, RTMPose (dw-ll ucoco
+384) gives the 133 whole-body keypoints of one of them. The pre and post processing follow mmpose / DWPose; the body
+is drawn like ControlNet's OpenPose annotator at a 960 pixel short side, as ComfyUI's Wan Animate example does. One
+person is followed: the largest in the first frame with people, then in every frame the box that overlaps it most.
+"""
+import os
+
+import cv2
+import numpy as np
+import torch
+
+import comfy.model_management as mm
+import folder_paths
+
+POSE = 'pose'
+# started without tools\comfy-nodes\paths.yaml (by hand): the install's models\pose
+if POSE not in folder_paths.folder_names_and_paths:
+    folder_paths.add_model_folder_path(POSE, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'models', POSE))
+
+DETECTOR = 'yolox_l.torchscript.pt'
+POSE_MODEL = 'dw-ll_ucoco_384_bs5.torchscript.pt'
+DET_SIZE = 640
+POSE_SIZE = (288, 384)  # w, h
+POSE_BATCH = 5  # the TorchScript pose model is traced for batches of 5
+POSE_MEAN = np.array([123.675, 116.28, 103.53])
+POSE_STD = np.array([58.395, 57.12, 57.375])
+DRAW_SIDE = 960
+
+# OpenPose body (18 points) from the 133 whole-body points (+ the neck, the middle of the shoulders, inserted at 17)
+MMPOSE_IDX = [17, 6, 8, 10, 7, 9, 12, 14, 16, 13, 15, 2, 1, 4, 3]
+OPENPOSE_IDX = [1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17]
+LIMBS = [[2, 3], [2, 6], [3, 4], [4, 5], [6, 7], [7, 8], [2, 9], [9, 10], [10, 11], [2, 12], [12, 13], [13, 14], [2, 1], [1, 15], [15, 17], [1, 16], [16, 18]]
+COLORS = [[255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255, 0], [85, 255, 0], [0, 255, 0], [0, 255, 85], [0, 255, 170], [0, 255, 255], [0, 170, 255], [0, 85, 255], [0, 0, 255], [85, 0, 255], [170, 0, 255], [255, 0, 255], [255, 0, 170], [255, 0, 85]]
+SCORE = 0.3
+
+
+def _grids():
+    grids, strides = [], []
+    for stride in (8, 16, 32):
+        n = DET_SIZE // stride
+        xv, yv = np.meshgrid(np.arange(n), np.arange(n))
+        grids.append(np.stack((xv, yv), 2).reshape(-1, 2))
+        strides.append(np.full((n * n, 1), stride))
+    return np.concatenate(grids), np.concatenate(strides)
+
+
+GRID, STRIDE = _grids()
+
+
+def _nms(boxes, scores, threshold):
+    x1, y1, x2, y2 = boxes.T
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+    keep = []
+    while order.size:
+        i = order[0]
+        keep.append(i)
+        w = np.maximum(0.0, np.minimum(x2[i], x2[order[1:]]) - np.maximum(x1[i], x1[order[1:]]) + 1)
+        h = np.maximum(0.0, np.minimum(y2[i], y2[order[1:]]) - np.maximum(y1[i], y1[order[1:]]) + 1)
+        overlap = w * h / (areas[i] + areas[order[1:]] - w * h)
+        order = order[np.where(overlap <= threshold)[0] + 1]
+    return keep
+
+
+def detect_people(model, bgr):
+    """The boxes [x1, y1, x2, y2] of the people in a BGR frame (YOLOX, letterboxed to 640 with grey 114)."""
+    h, w = bgr.shape[:2]
+    r = min(DET_SIZE / h, DET_SIZE / w)
+    padded = np.full((DET_SIZE, DET_SIZE, 3), 114, np.uint8)
+    resized = cv2.resize(bgr, (int(w * r), int(h * r)), interpolation=cv2.INTER_LINEAR)
+    padded[:resized.shape[0], :resized.shape[1]] = resized
+    p = next(model.parameters())
+    x = torch.from_numpy(np.ascontiguousarray(padded.transpose(2, 0, 1)[None], dtype=np.float32)).to(p.device, p.dtype)
+    with torch.no_grad():
+        out = model(x).float().cpu().numpy()[0]
+    out[:, :2] = (out[:, :2] + GRID) * STRIDE
+    out[:, 2:4] = np.exp(out[:, 2:4]) * STRIDE
+    scores = out[:, 4] * out[:, 5]  # objectness x the person class
+    boxes = np.stack([out[:, 0] - out[:, 2] / 2, out[:, 1] - out[:, 3] / 2, out[:, 0] + out[:, 2] / 2, out[:, 1] + out[:, 3] / 2], 1) / r
+    valid = scores > 0.1
+    boxes, scores = boxes[valid], scores[valid]
+    if not len(boxes):
+        return np.zeros((0, 4))
+    keep = [i for i in _nms(boxes, scores, 0.45) if scores[i] > SCORE]
+    return boxes[keep]
+
+
+def _warp(center, scale):
+    """The affine matrix from the box (center, scale) to the pose model input (w 288, h 384)."""
+    w, h = POSE_SIZE
+    src = np.array([center, center + [0, -scale[0] * 0.5], [0, 0]], np.float32)
+    dst = np.array([[w * 0.5, h * 0.5], [w * 0.5, h * 0.5 - w * 0.5], [0, 0]], np.float32)
+    src[2] = src[1] + [-(src[0] - src[1])[1], (src[0] - src[1])[0]]
+    dst[2] = dst[1] + [-(dst[0] - dst[1])[1], (dst[0] - dst[1])[0]]
+    return cv2.getAffineTransform(src, dst)
+
+
+def estimate_poses(model, frames_bgr, boxes):
+    """The 133 whole-body points [x, y, score] of the person in each box (one box per frame)."""
+    inputs, centers, scales = [], [], []
+    w, h = POSE_SIZE
+    for bgr, box in zip(frames_bgr, boxes):
+        center = np.array([(box[0] + box[2]) / 2, (box[1] + box[3]) / 2])
+        scale = np.array([box[2] - box[0], box[3] - box[1]]) * 1.25
+        scale = np.array([scale[0], scale[0] / (w / h)]) if scale[0] > scale[1] * (w / h) else np.array([scale[1] * (w / h), scale[1]])
+        crop = cv2.warpAffine(bgr, _warp(center, scale), (w, h), flags=cv2.INTER_LINEAR)
+        inputs.append(((crop - POSE_MEAN) / POSE_STD).transpose(2, 0, 1))
+        centers.append(center)
+        scales.append(scale)
+    count = len(inputs)
+    while len(inputs) % POSE_BATCH:
+        inputs.append(np.zeros_like(inputs[0]))
+    p = next(model.parameters())
+    xs, ys = [], []
+    with torch.no_grad():
+        for i in range(0, len(inputs), POSE_BATCH):
+            out = model(torch.from_numpy(np.stack(inputs[i:i + POSE_BATCH]).astype(np.float32)).to(p.device, p.dtype))
+            xs.append(out[0].float().cpu().numpy())
+            ys.append(out[1].float().cpu().numpy())
+    simcc_x, simcc_y = np.concatenate(xs)[:count], np.concatenate(ys)[:count]
+    locs = np.stack([simcc_x.argmax(2), simcc_y.argmax(2)], -1).astype(np.float32) / 2.0
+    vals = np.minimum(simcc_x.max(2), simcc_y.max(2))
+    locs[vals <= 0] = -1
+    points = locs / np.array(POSE_SIZE) * np.array(scales)[:, None] + np.array(centers)[:, None] - np.array(scales)[:, None] / 2
+    return np.concatenate([points, vals[..., None]], -1)
+
+
+def body_points(whole):
+    """The OpenPose body (18 points [x, y, score]) of 133 whole-body points."""
+    neck = whole[[5, 6]].mean(0)
+    neck[2] = float(whole[5, 2] > SCORE and whole[6, 2] > SCORE)
+    p = np.insert(whole, 17, neck, axis=0)
+    p[OPENPOSE_IDX] = p[MMPOSE_IDX]
+    return p[:18]
+
+
+def draw_body(body, height, width):
+    """The body drawn like ControlNet's OpenPose annotator: limbs at 60% colour, joints as dots, on black."""
+    k = DRAW_SIDE / min(height, width)
+    canvas = np.zeros((round(height * k), round(width * k), 3), np.uint8)
+    pts = [(x * k, y * k) if s >= SCORE else None for x, y, s in body]
+    for (a, b), color in zip(LIMBS, COLORS):
+        p1, p2 = pts[a - 1], pts[b - 1]
+        if p1 is None or p2 is None:
+            continue
+        length = ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
+        angle = np.degrees(np.arctan2(p1[1] - p2[1], p1[0] - p2[0]))
+        polygon = cv2.ellipse2Poly((int((p1[0] + p2[0]) / 2), int((p1[1] + p2[1]) / 2)), (int(length / 2), 4), int(angle), 0, 360, 1)
+        cv2.fillConvexPoly(canvas, polygon, [int(c * 0.6) for c in color])
+    for p, color in zip(pts, COLORS):
+        if p is not None:
+            cv2.circle(canvas, (int(p[0]), int(p[1])), 4, color, thickness=-1)
+    return cv2.resize(canvas, (width, height), interpolation=cv2.INTER_AREA)
+
+
+def _overlap(a, b):
+    w = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    h = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - w * h
+    return w * h / union if union > 0 else 0.0
+
+
+def follow_person(detections):
+    """One box per frame: the largest person of the first frame with people, then the box overlapping the last one
+    most (a frame without one keeps the last box). None when no frame has a person."""
+    first = next((i for i, d in enumerate(detections) if len(d)), None)
+    if first is None:
+        return None
+    area = lambda b: (b[2] - b[0]) * (b[3] - b[1])
+    last = max(detections[first], key=area)
+    boxes = []
+    for i, d in enumerate(detections):
+        if i > first and len(d):
+            best = max(d, key=lambda b: _overlap(b, last))
+            if _overlap(best, last) > 0.1:
+                last = best
+        boxes.append(np.array(last, np.float64))
+    return boxes
+
+
+def _fill(values, valid):
+    """Frames without a value take the nearest frame's (values: [N, k])."""
+    idx = np.where(valid)[0]
+    if not len(idx):
+        return None
+    out = values.copy()
+    for i in range(len(values)):
+        if not valid[i]:
+            out[i] = values[idx[np.abs(idx - i).argmin()]]
+    return out
+
+
+def _smooth(values, size=5):
+    pad = size // 2
+    padded = np.concatenate([values[:1].repeat(pad, 0), values, values[-1:].repeat(pad, 0)])
+    return np.stack([padded[i:i + size].mean(0) for i in range(len(values))])
+
+
+def face_boxes(wholes, boxes):
+    """A square around the face in each frame [cx, cy, side]: the face points (1.3 x their extent), else the head
+    from the body points, else the nearest frame's; smoothed over 5 frames against jitter."""
+    out = np.zeros((len(wholes), 3))
+    valid = np.zeros(len(wholes), bool)
+    for i, whole in enumerate(wholes):
+        face = whole[23:91]
+        face = face[face[:, 2] > SCORE]
+        if len(face) >= 10:
+            x1, y1 = face[:, :2].min(0)
+            x2, y2 = face[:, :2].max(0)
+            out[i] = [(x1 + x2) / 2, (y1 + y2) / 2, max(x2 - x1, y2 - y1) * 1.3]
+            valid[i] = True
+            continue
+        head = whole[0:5]
+        head = head[head[:, 2] > SCORE]
+        if len(head) >= 2:
+            c = head[:, :2].mean(0)
+            side = max(np.ptp(head[:, 0]), np.ptp(head[:, 1]), (boxes[i][3] - boxes[i][1]) * 0.08) * 2.2
+            out[i] = [c[0], c[1], side]
+            valid[i] = True
+    filled = _fill(out, valid)
+    if filled is None:
+        # no face anywhere: the top of the person's box
+        filled = np.array([[(b[0] + b[2]) / 2, b[1] + (b[2] - b[0]) * 0.3, (b[2] - b[0]) * 0.6] for b in boxes])
+    return _smooth(filled)
+
+
+def person_mask(fg, box, height, width, grow, block):
+    """The area to repaint: the foreground inside the person's box (the box itself if the foreground misses it), grown
+    by `grow` pixels and made blocky (every touched `block` x `block` square whole)."""
+    x1, y1, x2, y2 = box
+    mx, my = (x2 - x1) * 0.08, (y2 - y1) * 0.08
+    region = np.zeros((height, width), bool)
+    region[max(0, int(y1 - my)):min(height, int(y2 + my) + 1), max(0, int(x1 - mx)):min(width, int(x2 + mx) + 1)] = True
+    m = region if fg is None else (fg > 0.5) & region
+    if m.sum() < region.sum() * 0.05:
+        m = region
+    m = m.astype(np.uint8)
+    if grow > 0:
+        m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1)))
+    if block > 1:
+        bh, bw = -(-height // block), -(-width // block)
+        padded = np.zeros((bh * block, bw * block), np.uint8)
+        padded[:height, :width] = m
+        cells = padded.reshape(bh, block, bw, block).max(axis=(1, 3))
+        m = cells.repeat(block, 0).repeat(block, 1)[:height, :width]
+    return m.astype(np.float32)
+
+
+def _load(name):
+    path = folder_paths.get_full_path_or_raise(POSE, name)
+    model = torch.jit.load(path, map_location=mm.get_torch_device())
+    model.eval()
+    return model
+
+
+class NedeseReplacePrep:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            'required': {
+                'images': ('IMAGE', {'tooltip': 'The frames of the video whose person is replaced.'}),
+                'grow': ('INT', {'default': 20, 'min': 0, 'max': 200, 'tooltip': 'Pixels the person area is grown by.'}),
+                'block': ('INT', {'default': 32, 'min': 1, 'max': 256, 'tooltip': 'The person area is made of whole squares of this size.'}),
+            },
+            'optional': {
+                'foreground': ('MASK', {'tooltip': 'The foreground of every frame (Remove Background); without it the person box is used.'}),
+            },
+        }
+
+    RETURN_TYPES = ('IMAGE', 'IMAGE', 'IMAGE', 'MASK')
+    RETURN_NAMES = ('pose_video', 'face_video', 'background_video', 'character_mask')
+    FUNCTION = 'run'
+    CATEGORY = 'Nedese Studio'
+    DESCRIPTION = 'The pose, face, background and person mask of a video for WanAnimateToVideo (replacing its person).'
+
+    def run(self, images, grow, block, foreground=None):
+        frames = (images[..., :3].clamp(0, 1) * 255).round().to(torch.uint8).cpu().numpy()
+        count, height, width = frames.shape[:3]
+        bgr = [np.ascontiguousarray(f[..., ::-1]) for f in frames]
+        detector = _load(DETECTOR)
+        try:
+            detections = [detect_people(detector, f) for f in bgr]
+        finally:
+            del detector
+        boxes = follow_person(detections)
+        if boxes is None:
+            raise ValueError('No person was found in the video.')
+        model = _load(POSE_MODEL)
+        try:
+            wholes = estimate_poses(model, bgr, boxes)
+        finally:
+            del model
+            mm.soft_empty_cache()
+        fg = None if foreground is None else foreground.cpu().numpy()
+        if fg is not None and fg.shape[1:] != (height, width):
+            fg = np.stack([cv2.resize(m, (width, height), interpolation=cv2.INTER_LINEAR) for m in fg])
+
+        pose = np.stack([draw_body(body_points(w), height, width) for w in wholes])
+        faces = []
+        for f, (cx, cy, side) in zip(frames, face_boxes(wholes, boxes)):
+            s = max(16, int(round(side)))
+            faces.append(cv2.resize(cv2.getRectSubPix(f, (s, s), (float(cx), float(cy))), (512, 512), interpolation=cv2.INTER_AREA if s > 512 else cv2.INTER_CUBIC))
+        masks = np.stack([person_mask(None if fg is None else fg[min(i, len(fg) - 1)], boxes[i], height, width, grow, block) for i in range(count)])
+        background = frames.astype(np.float32) / 255 * (1 - masks[..., None])
+
+        found = sum(1 for d in detections if len(d))
+        print(f'[Nedese] replace prep: {count} frames {width}x{height}, a person in {found}, mask {masks.mean() * 100:.0f}% of the picture')
+        as_image = lambda a: torch.from_numpy(np.ascontiguousarray(a)).float() / 255
+        return (as_image(pose), as_image(np.stack(faces)), torch.from_numpy(background), torch.from_numpy(masks))
+
+
+NODE_CLASS_MAPPINGS = {'NedeseReplacePrep': NedeseReplacePrep}
+NODE_DISPLAY_NAME_MAPPINGS = {'NedeseReplacePrep': 'Replace person: pose, face, mask (Nedese)'}

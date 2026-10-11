@@ -384,6 +384,15 @@ button.media {
     background: var(--color-sunken);
 }
 
+/* Edit video: the photo of the person to put in the video */
+.edit-photo {
+    max-width: 100%;
+    max-height: 12rem;
+    border-radius: var(--radius);
+    object-fit: contain;
+    align-self: flex-start;
+}
+
 /* Telefonda döndürürken page kaymasın: dokunuşlar yalnız görüntüleyiciye. */
 .model-viewer {
     touch-action: none;

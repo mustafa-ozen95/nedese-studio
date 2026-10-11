@@ -58,7 +58,7 @@ function frameCount(graph, recordId) {
     if (!d) return;
     if (d.class_type === 'RIFE VFI') factor *= d.inputs.multiplier;
     if (d.class_type === 'ImageFromBatch') slice ??= d.inputs.length;
-    if (['WanImageToVideo', 'Wan22ImageToVideoLatent', 'WanFirstLastFrameToVideo', 'WanInfiniteTalkToVideo'].includes(d.class_type)) frame = d.inputs.length;
+    if (['WanImageToVideo', 'Wan22ImageToVideoLatent', 'WanFirstLastFrameToVideo', 'WanInfiniteTalkToVideo', 'WanAnimateToVideo'].includes(d.class_type)) frame = d.inputs.length;
     for (const v of Object.values(d.inputs ?? {})) if (Array.isArray(v) && typeof v[0] === 'string') look(v[0], seen);
   };
   look(recordId);

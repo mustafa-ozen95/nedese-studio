@@ -33,6 +33,7 @@ import * as promo from '../lib/jobs/promo.mjs';
 import * as beatEdit from '../lib/jobs/beat-edit.mjs';
 import * as audioEdit from '../lib/jobs/audio-edit.mjs';
 import * as videoEdit from '../lib/jobs/video-edit.mjs';
+import * as replace from '../lib/jobs/replace.mjs';
 import { Database } from '../lib/database.mjs';
 import { startFakeComfy } from './fake-comfy.mjs';
 
@@ -113,7 +114,7 @@ export async function createPanel({ mode = 'normal', voiceEnv = {}, comfyClosed 
   const comfy = new ComfyClient({ address: comfyAddress, comfyFolder: null });
   // Testler de gerçek kurulum gibi veritabanıyla çalışır (liste, sayfa, ortalamalar sorgudan).
   const db = new Database(join(setting.dataRoot, 'panel.db'));
-  const queue = new Queue({ setting, comfy, mod, db, runners: { image, video, voice, speech, clone, film, music, song, sing, model3d, training, data, describe, pageVideo, promo, beatEdit, audioEdit, videoEdit } });
+  const queue = new Queue({ setting, comfy, mod, db, runners: { image, video, voice, speech, clone, film, music, song, sing, model3d, training, data, describe, pageVideo, promo, beatEdit, audioEdit, videoEdit, replace } });
   queue.load();
   queue.start();
   const downloader = new Downloader({ modelRoot: setting.modelRoot, protectedRoots: [setting.aiRoot], recordPath: join(setting.dataRoot, DATA_FILES.downloads), changed: () => queue.changed() });

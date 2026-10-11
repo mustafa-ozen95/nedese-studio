@@ -72,7 +72,7 @@
         return `${iki(t.getDate())}.${iki(t.getMonth() + 1)} ${iki(t.getHours())}:${iki(t.getMinutes())}`;
     }
 
-    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', beatEdit: 'Beat cut', promo: 'Promo video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
+    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', beatEdit: 'Beat cut', replace: 'Replace a person', promo: 'Promo video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
     // Is turu adi: once arayuzun bildigi (cevrilebilir), yoksa sunucunun gonderdigi, o da yoksa "İş".
     const typeName = (job) => TYPE_NAME[job?.type] ?? job?.typeName ?? 'Job';
     const STATUS_NAME = {
@@ -923,7 +923,7 @@
     }
 
     // A section's Recent panel holds every job type made there (an edit's description may hand it over to another type)
-    const LAST_GROUPS = { edit: ['edit', 'audioEdit', 'videoEdit', 'song', 'sing', 'beatEdit'], film: ['film', 'promo'] };
+    const LAST_GROUPS = { edit: ['edit', 'audioEdit', 'videoEdit', 'song', 'sing', 'beatEdit', 'replace'], film: ['film', 'promo'] };
 
     function renderLast(type, jobs) {
         const container = $(`[data-last="${type}"]`);
@@ -2237,6 +2237,26 @@
         editKindApply('video');
     }
 
+    /* Edit video: a photo of a person (the person in the video can be replaced by them, from the description) */
+    function configureVideoPhoto(k) {
+        status.videoPhoto = k?.source ? { source: k.source, url: k.url } : null;
+        $('[data-video-photo-field]', videoEditForm).value = k?.source ?? '';
+        const picture = $('[data-video-photo-picture]', videoEditForm);
+        picture.hidden = !k;
+        if (k) picture.src = k.url;
+        else picture.removeAttribute('src');
+        $('[data-video-photo-clear]', videoEditForm).hidden = !k;
+        saveDraft();
+    }
+
+    $('[data-video-photo-upload]', videoEditForm).addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        const g = await loadImage(file);
+        if (g) configureVideoPhoto(g);
+    });
+    $('[data-video-photo-clear]', videoEditForm).addEventListener('click', () => configureVideoPhoto(null));
+
     videoEditForm.addEventListener('click', (event) => {
         const up = event.target.closest('[data-video-up]');
         const remove = event.target.closest('[data-video-remove]');
@@ -2260,12 +2280,15 @@
 
     /** Uploads Edit's files: an image to the image form, a sound to the audio form, videos to the video list. */
     async function editFiles(files, statusText) {
+        // an image given together with a video (or while a video is open) is the photo of the person to put in it
+        const withVideo = files.some((f) => mediaKind(f) === 'video') || (status.editKind === 'video' && status.editVideos.length > 0);
         for (const file of files) {
             const kind = mediaKind(file);
             try {
                 if (kind === 'image') {
                     const g = await loadImage(file);
-                    if (g) configureSlot(0, g);
+                    if (g && withVideo) configureVideoPhoto(g);
+                    else if (g) configureSlot(0, g);
                     continue;
                 }
                 if (!kind) {
@@ -2600,7 +2623,7 @@
         const trigger = event.target.closest('[data-picker-target]');
         if (!trigger) return;
         const target = trigger.dataset.pickerTarget;
-        status.pickerTarget = target === 'scene' ? trigger.closest('[data-scene]') : target.startsWith('edit:') ? target : 'video';
+        status.pickerTarget = target === 'scene' ? trigger.closest('[data-scene]') : target.startsWith('edit:') || target === 'videoPhoto' ? target : 'video';
         status.pickerChoice = null;
         $('[data-picker-select]', pickerWindow).disabled = true;
         const list = $('[data-picker-list]', pickerWindow);
@@ -2673,8 +2696,8 @@
             }
             if (videoMu) {
                 // Video düzenle: panelin videoları, filmleri, düzenlenmiş videoları ve yüklenen videolar
-                const [v, t, d, b, y] = await Promise.all([api('/api/v1/gallery?type=video'), api('/api/v1/gallery?type=film'), api('/api/v1/gallery?type=videoEdit'), api('/api/v1/gallery?type=beatEdit'), api('/api/v1/uploads')]);
-                for (const job of [...v.gallery, ...t.gallery, ...d.gallery, ...b.gallery]) {
+                const [v, t, d, b, r, y] = await Promise.all([api('/api/v1/gallery?type=video'), api('/api/v1/gallery?type=film'), api('/api/v1/gallery?type=videoEdit'), api('/api/v1/gallery?type=beatEdit'), api('/api/v1/gallery?type=replace'), api('/api/v1/uploads')]);
+                for (const job of [...v.gallery, ...t.gallery, ...d.gallery, ...b.gallery, ...r.gallery]) {
                     const c = job.outputs.find((x) => x.type === 'video');
                     if (c) items.push({ source: c.source, url: c.url, poster: c.previewUrl ?? null, name: job.title, type: job.type === 'film' ? 'Film' : 'Video', duration: c.duration, dateText: job.creation, video: true });
                 }
@@ -2785,6 +2808,7 @@
         const g = status.pickerChoice;
         if (!g) return;
         if (status.pickerTarget === 'video') configureSource(g);
+        else if (status.pickerTarget === 'videoPhoto') configureVideoPhoto(g);
         else if (typeof status.pickerTarget === 'string' && status.pickerTarget.startsWith('edit:')) configureSlot(Number(status.pickerTarget.slice(5)), g);
         else if (status.pickerTarget instanceof HTMLElement) sceneSource(status.pickerTarget, g);
         window.ndsCloseWindow?.(pickerWindow);
@@ -3634,6 +3658,7 @@
             t.videoSource = status.videoSource;
             t.m3Source = status.m3Source;
             t.editVideos = status.editVideos;
+            t.videoPhoto = status.videoPhoto ?? null;
             try {
                 localStorage.setItem(DRAFT, JSON.stringify(t));
             } catch {
@@ -3675,6 +3700,7 @@
             status.editVideos = t.editVideos.filter((v) => v?.source);
             renderEditVideos();
         }
+        configureVideoPhoto(t.videoPhoto?.source ? t.videoPhoto : null);
         if (t.videoSource?.source) configureSource(t.videoSource);
         if (t.m3Source?.source) configureM3Source(t.m3Source);
         else applyM3Kind();
