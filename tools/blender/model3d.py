@@ -66,7 +66,12 @@ def import_model(path):
     """Imports the model by its extension (the 4.x+ operators first, the older add-on ones otherwise)."""
     extension = os.path.splitext(path)[1].lower()
     if extension in ('.glb', '.gltf'):
-        bpy.ops.import_scene.gltf(filepath=path)
+        # A skinned GLB would get an icosphere mesh as the bones' display shape (2 m: it was framed and exported with
+        # the model); the option is newer than some Blender versions.
+        if 'disable_bone_shape' in bpy.ops.import_scene.gltf.get_rna_type().properties:
+            bpy.ops.import_scene.gltf(filepath=path, disable_bone_shape=True)
+        else:
+            bpy.ops.import_scene.gltf(filepath=path)
     elif extension == '.fbx':
         bpy.ops.import_scene.fbx(filepath=path)
     elif extension == '.obj':
@@ -151,9 +156,14 @@ def write_stl(path):
         bpy.ops.export_mesh.stl(filepath=path, use_selection=True)
 
 
+def rigs(objects):
+    """The armatures the meshes are skinned to (a rigged model: the skeleton is exported with it)."""
+    return list({o.parent for o in objects if o.parent is not None and o.parent.type == 'ARMATURE'})
+
+
 def export(objects, output, name, formats):
     files = {}
-    select(objects)
+    select(objects + rigs(objects))
     # The embedded textures go to disk first: FBX embedding and OBJ/MTL read them from a file path.
     temp = os.path.join(output, f'{name}-obj')
     if formats & {'fbx', 'obj'}:
@@ -165,7 +175,7 @@ def export(objects, output, name, formats):
         files['glb'] = os.path.basename(path)
     if 'fbx' in formats:
         path = os.path.join(output, f'{name}.fbx')
-        bpy.ops.export_scene.fbx(filepath=path, use_selection=True, path_mode='COPY', embed_textures=True, bake_anim=False)
+        bpy.ops.export_scene.fbx(filepath=path, use_selection=True, path_mode='COPY', embed_textures=True, bake_anim=False, add_leaf_bones=False)
         files['fbx'] = os.path.basename(path)
     if 'obj' in formats:
         # OBJ textures are separate files: OBJ + MTL + PNGs in the temporary folder, then one ZIP.
@@ -411,13 +421,14 @@ def setup_turntable(objects, frames, size, ground):
     axis.location = (center.x, center.y, low.z)
     # The axis's matrix_world must be updated before parenting, or the model shifts by the axis position.
     bpy.context.view_layer.update()
+    # a mesh skinned to an armature stays under it; the armature turns
     for o in objects:
-        if o.parent is None or o.parent not in objects:
+        if o.parent is None or o.parent not in objects and o.parent.type != 'ARMATURE':
             world = o.matrix_world.copy()
             o.parent = axis
             o.matrix_world = world
     for o in scene.objects:
-        if o.type == 'EMPTY' and o is not axis and o.parent is None:
+        if o.type in ('EMPTY', 'ARMATURE') and o is not axis and o.parent is None:
             world = o.matrix_world.copy()
             o.parent = axis
             o.matrix_world = world
@@ -603,4 +614,5 @@ def main():
     print('RESULT ' + json.dumps(result, ensure_ascii=False))
 
 
-main()
+if __name__ == '__main__':
+    main()

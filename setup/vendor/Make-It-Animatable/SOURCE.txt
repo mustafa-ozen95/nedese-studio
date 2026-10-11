@@ -1,0 +1,5 @@
+Source: https://github.com/jasongzy/Make-It-Animatable  commit 8fb51382ff6da556cdb95cc03a48200603f3a493  license MIT (LICENSE)
+Changes: only the files the inference needs (model.py, models_ae.py, util\utils.py, util\dataset_mixamo.py); the code
+is unchanged. tools\rig\infer.py stands in for its Blender helpers (util\blender_utils.py) and torch_cluster. The
+weights (Apache-2.0) come from huggingface.co/jasongzy/Make-It-Animatable with download-models.mjs (catalog
+"Character skeleton (Make-It-Animatable)"). Setup (setup\setup.ps1) copies this folder into rig\mia\.

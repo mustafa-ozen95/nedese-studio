@@ -25,6 +25,7 @@ export const FOLDERS = {
   model_patches: 'Model patches (lip sync)',
   latentsync: 'Mouth correction (LatentSync)',
   singing: 'Singing voice (YingMusic-SVC)',
+  rigging: 'Character skeleton (Make-It-Animatable)',
 };
 
 const MODEL_FIELDS = { unet_name: 'diffusion_models', ckpt_name: 'checkpoints', lora_name: 'loras', clip_name: 'text_encoders', clip_name1: 'text_encoders', clip_name2: 'text_encoders', vae_name: 'vae', bg_removal_name: 'background_removal', audio_encoder_name: 'audio_encoders' };
@@ -32,7 +33,7 @@ const MODEL_FIELDS = { unet_name: 'diffusion_models', ckpt_name: 'checkpoints', 
 const CLASS_FIELDS = { CLIPVisionLoader: { clip_name: 'clip_vision' }, LoadMoGeModel: { model_name: 'geometry_estimation' }, ModelPatchLoader: { name: 'model_patches' } };
 const FILE_NAME = /^[\w.-]+$/;
 
-export const GENERATOR_NAMES = { qwenJob: 'Image: Qwen-Image 2512', fluxJob: 'Image: FLUX.2 klein', wan14Job: 'Video: Wan 2.2 A14B', wanJob: 'Video: Wan 2.2 5B', musicJob: 'Music: ACE-Step 1.5', songEditJob: 'Song editing: ACE-Step 1.5', editJob: 'Image editing: Qwen-Image-Edit', trellis2Job: '3D model: TRELLIS.2', lipJob: 'Lip sync: InfiniteTalk', mouthJob: 'Mouth correction: LatentSync', singJob: 'Singing in a voice: YingMusic-SVC', replaceJob: 'Replacing a person: Wan 2.2 Animate' };
+export const GENERATOR_NAMES = { qwenJob: 'Image: Qwen-Image 2512', fluxJob: 'Image: FLUX.2 klein', wan14Job: 'Video: Wan 2.2 A14B', wanJob: 'Video: Wan 2.2 5B', musicJob: 'Music: ACE-Step 1.5', songEditJob: 'Song editing: ACE-Step 1.5', editJob: 'Image editing: Qwen-Image-Edit', trellis2Job: '3D model: TRELLIS.2', lipJob: 'Lip sync: InfiniteTalk', mouthJob: 'Mouth correction: LatentSync', singJob: 'Singing in a voice: YingMusic-SVC', rigJob: 'Character skeleton: Make-It-Animatable', replaceJob: 'Replacing a person: Wan 2.2 Animate' };
 
 /**
  * The default model set (setup.bat -Models all, Settings "Download default models"): every catalog entry except the
@@ -192,6 +193,12 @@ export const CATALOG = [
   // its BS-RoFormer separates the lead vocal, backing vocals and instrumental first.
   { id: 'singing-svc', group: 'Singing voice (YingMusic-SVC)', name: 'YingMusic-SVC', folder: 'singing', file: 'YingMusic-SVC-full.pt', url: `${HF}/GiantAILab/YingMusic-SVC/resolve/da6b73938afeb7ede4c8d93ef007af2abb04ef49/YingMusic-SVC-full.pt`, size: 731683240, sha256: '8e4b83e18669b046be79e7c6a979ad33f162d2a75c40213d998ad5687d7c6054', user: ['singJob'], note: 'An existing song sung again in a library voice (Edit > Sing in a voice); the melody and instruments stay. Both files are required.' },
   { id: 'singing-separator', group: 'Singing voice (YingMusic-SVC)', name: 'BS-RoFormer vocal separator', folder: 'singing', file: 'bs_roformer.ckpt', url: `${HF}/GiantAILab/YingMusic-SVC/resolve/da6b73938afeb7ede4c8d93ef007af2abb04ef49/bs_roformer.ckpt`, size: 1295074954, sha256: '364964794b0c82c843c53099d80b6ecfee852cf2bf42f098515276c779623bb6', user: ['singJob'] },
+  // Character skeleton (tools\rig\infer.py): Make-It-Animatable v1 (CVPR 2025; code MIT, weights Apache-2.0), trained on
+  // Mixamo: the 52 Mixamo bones and skin weights of a humanoid model in ~30 s.
+  { id: 'rig-joints-coarse', group: 'Character skeleton (Make-It-Animatable)', name: 'Joints (first guess)', folder: 'rigging', file: 'joints_coarse.pth', url: `${HF}/jasongzy/Make-It-Animatable/resolve/ca0daf6cb164f939e77bf32667513fc7558d5f98/output/best/new/joints_coarse.pth`, size: 424706373, sha256: '389e18f92a65e7925c1a940dfff22cc85e9ac4ead17ab4a65fd4ef5d6088b96b', user: ['rigJob'], note: 'A skeleton (Mixamo bones) and skin weights for humanoid 3D characters, so game engines can animate them (3D > Character skeleton). All 4 files are required.' },
+  { id: 'rig-weights', group: 'Character skeleton (Make-It-Animatable)', name: 'Skin weights', folder: 'rigging', file: 'bw.pth', url: `${HF}/jasongzy/Make-It-Animatable/resolve/ca0daf6cb164f939e77bf32667513fc7558d5f98/output/best/new/bw.pth`, size: 424693698, sha256: '8ff6abc9ed78665513d2dcd7b2d7e8430f6c86335389120281be3bd999d27830', user: ['rigJob'] },
+  { id: 'rig-weights-normal', group: 'Character skeleton (Make-It-Animatable)', name: 'Skin weights (with normals)', folder: 'rigging', file: 'bw_normal.pth', url: `${HF}/jasongzy/Make-It-Animatable/resolve/ca0daf6cb164f939e77bf32667513fc7558d5f98/output/best/new/bw_normal.pth`, size: 429008352, sha256: 'd69d259863af77a06b6c4ee3d1fc2cb8566194fc8fc08cecbcb065bf9fa94818', user: ['rigJob'] },
+  { id: 'rig-joints', group: 'Character skeleton (Make-It-Animatable)', name: 'Joints', folder: 'rigging', file: 'joints.pth', url: `${HF}/jasongzy/Make-It-Animatable/resolve/ca0daf6cb164f939e77bf32667513fc7558d5f98/output/best/new/joints.pth`, size: 525833771, sha256: '595587abb2ef9977bc9e49f8221c326da473de8ff1cd8785eb55ac63acde2b8e', user: ['rigJob'] },
   { id: 'lip-wav2vec2', group: 'Lip sync (InfiniteTalk)', name: 'wav2vec2 Chinese base audio encoder (fp16)', folder: 'audio_encoders', file: 'wav2vec2-chinese-base_fp16.safetensors', url: `${HF}/Kijai/wav2vec2_safetensors/resolve/main/wav2vec2-chinese-base_fp16.safetensors`, size: 190115368, sha256: '000813e441020f18cff844c969d2d5d4adc2a5ce46b2db1f23950b05d88805b4' },
 
   // TRELLIS.2 (gorselden 3D model; Microsoft, MIT). ComfyUI 0.37 yerlesik dugumleri.

@@ -1,0 +1,8 @@
+# Character skeleton (Make-It-Animatable, rig\.venv) lock: the versions running on the development machine, 11.10.2026.
+# torch, numpy, scipy, einops, huggingface_hub, pyyaml, safetensors, tqdm, pillow come from voice\.venv
+# (_voice_environment.pth, same Python 3.14). Installed with --no-deps; torchvision matches voice\.venv's
+# torch 2.14.0+cu130 (download.pytorch.org/whl/cu130).
+shapely==2.2.0
+timm==1.0.30
+torchvision==0.29.0+cu130
+trimesh==5.1.1

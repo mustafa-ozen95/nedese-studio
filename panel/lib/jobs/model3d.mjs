@@ -12,13 +12,17 @@
  * draws the person or object whole, looking the same, on a plain background; the model is made from that image.
  * game: low-poly copies for game engines made in the same ComfyUI run (GAME): the dense mesh decimated, unwrapped
  * again, its detail baked into a normal map (game.glb and a lighter LOD, game-lod1.glb; game.fbx with FBX).
+ * rig: the character skeleton (user 11.10.2026: "İskelet (rig) henüz yok ... yap"): Make-It-Animatable (tools\rig\infer.py)
+ * finds the 52 Mixamo bones and the skin weights of the model, Blender (tools\blender\rig.py) puts them into every GLB
+ * (the game copies too) before the exports, so the FBX carry them; a short test motion shows the skeleton works.
  */
-import { copyFileSync, existsSync, renameSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { images } from '../comfy-client.mjs';
 import { modelFiles, nodes } from '../graph.mjs';
 import { framesToMp4, makePreview } from '../ffmpeg.mjs';
-import { blenderPresentation } from '../blender.mjs';
+import { blenderPresentation, blenderScript } from '../blender.mjs';
+import { run as runProcess } from '../process.mjs';
 import { UserError } from '../errors.mjs';
 import { UPLOAD_FOLDER } from '../settings.mjs';
 import { jobPrompt } from '../prompt-translate.mjs';
@@ -44,6 +48,8 @@ export const GAME = [
   { file: 'game-lod1.glb', surface: 15000, texture: 1024 },
 ];
 const INTRO = { frames: 120, fps: 30, size: 1024 };
+// The skeleton's test motion: one 4 s loop
+export const RIG_MOTION = { frames: 96, fps: 24, size: 720 };
 // The front view of a given model (the gallery picture; the picture an edit starts from)
 const VIEW_SIZE = 1024;
 // Full body: a vertical frame (Qwen-Image-Edit, ~1 MP); it may be an object too, the prompt covers both.
@@ -52,6 +58,11 @@ const COMPLETE_SIZE = [832, 1248];
 export const COMPLETE_PROMPT = 'Show the main subject of image 1 complete and whole: if it is a person or creature, as a full-body figure from head to toe (legs and feet visible), standing upright facing the camera in a relaxed A-pose with the arms held slightly away from the body, hands open and relaxed with all fingers clearly visible and separated; if it is an object, the entire object. Centered with empty space around it, on a plain light grey studio background, soft even lighting. Keep exactly the same face, hair, clothing, materials and colors as in image 1.';
 // A description alone: one subject drawn whole, the way the 3D generation reads it best
 export const DRAW_SUFFIX = 'One single subject shown complete and whole (a person or creature as a full-body figure from head to toe in a relaxed A-pose, arms slightly away from the body), centered with empty space around it, on a plain light grey studio background, soft even lighting, no other objects, no text.';
+// With a skeleton: the arms well away from the body. The generated mesh joins what touches: an arm drawn against the
+// side (the relaxed A-pose often came out so) dragged the jacket up with it in the test motion (11.10.2026).
+export const RIG_POSE = 'Standing in a symmetrical A-pose for 3D rigging: both arms held straight and angled down and out about 45 degrees from the body, with a clear empty gap between each arm and the torso, palms facing down with the fingers spread apart, legs straight with the feet shoulder-width apart, the hands empty, nothing touching the body.';
+const RIG_DRAW_SUFFIX = 'One single full-body figure from head to toe, front view facing the camera, centered with empty space around it, on a plain light grey studio background, soft even lighting, no other objects, no text.';
+const RIG_POSE_PROMPT = `Show the main subject of image 1 as a full-body figure from head to toe (legs and feet visible), front view facing the camera. ${RIG_POSE} Centered with empty space around it, on a plain light grey studio background, soft even lighting. Keep exactly the same face, hair, body, clothing, armor, materials and colors as in image 1.`;
 // The edit of a given model: its front view changed as described, still one whole subject
 export const MODEL_EDIT_PROMPT = (instruction) => `Image 1 is a front view of a 3D model. ${instruction}. Keep everything else about it the same and show it whole from the same front view, centered on the same plain light grey background with soft even lighting.`;
 
@@ -87,10 +98,14 @@ export function validate(g, { mod, setting }) {
   }
   if (kind === 'image') sourcePath(setting.outputRoot, source);
   const complete = kind === 'image' && yes(g.complete);
-  if (complete || (prompt && kind !== 'text')) generatorRequired(mod, 'editJob', 'Image edit (Qwen-Image-Edit)', setting?.modelRoot);
+  if (complete || (prompt && kind !== 'text') || posed({ kind, prompt, rig: yes(g.rig) })) generatorRequired(mod, 'editJob', 'Image edit (Qwen-Image-Edit)', setting?.modelRoot);
   // the game copies are baked from the generation's own voxels: a converted file has none
   const game = yes(g.game);
   if (game && !generate) throw new UserError('Game copies are made while generating; a 3D model file without a description is only converted. Describe a change or give an image.');
+  // the skeleton is put in by Blender; a converted file gets one too
+  const rig = yes(g.rig);
+  if (rig && !setting.hasRig) throw new UserError('The character skeleton is not installed: download "Character skeleton (Make-It-Animatable)" in Settings > Models.');
+  if (rig && !setting.blender) throw new UserError(`Blender is required for the character skeleton; ${BLENDER_MISSING}`);
   // The turntable video is off unless asked for (user 10.10.2026: "3d için video üretmeye gerek olduğunu düşünmüyorum");
   // without Blender the exports are off by default too; asked for explicitly, an error.
   const intro = yes(g.intro);
@@ -109,12 +124,16 @@ export function validate(g, { mod, setting }) {
     deleteBackPlan: g.deleteBackPlan === undefined ? true : yes(g.deleteBackPlan),
     complete,
     game,
+    rig,
     intro,
     formats: [...new Set(formats)],
     printHeight: number(g.printHeight, 'Print height (mm)', { min: 10, max: 1000, defaultValue: 100 }),
     seed: seed(g.seed),
   };
 }
+
+/** A generated character with a skeleton from a given picture (an image, or an edited model's front view): posed first. */
+const posed = (g) => Boolean(g.rig) && (g.kind === 'image' || (g.kind === 'model' && Boolean(g.prompt)));
 
 /** The image model that draws a description: Qwen-Image like the video, FLUX.2 klein when it is not on this machine. */
 function drawModel(g, { mod, setting }) {
@@ -139,6 +158,7 @@ export function summary(g) {
   else if (g.prompt) parts.push(g.kind === 'model' ? 'model edited' : 'image edited');
   if (g.complete) parts.push('full body');
   if (g.game) parts.push('game copies');
+  if (g.rig) parts.push('skeleton');
   if (g.intro) parts.push('turntable video');
   if (g.formats.length) parts.push(g.formats.map((b) => b.toUpperCase()).join('/'));
   if (g.formats.includes('stl')) parts.push(`print ${g.printHeight ?? 100} mm`);
@@ -165,7 +185,7 @@ async function drawPicture(ctx, target) {
   const g = ctx.job.input;
   const startedAt = Date.now();
   const prompt = await jobPrompt(ctx, g.prompt, 'image', { translate: g.translate !== false });
-  const graph = ctx.mod[IMAGE_MODELS[g.draw.imageModel].generator]({ text: `${prompt}. ${DRAW_SUFFIX}`, seed: g.seed, width: g.draw.width, height: g.draw.height, prefix: `panel/${ctx.job.id}/drawn` });
+  const graph = ctx.mod[IMAGE_MODELS[g.draw.imageModel].generator]({ text: g.rig ? `${prompt}. ${RIG_POSE} ${RIG_DRAW_SUFFIX}` : `${prompt}. ${DRAW_SUFFIX}`, seed: g.seed, width: g.draw.width, height: g.draw.height, prefix: `panel/${ctx.job.id}/drawn` });
   const list = images(await ctx.runComfy(graph, { stage: 'Drawing the subject', range: [0, 15] }), nodes(graph, 'SaveImage')[0]);
   if (!list.length) throw new Error('The subject could not be drawn (the image model returned no image).');
   await ctx.comfy.getOutput(list[0], `${target}.temp.png`);
@@ -196,16 +216,29 @@ export async function run(ctx) {
   // A model given without a description: Blender converts it (the GLB, the exports, its front view for the gallery).
   if (g.kind === 'model' && !g.prompt) {
     const startedAt = Date.now();
-    ctx.progress({ percent: 5, stage: 'Blender: reading the model', detail: '' });
     const input = modelPath(ctx.setting.outputRoot, g.source);
-    const result = await blenderPresentation(ctx.setting.blender, {
-      script: blenderScript, input, output: k, name: 'model', frames: g.intro ? INTRO.frames : 0, size: INTRO.size,
-      formats: ['glb', ...g.formats], printHeight: g.printHeight ?? 100, view: join(k, 'view.png'), signal: ctx.signal,
+    const present = (from, formats, frames, view = null) => blenderPresentation(ctx.setting.blender, {
+      script: blenderScript, input: from, output: k, name: 'model', frames, size: INTRO.size, formats,
+      printHeight: g.printHeight ?? 100, view, signal: ctx.signal,
       progress: (ratio) => ctx.progress({ percent: 10 + 85 * ratio, detail: `Frame ${Math.round(ratio * INTRO.frames)}/${INTRO.frames}` }),
     });
+    let result = null;
+    let rig = null;
+    // with a skeleton: the GLB and its view first, the skeleton into the GLB, then the exports from the rigged GLB
+    if (!g.rig || !existsSync(join(k, RIG_DONE))) {
+      ctx.progress({ percent: 5, stage: 'Blender: reading the model', detail: '' });
+      result = await present(input, g.rig ? ['glb'] : ['glb', ...g.formats], g.intro && !g.rig ? INTRO.frames : 0, join(k, 'view.png'));
+      if (!existsSync(glb) && extname(input).toLowerCase() === '.glb') copyFileSync(input, glb);
+    }
+    if (g.rig) {
+      rig = await rigModels(ctx, [glb], glb, 30);
+      if (g.intro || g.formats.length || !result) {
+        ctx.progress({ percent: 90, stage: g.intro ? 'Blender: turntable video' : 'Blender: export', detail: '' });
+        result = await present(glb, g.formats, g.intro ? INTRO.frames : 0);
+      }
+    }
     ctx.log(`Blender ${result.blender}: ${result.triangles} triangles, ${(Date.now() - startedAt) / 1000 | 0} s`);
-    if (!existsSync(glb) && extname(input).toLowerCase() === '.glb') copyFileSync(input, glb);
-    await finish(ctx, result, existsSync(join(k, 'view.png')) ? await preview(ctx, 'view.png') : null, startedAt);
+    await finish(ctx, result, existsSync(join(k, 'view.png')) ? await preview(ctx, 'view.png') : null, startedAt, [], rig);
     return;
   }
 
@@ -233,10 +266,11 @@ export async function run(ctx) {
     if (existsSync(edited)) source = edited;
   }
 
-  // Full-body completion (when asked): Qwen-Image-Edit, the source only as a reference.
-  if (g.complete) {
+  // Full-body completion (when asked): Qwen-Image-Edit, the source only as a reference. With a skeleton a given picture
+  // is posed for it the same way (a drawing asked for the pose already).
+  if (g.complete || posed(g)) {
     const full = join(k, 'full-size.png');
-    if (!existsSync(glb)) await editPicture(ctx, { input: source, target: full, prompt: COMPLETE_PROMPT, stage: 'Completing to full body', range: [g.prompt ? 15 : 0, 20], size: COMPLETE_SIZE });
+    if (!existsSync(glb)) await editPicture(ctx, { input: source, target: full, prompt: g.rig ? RIG_POSE_PROMPT : COMPLETE_PROMPT, stage: g.rig ? 'Posing for the skeleton' : 'Completing to full body', range: [g.prompt ? 15 : 0, 20], size: COMPLETE_SIZE });
     if (existsSync(full)) source = full;
   }
 
@@ -250,7 +284,7 @@ export async function run(ctx) {
     const record = saved(prefix);
     const inputRecord = Object.keys(graph).find((id) => graph[id].class_type === 'SaveImage');
     const startedAt = Date.now();
-    const outputs = await ctx.runComfy(graph, { stage: 'Generating the 3D model', range: [g.complete || g.prompt || g.kind === 'text' ? 20 : 2, lastPercent] });
+    const outputs = await ctx.runComfy(graph, { stage: 'Generating the 3D model', range: [g.complete || posed(g) || g.prompt || g.kind === 'text' ? 20 : 2, lastPercent] });
     const model = outputs?.[record]?.['3d']?.[0];
     if (!model) throw new Error('ComfyUI did not return the 3D model.');
     const input = inputRecord && images(outputs, inputRecord)[0];
@@ -270,7 +304,12 @@ export async function run(ctx) {
   }
   const picture = existsSync(join(k, 'input.png')) ? await preview(ctx, 'input.png') : null;
 
-  // 2) Blender: exports + turntable frames; the video with the panel's ffmpeg.
+  // 2) The skeleton into the model and its game copies (before the exports: the FBX carry it); the test motion on the
+  // game copy, the one a game plays.
+  const copies = g.game ? GAME.map((level) => join(k, level.file)) : [];
+  const rig = g.rig ? await rigModels(ctx, [glb, ...copies], copies[0] ?? glb, lastPercent) : null;
+
+  // 3) Blender: exports + turntable frames; the video with the panel's ffmpeg.
   let result = null;
   const startedAt = Date.now();
   if (g.intro || g.formats.length) {
@@ -300,14 +339,71 @@ export async function run(ctx) {
     }
     ctx.log(`Game copies: ${game.filter((c) => c.format === 'glb').map((c) => `${c.file} ${c.game.triangles} triangles`).join(', ')}`);
   }
-  await finish(ctx, result, picture, startedAt, game);
+  await finish(ctx, result, picture, startedAt, game, rig);
 }
 
-/** The outputs: the GLB (main unless there is a turntable), the exports and the turntable video. */
-async function finish(ctx, result, picture, startedAt, game = []) {
+// Written when the skeleton is in every model file (a retried job does not rig again)
+const RIG_DONE = 'rig.json';
+
+/**
+ * The character skeleton: Make-It-Animatable on the first model (the bones and the weights of its vertices), then
+ * Blender puts them into each model in place (its copies take the weights of their nearest analysed vertex) and renders
+ * the test motion of `show`. Returns { bones, models, video, preview }.
+ */
+async function rigModels(ctx, models, show, percent) {
+  const k = ctx.folder;
+  const done = join(k, RIG_DONE);
+  if (existsSync(done)) return JSON.parse(readFileSync(done, 'utf8'));
+  const startedAt = Date.now();
+  const analysis = join(k, 'rig.npz');
+  if (!existsSync(analysis)) {
+    await ctx.flushVoiceForGpu();
+    ctx.progress({ percent, stage: 'Character skeleton', detail: 'Finding the joints' });
+    const command = ctx.setting.rigCommand(['--input', models[0], '--output', analysis]);
+    await runProcess(command.command, command.args, {
+      env: command.env,
+      cwd: k,
+      signal: ctx.signal,
+      name: 'rig',
+      line: (s) => {
+        if (/^Weights/.test(s)) ctx.progress({ percent, stage: 'Character skeleton', detail: 'Skin weights' });
+        else if (/^Bones/.test(s)) ctx.progress({ percent, stage: 'Character skeleton', detail: 'Bones' });
+        else if (/^Done/.test(s)) ctx.log(`Character skeleton: ${s}`);
+        else if (/Error|Traceback|missing|No CUDA/.test(s)) ctx.log(s);
+      },
+    });
+    if (!existsSync(analysis)) throw new Error('The character skeleton produced no result.');
+  }
+  ctx.progress({ percent, stage: 'Blender: skeleton into the models', detail: '' });
+  const motion = join(k, 'rig');
+  const result = await blenderScript(ctx.setting.blender, {
+    script: join(ctx.setting.aiRoot, 'tools', 'blender', 'rig.py'),
+    args: ['--npz', analysis, '--models', ...models, '--show', show, '--output', motion, '--frames', String(RIG_MOTION.frames), '--size', String(RIG_MOTION.size)],
+    frames: RIG_MOTION.frames,
+    signal: ctx.signal,
+    progress: (ratio) => ctx.progress({ percent, stage: 'Blender: skeleton test motion', detail: `Frame ${Math.round(ratio * RIG_MOTION.frames)}/${RIG_MOTION.frames}` }),
+    line: (s) => {
+      if (/^Rigged /.test(s)) ctx.log(s);
+    },
+  });
+  const video = 'skeleton.mp4';
+  await framesToMp4(ctx.setting.ffmpeg, { cwd: k, pattern: 'rig/frames/%04d.png', fps: RIG_MOTION.fps, output: video, ready: ctx.setting.x264Ready, signal: ctx.signal });
+  rmSync(motion, { recursive: true, force: true });
+  const still = 'skeleton.preview.jpg';
+  await makePreview(ctx.setting.ffmpeg, video, still, { cwd: k, signal: ctx.signal }).catch(() => {});
+  const rig = { bones: result.bones, models: result.models, video, preview: existsSync(join(k, still)) ? still : null };
+  writeFileSync(done, JSON.stringify(rig));
+  rmSync(analysis, { force: true });
+  ctx.measure('rig', (Date.now() - startedAt) / 1000);
+  ctx.log(`Skeleton in ${result.models.length} model file(s): ${result.bones} bones, ${((Date.now() - startedAt) / 1000).toFixed(0)} s`);
+  return rig;
+}
+
+/** The outputs: the GLB (main unless there is a turntable), the exports, the turntable video and the skeleton's test motion. */
+async function finish(ctx, result, picture, startedAt, game = [], rig = null) {
   const g = ctx.job.input;
   const k = ctx.folder;
-  const outputs = [{ file: 'model.glb', type: 'model', format: 'glb', main: !g.intro, preview: picture }];
+  const outputs = [{ file: 'model.glb', type: 'model', format: 'glb', main: !g.intro, preview: picture, ...(rig ? { rig: { bones: rig.bones } } : {}) }];
   if (result) {
     const files = result.files ?? {};
     const print = result.print;
@@ -328,5 +424,6 @@ async function finish(ctx, result, picture, startedAt, game = []) {
     }
     ctx.measure('blender3d', (Date.now() - startedAt) / 1000);
   }
-  ctx.addOutputs([...outputs, ...game]);
+  const motion = rig ? [{ file: rig.video, type: 'video', rig: { bones: rig.bones }, duration: RIG_MOTION.frames / RIG_MOTION.fps, preview: rig.preview, width: RIG_MOTION.size, height: RIG_MOTION.size }] : [];
+  ctx.addOutputs([...outputs, ...game, ...motion]);
 }

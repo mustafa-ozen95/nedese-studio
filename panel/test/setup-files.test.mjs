@@ -58,3 +58,23 @@ test('setup: singing in a voice gets its code, environment and helper models whe
   assert.match(svc, /snapshot_download\(.*cache_dir=.*max_workers=1\)/);
   assert.match(svc, /refs.*\n.*"main"/);
 });
+
+test('setup: the character skeleton gets its code and environment where the panel and tools\\rig\\infer.py look for them', () => {
+  const script = readFileSync(join(setup, 'setup.ps1'), 'utf8');
+  const settings = readFileSync(join(setup, '..', 'panel', 'lib', 'settings.mjs'), 'utf8');
+  const infer = readFileSync(join(setup, '..', 'tools', 'rig', 'infer.py'), 'utf8');
+  for (const name of ['Make-It-Animatable', 'pytorch3d-transforms']) assert.match(readFileSync(join(setup, 'vendor', name, 'SOURCE.txt'), 'utf8'), /commit [0-9a-f]{40}/, name);
+  // rig\mia and rig\pytorch3d-transforms: the folders infer.py puts on sys.path under AI_RIG_CODE (settings: aiRoot\rig)
+  assert.match(script, /\$Rig = Join-Path \$Root 'rig'/);
+  assert.match(script, /Copy-Vendor 'Make-It-Animatable' \(Join-Path \$Rig 'mia'\)/);
+  assert.match(script, /Copy-Vendor 'pytorch3d-transforms' \(Join-Path \$Rig 'pytorch3d-transforms'\)/);
+  for (const d of ["'mia'", "'pytorch3d-transforms'"]) assert.ok(infer.includes(d), `infer.py looks in ${d}`);
+  assert.match(settings, /rigPython = join\(aiRoot, 'rig', '\.venv', 'Scripts', 'python\.exe'\)/);
+  assert.match(settings, /AI_RIG_CODE: join\(aiRoot, 'rig'\)/);
+  // torch comes from voice\.venv (same Python); torchvision must be its CUDA build
+  assert.match(script, /'venv', '--python', '3\.14\.7', \$rigVenv/);
+  assert.match(script, /\$rigVenv 'Lib\\site-packages\\_voice_environment\.pth'/);
+  assert.match(readFileSync(join(setup, 'lock', 'rig.txt'), 'utf8'), /^torchvision==[\d.]+\+cu130$/m);
+  assert.match(script, /generator = 'rigJob'/);
+  assert.match(script, /Test-Tool 'Character skeleton \(Make-It-Animatable\)' \$rigPy/);
+});

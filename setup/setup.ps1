@@ -343,6 +343,27 @@ if (Test-Lock $svcMarker $svcDigest) { Done 'Singing voice (YingMusic-SVC) ready
     Done 'Singing voice (YingMusic-SVC) installed.'
 }
 
+# Character skeleton (tools\rig\infer.py, 3D > Character skeleton): Make-It-Animatable (code MIT in
+# setup\vendor\Make-It-Animatable, with pytorch3d's transforms, BSD, in setup\vendor\pytorch3d-transforms; commits in
+# SOURCE.txt) finds the Mixamo bones and skin weights of a humanoid model. The environment shares voice\.venv's packages
+# (same Python 3.14); the four checkpoints (~1.8 GB, Apache-2.0) come with download-models.mjs (catalog "Character
+# skeleton (Make-It-Animatable)").
+$Rig = Join-Path $Root 'rig'
+$rigVenv = Join-Path $Rig '.venv'
+$rigPy = Join-Path $rigVenv 'Scripts\python.exe'
+$rigLock = Join-Path $PSScriptRoot 'lock\rig.txt'
+$rigMarker = Join-Path $rigVenv '.setup-lock'
+Copy-Vendor 'Make-It-Animatable' (Join-Path $Rig 'mia') | Out-Null
+Copy-Vendor 'pytorch3d-transforms' (Join-Path $Rig 'pytorch3d-transforms') | Out-Null
+$rigDigest = (Get-FileHash $rigLock -Algorithm SHA256).Hash
+if (Test-Lock $rigMarker $rigDigest) { Done 'Character skeleton (Make-It-Animatable) ready.' } else {
+    if (-not (Test-Path $rigPy)) { Invoke-Step $Uv @('venv', '--python', '3.14.7', $rigVenv) 'Character skeleton environment' }
+    Set-Content (Join-Path $rigVenv 'Lib\site-packages\_voice_environment.pth') (Join-Path $Root 'voice\.venv\Lib\site-packages') -Encoding ASCII
+    Invoke-Step $Uv @('pip', 'install', '--no-deps', '--python', $rigPy, '-r', $rigLock, '--index-url', 'https://download.pytorch.org/whl/cu130', '--extra-index-url', 'https://pypi.org/simple', '--index-strategy', 'unsafe-best-match') 'Character skeleton packages'
+    Set-Content $rigMarker $rigDigest
+    Done 'Character skeleton (Make-It-Animatable) installed.'
+}
+
 # Music LoRA training (training\music.py): Side-Step (koda-dernet, MIT; code in setup\vendor\Side-Step); ACE-Step 1.5 LoRA.
 # Its repository has no uv.lock (.gitignore): the solution that works here is kept as setup\lock\sidestep-uv.lock, copied
 # into the source and installed exactly (Python 3.11.16, torch 2.7.1 cu128, a prebuilt flash-attn wheel).
@@ -416,7 +437,8 @@ if ($choice -eq 'none') {
             @{ question = 'Music: ACE-Step 1.5 (~10 GB)'; generator = 'musicJob' },
             @{ question = 'Lip sync: InfiniteTalk (lips follow the voice in films with dialogue, ~16 GB)'; generator = 'lipJob' },
             @{ question = 'Mouth correction: LatentSync (the mouths of talking people follow the voice, ~5.5 GB)'; generator = 'mouthJob' },
-            @{ question = 'Singing in a voice: YingMusic-SVC (a song sung again in your own voice, ~2 GB)'; generator = 'singJob' }
+            @{ question = 'Singing in a voice: YingMusic-SVC (a song sung again in your own voice, ~2 GB)'; generator = 'singJob' },
+            @{ question = 'Character skeleton: Make-It-Animatable (bones for humanoid 3D characters, ~1.8 GB)'; generator = 'rigJob' }
         )
         foreach ($g in $groups) {
             $y = Read-Host "   Download $($g.question)? [Y/n]"
@@ -565,6 +587,7 @@ Test-Tool 'Voice design' (Join-Path $Root 'voice\design\.venv\Scripts\python.exe
 Test-Tool 'EMA Lightning' $emaPy @('-c', "$torchCheck; import ema_lightning")
 Test-Tool 'Mouth correction (LatentSync)' $lipPy @('-c', "$torchCheck; import mediapipe, diffusers, kornia, DeepCache, torchvision")
 Test-Tool 'Singing voice (YingMusic-SVC)' $svcPy @('-c', "$torchCheck; import librosa, transformers, dac, einops, soundfile")
+Test-Tool 'Character skeleton (Make-It-Animatable)' $rigPy @('-c', "$torchCheck; import timm, trimesh, shapely, torchvision")
 Test-Tool 'Model training' (Join-Path $Root 'training\.venv\Scripts\python.exe') @('-c', "$torchCheck; import peft, bitsandbytes, sentencepiece, gguf")
 Test-Tool 'Image training' (Join-Path $Root 'training\musubi\.venv\Scripts\python.exe') @('-c', "$torchCheck; import musubi_tuner, accelerate, diffusers, bitsandbytes")
 Test-Tool 'Music training' (Join-Path $Root 'training\sidestep\.venv\Scripts\python.exe') @('-c', "$torchCheck; import sidestep_engine, peft, lightning, bitsandbytes")

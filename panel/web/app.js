@@ -1087,7 +1087,7 @@
         text: 'Text', voice: 'Voice', spec: 'Voice description', recordName: 'Voice name', language: 'Language', speed: 'Speed', quality: 'Quality', exaggeration: 'Emotion', cfg: 'Reading pace',
         title: 'Title', imageModel: 'Image model', videoModel: 'Video model', subtitle: 'Subtitles', transition: 'Smooth transition', character: 'Same character',
         musicName: 'Music', musicLevel: 'Music volume',
-        complete: 'Complete to full body', deleteBackPlan: 'Remove background', intro: 'Turntable video', time: 'Frame (seconds)', game: 'Game copies',
+        complete: 'Complete to full body', deleteBackPlan: 'Remove background', intro: 'Turntable video', time: 'Frame (seconds)', game: 'Game copies', rig: 'Character skeleton',
         method: 'Method', base: 'Base model', size: 'Model size', epoch: 'Epochs', context: 'Context', quantization: 'Quantization', examplePrompt: 'Sample question',
         collection: 'Collection', max: 'At most', total: 'Image count',
         // every key a job type writes has a name: a 3D job's window showed "printHeight" (09.10.2026)
@@ -1299,7 +1299,8 @@
         const glbOutput = job.outputs.find((c) => c.type === 'model' && c.format === 'glb');
         if (glbOutput) media.append(modelViewer(glbOutput, job));
         for (const c of job.outputs) {
-            if (glbOutput && c.type === 'video') continue;
+            // a 3D model shows itself in the viewer; only the skeleton's test motion is shown as a video
+            if (glbOutput && c.type === 'video' && !c.rig) continue;
             if (c.type === 'image') {
                 media.append(
                     el('a', { href: c.url, target: '_blank', rel: 'noopener', title: 'Open full size', 'data-image-viewer': true }, el('img', { src: c.url, alt: '' })),
@@ -1311,6 +1312,10 @@
                             // Videoya aktarma yalniz uretilmis / duzenlenmis gorselde (ekran goruntusunde degil)
                             c.width && c.height && job.type !== 'data' ? el('button', { type: 'button', class: 'btn btn--sm', 'data-to-video': c.source, 'data-url': c.previewUrl ?? c.url, 'data-width': c.width, 'data-height': c.height, text: 'Send to video' }) : null)),
                 );
+            } else if (c.type === 'video' && c.rig) {
+                media.append(
+                    el('video', { src: c.url, poster: c.previewUrl, controls: true, loop: true, muted: true, preload: 'metadata', playsinline: true, 'data-rig-motion': true }),
+                    el('p', { class: 'text-sm text-muted', text: `Skeleton test motion: ${c.rig.bones} Mixamo bones, skin weights in every model file (Unity Humanoid, Unreal, Godot, Mixamo animations).` }));
             } else if (c.type === 'video' && (c.main || job.type === 'video')) {
                 media.append(el('video', { src: c.url, poster: c.previewUrl, controls: true, preload: 'metadata', playsinline: true }));
             } else if (c.type === 'voice') {

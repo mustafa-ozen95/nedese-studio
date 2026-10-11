@@ -1,0 +1,4 @@
+Source: https://github.com/facebookresearch/pytorch3d  commit 88e182f989c80836f4bd744e0d9cb1852762ce01  license BSD (LICENSE)
+Changes: only pytorch3d\transforms and the parts of pytorch3d\common it imports, unchanged; pytorch3d\__init__.py is
+empty (the original loads the compiled extension, which these pure torch files do not use). Make-It-Animatable uses
+only Transform3d and the rotation conversions. Setup (setup\setup.ps1) copies this folder into rig\pytorch3d-transforms\.

@@ -1,6 +1,6 @@
 /**
- * Blender (no window): the turntable video of a 3D model and its FBX/OBJ/STL export (tools\blender\model3d.py). Without
- * Blender the 3D model job makes only the GLB.
+ * Blender (no window): the turntable video of a 3D model and its FBX/OBJ/STL export (tools\blender\model3d.py), the
+ * character skeleton put into the models (tools\blender\rig.py). Without Blender the 3D model job makes only the GLB.
  *
  * No version is written in: AI_PANEL_BLENDER > PATH > Program Files\Blender Foundation\Blender * (the newest) > Steam.
  * The script tries operator and engine names at run time (3.6 - 5.x).
@@ -38,14 +38,13 @@ export function findBlender(env = process.env) {
 }
 
 /**
- * A 3D model (GLB, FBX, OBJ, STL, PLY) -> exports + turntable frames (<output>/frames/0001.png...). STL is the print
- * copy, printHeight mm tall; view: a PNG of the model from the front on light grey.
- * Returns the script's RESULT line ({ blender, triangles, size, files: { glb, fbx, obj, stl }, print, frames, engine, view }).
+ * Runs a script of tools\blender with its arguments and returns its "RESULT {json}" line. With frames, the rendered
+ * frames go to progress(0..1); every other line to line().
  */
-export async function blenderPresentation(blender, { script, input, output, name, frames = 120, size = 1024, formats = ['fbx', 'obj', 'stl'], printHeight = 100, view = null, signal, progress = () => {} }) {
-  const args = ['-b', '--factory-startup', '--python-exit-code', '1', '-P', script, '--', '--input', input, '--output', output, '--name', name, '--frames', String(frames), '--size', String(size), '--formats', formats.join(','), '--print-height', String(printHeight), ...(view ? ['--view', view] : [])];
+export async function blenderScript(blender, { script, args, frames = 0, signal, progress = () => {}, line = () => {} }) {
+  const all = ['-b', '--factory-startup', '--python-exit-code', '1', '-P', script, '--', ...args];
   // blender: the exe path or (in tests) a function that returns { command, args } for the arguments.
-  const k = typeof blender === 'function' ? blender(args) : { command: blender, args };
+  const k = typeof blender === 'function' ? blender(all) : { command: blender, args: all };
   let result = null;
   await run(k.command, k.args, {
     name: 'Blender',
@@ -63,8 +62,19 @@ export async function blenderPresentation(blender, { script, input, output, name
       // Frame progress: "Fra:12 ..." / "Saved: '...\0012.png'".
       const m = s.match(/^Fra:(\d+)/) ?? s.match(/Saved: .*?(\d+)\.png/);
       if (m && frames) progress(Number(m[1]) / frames);
+      else line(s);
     },
   });
   if (!result) throw new Error('Blender returned no result.');
   return result;
+}
+
+/**
+ * A 3D model (GLB, FBX, OBJ, STL, PLY) -> exports + turntable frames (<output>/frames/0001.png...). STL is the print
+ * copy, printHeight mm tall; view: a PNG of the model from the front on light grey.
+ * Returns the script's RESULT line ({ blender, triangles, size, files: { glb, fbx, obj, stl }, print, frames, engine, view }).
+ */
+export function blenderPresentation(blender, { script, input, output, name, frames = 120, size = 1024, formats = ['fbx', 'obj', 'stl'], printHeight = 100, view = null, signal, progress = () => {} }) {
+  const args = ['--input', input, '--output', output, '--name', name, '--frames', String(frames), '--size', String(size), '--formats', formats.join(','), '--print-height', String(printHeight), ...(view ? ['--view', view] : [])];
+  return blenderScript(blender, { script, args, frames, signal, progress });
 }

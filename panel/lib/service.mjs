@@ -211,6 +211,8 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
         hasBlender: Boolean(setting.blender),
         // Sing in a voice: the YingMusic-SVC models are downloaded (Settings > Models)
         hasSing: setting.hasSing,
+        // 3D > Character skeleton: the Make-It-Animatable models are downloaded (Settings > Models)
+        hasRig: setting.hasRig,
         hasSceneWriter: Boolean(setting.sceneWriter || hasText()),
         // Arayüz motora göre alan gösterir (Duygu şiddeti yalnız Chatterbox'ta etkili).
         voiceEngine: settingFile?.voiceEngine ?? 'voxcpm',

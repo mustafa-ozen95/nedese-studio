@@ -32,6 +32,8 @@ export const PANEL_SCRIPTS = [
   'training/general.py',
   'training/music.py',
   'tools/blender/model3d.py',
+  'tools/blender/rig.py',
+  'tools/rig/infer.py',
 ];
 
 /** Attribute names read from the parsed arguments and the dests argparse declares. */

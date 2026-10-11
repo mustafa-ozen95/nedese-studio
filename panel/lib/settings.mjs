@@ -60,6 +60,11 @@ export function loadSettings(parent = {}) {
   const svcPython = join(aiRoot, 'voice', 'svc', '.venv', 'Scripts', 'python.exe');
   const singPy = join(aiRoot, 'voice', 'sing.py');
   const singingFolder = join(parent.modelRoot ?? join(aiRoot, 'models'), 'singing');
+  // Character skeleton (Make-It-Animatable, rig\): tools\rig\infer.py in its own environment, the four checkpoints in models\rigging
+  const rigPython = join(aiRoot, 'rig', '.venv', 'Scripts', 'python.exe');
+  const rigPy = join(aiRoot, 'tools', 'rig', 'infer.py');
+  const riggingFolder = join(parent.modelRoot ?? join(aiRoot, 'models'), 'rigging');
+  const RIG_FILES = ['joints_coarse.pth', 'bw.pth', 'bw_normal.pth', 'joints.pth'];
   const settings = {
     aiRoot,
     panelRoot: PANEL_ROOT,
@@ -155,6 +160,17 @@ export function loadSettings(parent = {}) {
         args: [singPy, ...args],
         // HF_HUB_OFFLINE: the helper models are in voice\svc\checkpoints at pinned revisions (setup: voice-models.py svc)
         env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', PATH: addPath(ffmpeg), AI_SVC_MODEL: singingFolder, HF_HUB_OFFLINE: '1' },
+      })),
+    // Like singing: usable as soon as Settings > Models has downloaded the four checkpoints
+    get hasRig() {
+      return parent.rigCommand ? true : existsSync(rigPython) && existsSync(rigPy) && RIG_FILES.every((d) => existsSync(join(riggingFolder, d)));
+    },
+    rigCommand:
+      parent.rigCommand ??
+      ((args) => ({
+        command: rigPython,
+        args: [rigPy, ...args],
+        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', AI_RIG_CODE: join(aiRoot, 'rig'), AI_RIG_MODEL: riggingFolder },
       })),
     // Own voice (voice\clone): prepare.py in voice\.venv (Whisper), train.py in the VoxCPM2 environment (LoRA).
     hasClone: parent.cloneCommand ? true : existsSync(join(aiRoot, 'voice', 'clone', 'prepare.py')) && existsSync(join(aiRoot, 'voice', '.venv', 'Scripts', 'python.exe')),
