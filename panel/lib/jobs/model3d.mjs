@@ -47,6 +47,8 @@ export const GAME = [
   { file: 'game.glb', surface: 30000, texture: 2048 },
   { file: 'game-lod1.glb', surface: 15000, texture: 1024 },
 ];
+// A LOD with more than this share of the previous copy's triangles is left out (the same mesh)
+const LOD_SHARE = 0.9;
 const INTRO = { frames: 120, fps: 30, size: 1024 };
 // The skeleton's test motion: one 4 s loop
 export const RIG_MOTION = { frames: 96, fps: 24, size: 720 };
@@ -304,12 +306,15 @@ export async function run(ctx) {
   }
   const picture = existsSync(join(k, 'input.png')) ? await preview(ctx, 'input.png') : null;
 
-  // 2) The skeleton into the model and its game copies (before the exports: the FBX carry it); the test motion on the
-  // game copy, the one a game plays.
+  // 2) The game copies' normal maps baked again in Blender (a rigged copy of a retried job had it already).
   const copies = g.game ? GAME.map((level) => join(k, level.file)) : [];
+  if (copies.length && ctx.setting.blender && !existsSync(join(k, NORMALS_DONE)) && !existsSync(join(k, RIG_DONE))) await bakeNormals(ctx, glb, copies, lastPercent);
+
+  // 3) The skeleton into the model and its game copies (before the exports: the FBX carry it); the test motion on the
+  // game copy, the one a game plays.
   const rig = g.rig ? await rigModels(ctx, [glb, ...copies], copies[0] ?? glb, lastPercent) : null;
 
-  // 3) Blender: exports + turntable frames; the video with the panel's ffmpeg.
+  // 4) Blender: exports + turntable frames; the video with the panel's ffmpeg.
   let result = null;
   const startedAt = Date.now();
   if (g.intro || g.formats.length) {
@@ -330,6 +335,14 @@ export async function run(ctx) {
         ctx.progress({ percent: 97, stage: 'Blender: game copies', detail: level.file });
         const name = level.file.replace(/\.glb$/, '');
         const copy = await blenderPresentation(ctx.setting.blender, { script: blenderScript, input: join(k, level.file), output: k, name, frames: 0, formats: g.formats.includes('fbx') ? ['fbx'] : [], signal: ctx.signal });
+        // Fur or hair of many small pieces: the decimation drops the pieces, the first copy ends far under its budget
+        // (a dwarf: 9711 of 30000) and the LOD made from it is the same mesh. A second file of the same thing is no LOD.
+        const previous = game.findLast((c) => c.format === 'glb');
+        if (previous && copy.triangles > previous.game.triangles * LOD_SHARE) {
+          for (const f of [level.file, copy.files?.fbx]) if (f) rmSync(join(k, f), { force: true });
+          ctx.log(`${level.file} left out: ${previous.file} has only ${previous.game.triangles} triangles (many small pieces, e.g. fur or hair, were dropped), a LOD of it would be the same mesh`);
+          continue;
+        }
         output.game.triangles = copy.triangles;
         game.push(output);
         if (copy.files?.fbx) game.push({ file: copy.files.fbx, type: 'model', format: 'fbx', game: { ...output.game } });
@@ -340,6 +353,27 @@ export async function run(ctx) {
     ctx.log(`Game copies: ${game.filter((c) => c.format === 'glb').map((c) => `${c.file} ${c.game.triangles} triangles`).join(', ')}`);
   }
   await finish(ctx, result, picture, startedAt, game, rig);
+}
+
+// Written when the game copies have their normal maps from Blender (a retried job does not bake again)
+const NORMALS_DONE = 'game-normals.json';
+
+/**
+ * The game copies' normal maps baked again from the full model (tools\blender\game_normals.py). ComfyUI's map does not
+ * match the MikkTSpace tangents game engines compute for a copy: the face and the body came out patchy, seams along
+ * the UV islands. Cycles bakes for those tangents; the copies are written back in place.
+ */
+async function bakeNormals(ctx, full, copies, percent) {
+  const startedAt = Date.now();
+  ctx.progress({ percent, stage: 'Blender: game copy normal maps', detail: '' });
+  const result = await blenderScript(ctx.setting.blender, {
+    script: join(ctx.setting.aiRoot, 'tools', 'blender', 'game_normals.py'),
+    args: ['--full', full, '--copies', ...copies],
+    signal: ctx.signal,
+  });
+  writeFileSync(join(ctx.folder, NORMALS_DONE), JSON.stringify(result));
+  const baked = result.copies.filter((c) => !c.skipped);
+  ctx.log(`Game copy normal maps baked again (${result.device}): ${baked.map((c) => `${c.file} ${c.size} px`).join(', ') || 'none'}, ${((Date.now() - startedAt) / 1000).toFixed(0)} s`);
 }
 
 // Written when the skeleton is in every model file (a retried job does not rig again)

@@ -52,6 +52,33 @@ if (/rig\.py$/.test(script)) {
   process.exit(0);
 }
 
+if (/game_normals\.py$/.test(script)) {
+  const SCRIPT = 'tools/blender/game_normals.py';
+  // Like the real call (lib/jobs/model3d.mjs): -- --full model.glb --copies game.glb game-lod1.glb
+  expectArgs(SCRIPT, a);
+  expectSource(SCRIPT, "'RESULT '", 'export_tangents=True');
+  expectKeys(SCRIPT, 'device', 'copies', 'file', 'size', 'seconds', 'skipped');
+  const full = a[a.indexOf('--full') + 1];
+  if (!existsSync(full)) {
+    console.error(`Model missing: ${full}`);
+    process.exit(1);
+  }
+  const result = { device: 'FAKE', copies: [] };
+  for (const m of a.slice(a.indexOf('--copies') + 1)) {
+    // the real script exports a copy without an armature: a rigged copy would lose its skeleton
+    if (!existsSync(m) || readFileSync(m, 'utf8').includes(' rigged')) {
+      console.error(`Copy missing or rigged: ${m}`);
+      process.exit(1);
+    }
+    appendFileSync(m, ' normals');
+    const file = m.split(/[\\/]/).pop();
+    console.log(`Normal map ${file}: 2048 px, 1.0 s`);
+    result.copies.push({ file, size: 2048, seconds: 1 });
+  }
+  console.log(`RESULT ${JSON.stringify(result)}`);
+  process.exit(0);
+}
+
 const SCRIPT = 'tools/blender/model3d.py';
 // Like the real call (lib/blender.mjs): blender -b ... -P model3d.py -- --input <glb> --output <folder> --name --frames ...
 expectArgs(SCRIPT, a);
@@ -76,7 +103,9 @@ for (const b of (s.formats ?? '').split(',').filter(Boolean)) {
   writeFileSync(join(s.output, name), `fake ${b}${rigged}`);
   files[b] = name;
 }
-const result = { blender: 'fake 9.9', objects: 1, triangles: 1234, size: [1, 1, 1], files };
+// the triangles Blender reads: a LOD half of its copy; FAKE_BLENDER_TRIANGLES ({"name": n}) sets them per export name
+const triangles = JSON.parse(process.env.FAKE_BLENDER_TRIANGLES || '{}')[s.name] ?? (/lod/.test(s.name ?? '') ? 617 : 1234);
+const result = { blender: 'fake 9.9', objects: 1, triangles, size: [1, 1, 1], files };
 if (s.view) {
   writeFileSync(s.view, makePng(64, 64, [200, 200, 200]));
   result.view = s.view.split(/[\\/]/).pop();

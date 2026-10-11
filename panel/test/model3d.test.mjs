@@ -168,7 +168,26 @@ test('3D model: game copies (low poly + LOD) from the same generation, with FBX;
     assert.equal(last.outputs.find((c) => c.main)?.file, 'model.glb', 'the gallery still shows the full model');
     assert.equal(last.outputs.find((c) => c.file === 'game.glb').game.triangles, 1234, 'the count Blender read');
     const k = join(p.setting.outputRoot, job.id);
-    assert.equal(readFileSync(join(k, 'game-lod1.glb'), 'utf8'), 'glTF fake model');
+    // User 11.10.2026: "3d model güzel ama oyun hali kötü" — ComfyUI's normal map did not match the copies' tangents
+    // (patchy face): each copy's map is baked again in Blender from model.glb (game-normals.json: a retry does not bake again)
+    for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model normals', f);
+    assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model');
+    assert.deepEqual(JSON.parse(readFileSync(join(k, 'game-normals.json'), 'utf8')).copies.map((c) => c.file), ['game.glb', 'game-lod1.glb']);
+    assert.match(p.queue.logs.get(job.id).join('\n'), /Game copy normal maps baked again \(FAKE\): game\.glb 2048 px, game-lod1\.glb 2048 px/);
+    assert.equal(last.outputs.find((c) => c.file === 'game-lod1.glb').game.triangles, 617);
+    // a furry dwarf (11.10.2026): the fur's small pieces dropped, the copy ended at 9711 of 30000 triangles and the LOD
+    // made from it was the same mesh: no second file of the same thing
+    process.env.FAKE_BLENDER_TRIANGLES = JSON.stringify({ game: 9711, 'game-lod1': 9711 });
+    try {
+      const furry = await p.waitUntilDone(p.queue.add('model3d', { prompt: 'a furry dwarf', translate: false, imageModel: 'flux', quality: 'fast', formats: ['fbx'], game: true }).id, 60000);
+      assert.equal(furry.status, 'done', furry.error);
+      assert.deepEqual(furry.outputs.map((c) => c.file), ['model.glb', 'model.fbx', 'game.glb', 'game.fbx']);
+      const f = join(p.setting.outputRoot, furry.id);
+      assert.ok(!existsSync(join(f, 'game-lod1.glb')) && !existsSync(join(f, 'game-lod1.fbx')));
+      assert.match(p.queue.logs.get(furry.id).join('\n'), /game-lod1\.glb left out: game\.glb has only 9711 triangles/);
+    } finally {
+      delete process.env.FAKE_BLENDER_TRIANGLES;
+    }
     // without game: the graph has a single bake and a single SaveGLB
     const plain = p.queue.add('model3d', { prompt: 'a wooden barrel', translate: false, imageModel: 'flux', quality: 'fast', formats: [] });
     assert.equal((await p.waitUntilDone(plain.id, 60000)).status, 'done');
