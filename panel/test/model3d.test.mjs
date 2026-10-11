@@ -149,9 +149,10 @@ test('3D model: game copies (low poly + LOD) from the same generation, with FBX;
     const trellis = promptList(p).at(-1);
     assert.deepEqual(trellis.filter((d) => d.class_type === 'DecimateMesh').map((d) => d.inputs.target_face_count), [500000, ...GAME.map((l) => l.surface)]);
     assert.deepEqual(trellis.filter((d) => d.class_type === 'SaveGLB').map((d) => d.inputs.filename_prefix), [`panel/${job.id}/model`, `panel/${job.id}/model_game0`, `panel/${job.id}/model_game1`]);
-    // the LOD with QEM placement (midpoint broke an 8k copy into shards); each copy in its own texture size, its normal
-    // map and AO baked from the main 1M mesh (the remesh took twice as long for the same look)
-    assert.deepEqual(trellis.filter((d) => d.class_type === 'DecimateMesh').map((d) => d.inputs.placement_mode), ['midpoint', 'midpoint', 'qem']);
+    // the copies with QEM placement, creases weighted (midpoint broke a knight's 30k copy into shards); each in its own
+    // texture size, its normal map and AO baked from the main 1M mesh (the remesh took twice as long for the same look)
+    assert.deepEqual(trellis.filter((d) => d.class_type === 'DecimateMesh').map((d) => d.inputs.placement_mode), ['midpoint', 'qem', 'qem']);
+    assert.ok(trellis.filter((d) => d.class_type === 'DecimateMesh').slice(1).every((d) => d.inputs['placement_mode.feature_edge_quadric_weight'] > 0));
     const graph = JSON.parse(p.fake.status.records.filter((x) => x.path === '/prompt').at(-1).prompt).prompt;
     const main = Object.keys(graph).find((id) => graph[id].class_type === 'DecimateMesh' && graph[id].inputs.target_face_count === 500000);
     for (const [i, level] of GAME.entries()) {

@@ -456,9 +456,9 @@ export function musicJob({ style, lyrics = '', duration = 60, seed, bpm = 120, l
  * gorunusler: { left, back, right } (ComfyUI input dosya adlari; resim on gorunus) verilirse Pixal3D cok gorunuslu
  * model: arka ve yanlar tahmin yerine bu gorsellerden (sablon 3d_pixal3d_multi_views; gorus acisi MoGe-2 ile).
  * int8 agirliklar: bf16 (11 GB) 16 GB RAM'de yuklenirken ComfyUI'yi cokertti (access violation, 04.10.2026).
- * game: [{ surface, texture, placement }, ...] lighter copies for games (fewer triangles, smaller textures), each
- * decimated from the remeshed surface (placement 'midpoint' | 'qem'), unwrapped and baked from the voxel colours, the
- * normal map and AO from the main mesh (SaveGLB `<prefix>_game<i>`).
+ * game: [{ surface, texture }, ...] lighter copies for games (fewer triangles, smaller textures), each decimated
+ * from the remeshed surface (QEM), unwrapped and baked from the voxel colours, the normal map and AO from the main
+ * mesh (SaveGLB `<prefix>_game<i>`).
  */
 export function trellis2Job({ picture, appearances = null, seed = 0, prefix, mode = 'trellis', detail = 1536, mesh = 768, surface = 500000, texture = 4096, deleteBackPlan = true, game = [] }) {
   const example = (model, condition, latent, step, cfg, timer = 'normal') => ({
@@ -512,15 +512,16 @@ export function trellis2Job({ picture, appearances = null, seed = 0, prefix, mod
     // Kirpilmis girdi (arka plani silinmis): panelde "modelin cikarildigi gorsel" olarak gosterilir.
     36: { class_type: 'SaveImage', inputs: { images: ['4', 0], filename_prefix: `${prefix}_girdi` } },
   };
-  // Measured 11.10.2026 (a snowy cabin, Pixal3D high): baking against the 1M mesh with 16 AO samples looks the same as
-  // against the remesh with 64 and takes ~50 s instead of ~120 s per copy; an 8k copy decimated with midpoint (or
-  // chained from the 30k copy) fell apart into shards, QEM placement from the remesh kept the shape.
-  const QEM = { 'placement_mode.line_quadric_weight': 0, 'placement_mode.feature_edge_quadric_weight': 0, 'placement_mode.feature_edge_min_dihedral_deg': 30, 'placement_mode.clamp_v_to_edge': true };
+  // Measured 11.10.2026 (a snowy cabin and a knight, Pixal3D high): baking against the 1M mesh with 16 AO samples
+  // looks the same as against the remesh with 64 and takes ~50 s instead of ~120 s per copy. Decimated with midpoint
+  // placement (as the main mesh) the knight's 30k copy broke into shards and dark facets and an 8k copy fell apart
+  // (also when chained from the 30k copy); QEM placement from the remesh, with ridges and creases weighted, kept the
+  // shape (it stops a little under the target: 27.5k).
+  const qem = { placement_mode: 'qem', 'placement_mode.line_quadric_weight': 1, 'placement_mode.feature_edge_quadric_weight': 10, 'placement_mode.feature_edge_min_dihedral_deg': 30, 'placement_mode.clamp_v_to_edge': true };
   game.forEach((level, i) => {
     const k = 60 + i * 10;
     const id = (n) => String(k + n);
-    const placement = level.placement === 'qem' ? { placement_mode: 'qem', ...QEM } : { placement_mode: 'midpoint' };
-    g[k] = { class_type: 'DecimateMesh', inputs: { mesh: ['26', 0], target_face_count: level.surface, ...placement } };
+    g[k] = { class_type: 'DecimateMesh', inputs: { mesh: ['26', 0], target_face_count: level.surface, ...qem } };
     g[k + 1] = { class_type: 'MeshSmoothNormals', inputs: { mesh: [id(0), 0], crease_angle: 180 } };
     g[k + 2] = { class_type: 'UnwrapMesh', inputs: { mesh: [id(1), 0], segmenter: 'pec', resolution: level.texture, padding: 1, weld_distance: 0.0002 } };
     g[k + 3] = { class_type: 'BakeTextureFromVoxel', inputs: { mesh: [id(2), 0], voxel_colors: ['25', 0], texture_size: level.texture, reference_mesh: ['22', 0] } };

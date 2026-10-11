@@ -37,11 +37,11 @@ export const QUALITY = {
 };
 const MODEL_NAME = { trellis: 'TRELLIS.2', pixal: 'Pixal3D' };
 // The game copies (user 11.10.2026: "3d alanımız oyunlar için asset üretiyo dimi"): a main game mesh and one LOD.
-// Measured on a snowy cabin: 30k midpoint ≈ the full model on screen; the LOD needs QEM (midpoint broke it into
-// shards) and comes out at ~4.6k triangles (the target is a maximum). Both add ~2 min to the generation.
+// Measured on a knight: the 30k copy (QEM, ~27.5k) is close to the full model on screen; an 8k LOD (~4.8k) lost the
+// figure's shape, so the LOD is half the main copy. Both add ~2 min to the generation.
 export const GAME = [
-  { file: 'game.glb', surface: 30000, texture: 2048, placement: 'midpoint' },
-  { file: 'game-lod1.glb', surface: 8000, texture: 1024, placement: 'qem' },
+  { file: 'game.glb', surface: 30000, texture: 2048 },
+  { file: 'game-lod1.glb', surface: 15000, texture: 1024 },
 ];
 const INTRO = { frames: 120, fps: 30, size: 1024 };
 // The front view of a given model (the gallery picture; the picture an edit starts from)
