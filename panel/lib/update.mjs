@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { UserError } from './errors.mjs';
+import { closeComfy as closeComfyProcesses } from './comfy-process.mjs';
 
 const DAY_MS = 24 * 3600 * 1000;
 const SHA = /^[0-9a-f]{40}$/;
@@ -65,8 +66,8 @@ export class Updater {
    * settingFile: updateAuto, updateLastControl, updateLastResult, saveUpdate()
    * queue: active, pending(), runners. startAgain: after applying (server.mjs).
    */
-  constructor({ setting, settingFile, queue, log = () => {}, startAgain = null, retrieve = fetch }) {
-    Object.assign(this, { setting, settingFile, queue, log, startAgain, retrieve });
+  constructor({ setting, settingFile, queue, log = () => {}, startAgain = null, retrieve = fetch, closeComfy = closeComfyProcesses }) {
+    Object.assign(this, { setting, settingFile, queue, log, startAgain, retrieve, closeComfy });
     // The last check's result (in the settings file too: after a restart the top bar knows "Update available")
     this.last = null;
     const s = settingFile?.updateLastResult;
@@ -273,6 +274,15 @@ export class Updater {
         backup(rel, target);
         rmSync(target, { force: true });
         deleted++;
+      }
+      // A running ComfyUI keeps the old code of Nedese Studio's own nodes: closed (no job is running), the next job opens it
+      if ([...changed.keys()].some((rel) => rel.startsWith('tools/comfy-nodes/'))) {
+        try {
+          const pids = await this.closeComfy();
+          if (pids.length) this.log('ComfyUI closed: its Nedese Studio nodes changed.');
+        } catch (e) {
+          this.log(`ComfyUI could not be closed: ${e.message}`);
+        }
       }
       writeFileSync(join(root, 'version.json'), JSON.stringify({ sha: d.remote.sha, dateText: d.remote.dateText, message: d.remote.message, application: new Date().toISOString(), files: [...files.keys()].sort() }, null, 1));
       this.localCache = null;

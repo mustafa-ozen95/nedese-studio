@@ -146,6 +146,21 @@ test('update is applied: only repository files are written, deleted ones are rem
   }
 });
 
+test("update: ComfyUI is closed when Nedese Studio's own ComfyUI nodes change (a running one keeps the old code)", async () => {
+  for (const [files, closes] of [[{ 'panel/server.mjs': 'new server', 'tools/comfy-nodes/nedese_animate/__init__.py': 'new node' }, 1], [{ 'panel/server.mjs': 'new server' }, 0]]) {
+    const gh = await fakeGithub({ files });
+    const { root, settingFile } = setupSetup();
+    try {
+      let closed = 0;
+      const g = new Updater({ setting: setting(root, gh.api), settingFile, queue: freeQueue(), closeComfy: async () => (closed++, [1]) });
+      await g.apply();
+      assert.equal(closed, closes, Object.keys(files).join(', '));
+    } finally {
+      gh.close();
+    }
+  }
+});
+
 test('update: deferred while a job is running, the scheduler applies it when the job finishes; unlimited collection does not block it; a development copy does not update itself', async () => {
   const gh = await fakeGithub();
   const { root, settingFile } = setupSetup();
