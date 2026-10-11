@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { run as runProcess } from '../process.mjs';
 import { streams, runFfmpeg, measureDuration } from '../ffmpeg.mjs';
 import { UserError } from '../errors.mjs';
-import { plan } from '../edit-plan.mjs';
+import { plan as makePlan } from '../edit-plan.mjs';
 import { hasText } from '../text-model.mjs';
 import { listVoices, voicePath } from '../voices.mjs';
 import { text, voiceExtractionError } from './common.mjs';
@@ -89,7 +89,7 @@ export async function run(ctx) {
     const canRestyle = accepts(() => songValidate({ source: g.source, style: 'x' }, { mod: ctx.mod, setting: ctx.setting }));
     const canSing = voices.length > 0 && accepts(() => singValidate({ source: g.source, voice: `ref:${voices[0].id}` }, { setting: ctx.setting }));
     const info = { duration, voices, canRestyle, canSing, summary: { durationSec: Math.round(duration * 10) / 10, channel: a.streams[0]?.channels ?? null, songEditAvailable: canRestyle, singAvailable: canSing } };
-    const planner = ctx.setting.editPlan ?? plan;
+    const planner = ctx.setting.editPlan ?? makePlan;
     ctx.job.plan = await planner({ type: 'voice', instruction: g.instruction, info, signal: ctx.signal });
     ctx.save();
   }

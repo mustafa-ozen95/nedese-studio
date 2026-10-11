@@ -11,7 +11,7 @@ import { freemem } from 'node:os';
 import { join } from 'node:path';
 import { streams, runFfmpeg, makePreview } from '../ffmpeg.mjs';
 import { UserError } from '../errors.mjs';
-import { plan } from '../edit-plan.mjs';
+import { plan as makePlan } from '../edit-plan.mjs';
 import { hasText } from '../text-model.mjs';
 import { text, musicPath, MUSIC_LEVEL } from './common.mjs';
 import { recordPath } from './clone.mjs';
@@ -229,7 +229,7 @@ export async function run(ctx) {
     const b = await videoInfo(ctx.setting.ffprobe, source);
     if (b.duration > 3 * 3600) throw new UserError('The video is longer than 3 hours.');
     const info = { duration: b.duration, hasMusic: Boolean(music), sourceCount: g.sources?.length ?? 1, summary: { durationSec: Math.round(b.duration * 10) / 10, width: b.width, height: b.height, fps: b.fps, hasVoice: b.voice, musicFileGiven: Boolean(music) } };
-    const planner = ctx.setting.editPlan ?? plan;
+    const planner = ctx.setting.editPlan ?? makePlan;
     ctx.job.plan = await planner({ type: 'video', instruction: g.instruction, info, signal: ctx.signal });
     ctx.save();
   }

@@ -119,3 +119,31 @@ test('a song with "sing it in Ada\'s voice" in Edit audio: the job becomes Sing 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// 11.10.2026: since the English conversion (08.10) both edit jobs declared "const plan" under the imported plan(), so
+// with the real planner (no setting.editPlan, the tests' stand-in) every audio and video edit stopped with "Cannot
+// access 'plan' before initialization". Here the real planner runs: without a text model it says so.
+test('the edit jobs reach the real planner (no stand-in): without a text model the job says the interpreter is missing', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'handover-'));
+  const base = loadSettings({ aiRoot: root });
+  const trial = join(base.outputRoot, 'trial');
+  mkdirSync(trial, { recursive: true });
+  execFileSync(base.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x120:r=30:d=2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', join(trial, 'a.mp4')]);
+  execFileSync(base.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=f=440:d=2', join(trial, 'a.mp3')]);
+  // the stand-in only lets the jobs in (validate asks for a text model); it is gone before they run
+  const setting = { ...base, gpuWatchdog: null, ramWatchdog: null, editPlan: async () => assert.fail('the stand-in must not run') };
+  const queue = new Queue({ setting, comfy: null, mod: null, runners: { audioEdit, videoEdit } });
+  const jobs = [queue.add('videoEdit', { source: 'job/trial/a.mp4', instruction: 'make it black and white' }), queue.add('audioEdit', { source: 'job/trial/a.mp3', instruction: 'cut the first second' })];
+  delete setting.editPlan;
+  queue.start();
+  try {
+    for (const job of jobs) {
+      const done = await finished(queue, job.id);
+      assert.equal(done.status, 'error');
+      assert.match(done.error, /instruction interpreter \(text model\) is not on this machine/, `${job.type}: ${done.error}`);
+    }
+  } finally {
+    await queue.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
