@@ -51,7 +51,8 @@ test('setup: singing in a voice gets its code, environment and helper models whe
   assert.match(script, /voice-models\.py'\), 'svc'\)/);
   // the helpers at pinned revisions, one file at a time: parallel downloads into a new cache folder raced huggingface_hub's
   // symbolic link check and failed with WinError 1314 (10.10.2026)
-  const models = readFileSync(join(setup, 'voice-models.py'), 'utf8');
+  // a Windows checkout has CRLF line ends (core.autocrlf)
+  const models = readFileSync(join(setup, 'voice-models.py'), 'utf8').replace(/\r\n/g, '\n');
   const svc = models.slice(models.indexOf('elif mode == "svc"'), models.indexOf('else:\n    sys.exit'));
   assert.equal([...svc.matchAll(/"[0-9a-f]{40}"/g)].length, 4);
   assert.match(svc, /snapshot_download\(.*cache_dir=.*max_workers=1\)/);

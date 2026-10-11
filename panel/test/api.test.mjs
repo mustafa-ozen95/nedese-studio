@@ -150,8 +150,13 @@ test('API v1: auth, error format, job lifecycle, file download, settings, ComfyU
     assert.match(g.json.image.source, /^upload\/\d{8}-\d{6}-kare\.png$/);
     const m = await req(p.address, '/api/v1/uploads/music?name=tema.mp3', { method: 'POST', headers: authorized, body: Buffer.from('ID3sahte') });
     assert.equal(m.code, 200);
+    // a 3D model (11.10.2026): its own upload; the handler first shared its name with the AI model upload and was lost
+    const d = await req(p.address, '/api/v1/uploads/model?name=owl.stl', { method: 'POST', headers: authorized, body: Buffer.from('solid owl') });
+    assert.equal(d.code, 200, JSON.stringify(d.json));
+    assert.match(d.json.model.source, /^upload\/\d{8}-\d{6}-model-owl\.stl$/);
+    assert.equal((await req(p.address, '/api/v1/uploads/model?name=owl.dwg', { method: 'POST', headers: authorized, body: Buffer.from('x') })).code, 400);
     const uploads = (await req(p.address, '/api/v1/uploads', { headers: authorized })).json.uploads;
-    assert.deepEqual(uploads.map((x) => x.type).sort(), ['image', 'music']);
+    assert.deepEqual(uploads.map((x) => x.type).sort(), ['image', 'model', 'music']);
     assert.ok((await req(p.address, '/api/v1/images', { headers: authorized })).json.images.some((x) => x.source === g.json.image.source));
 
     // Ayarlar: anahtar gorunur; niceleme secimi yalniz kuruluysa; secim graftaki dosya adini degistirir; anahtar yenileme.

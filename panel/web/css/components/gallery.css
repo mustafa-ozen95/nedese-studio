@@ -309,6 +309,17 @@ button.media {
     display: block;
 }
 
+.picker__model {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--radius-sm);
+    background: var(--color-sunken);
+    color: var(--color-text-muted);
+    font-weight: 600;
+}
+
 .picker__thumb > img,
 .picker__thumb > video {
     display: block;

@@ -26,6 +26,7 @@ import { writeLyrics } from './lyricist.mjs';
 import { writePromo } from './promo-writer.mjs';
 import { pageAddress } from './jobs/page-video.mjs';
 import { RECORD_EXTENSIONS } from './jobs/clone.mjs';
+import { MODEL_EXTENSIONS } from './jobs/model3d.mjs';
 import { collections as dataCollections } from './jobs/data.mjs';
 import { FIELDS as TRAINING_FIELDS, SIZES as TRAINING_SIZES, IMAGE_RESOLUTIONS, MUSIC_LANGUAGES, QUANTIZATIONS as TRAINING_QUANTIZATIONS, DATA_EXTENSIONS, trainedModels, baseModelStatuses, videoResolutions, videoTrainingMissing, videoFrames } from './jobs/training.mjs';
 import { browse, folderEstimate } from './file-browser.mjs';
@@ -352,6 +353,19 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       await writeBody(req, path, RECORD_LIMIT);
       queue.db?.writeUpload({ file, type: 'record', name: name.slice(0, 120), size: statSync(join(uploads, file)).size });
       return { message: 'Recording uploaded.', record: { source: `upload/${file}`, url: `/file/upload/${file}`, name: name.slice(0, 120) } };
+    },
+
+    /** A 3D model to convert or edit (3D model job): GLB, FBX, OBJ, STL or PLY. */
+    async load3dModel(req, name) {
+      name = String(name ?? 'model.glb');
+      const extension = extname(name).toLowerCase();
+      if (!MODEL_EXTENSIONS.includes(extension)) throw new UserError(`Unsupported 3D model format (${extension || 'no extension'}). Upload GLB, FBX, OBJ, STL or PLY.`);
+      mkdirSync(uploads, { recursive: true });
+      const path = freePath(uploads, `${stamp()}-model-${slug(name.slice(0, -extension.length), 'model')}${extension}`);
+      const file = basename(path);
+      await writeBody(req, path, RECORD_LIMIT);
+      queue.db?.writeUpload({ file, type: 'model', name: name.slice(0, 120), size: statSync(join(uploads, file)).size });
+      return { message: '3D model uploaded.', model: { source: `upload/${file}`, url: `/file/upload/${file}`, name: name.slice(0, 120) } };
     },
 
     /** Model egitimi verisi: metin, Markdown, HTML, JSONL/JSON, CSV/TSV. */

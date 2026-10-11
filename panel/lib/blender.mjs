@@ -38,11 +38,12 @@ export function findBlender(env = process.env) {
 }
 
 /**
- * GLB -> exports + turntable frames (<output>/frames/0001.png...). STL is the print copy, printHeight mm tall.
- * Returns the script's RESULT line ({ blender, triangles, size, files: { fbx, obj, stl }, print, frames, engine }).
+ * A 3D model (GLB, FBX, OBJ, STL, PLY) -> exports + turntable frames (<output>/frames/0001.png...). STL is the print
+ * copy, printHeight mm tall; view: a PNG of the model from the front on light grey.
+ * Returns the script's RESULT line ({ blender, triangles, size, files: { glb, fbx, obj, stl }, print, frames, engine, view }).
  */
-export async function blenderPresentation(blender, { script, input, output, name, frames = 120, size = 1024, formats = ['fbx', 'obj', 'stl'], printHeight = 100, signal, progress = () => {} }) {
-  const args = ['-b', '--factory-startup', '--python-exit-code', '1', '-P', script, '--', '--input', input, '--output', output, '--name', name, '--frames', String(frames), '--size', String(size), '--formats', formats.join(','), '--print-height', String(printHeight)];
+export async function blenderPresentation(blender, { script, input, output, name, frames = 120, size = 1024, formats = ['fbx', 'obj', 'stl'], printHeight = 100, view = null, signal, progress = () => {} }) {
+  const args = ['-b', '--factory-startup', '--python-exit-code', '1', '-P', script, '--', '--input', input, '--output', output, '--name', name, '--frames', String(frames), '--size', String(size), '--formats', formats.join(','), '--print-height', String(printHeight), ...(view ? ['--view', view] : [])];
   // blender: the exe path or (in tests) a function that returns { command, args } for the arguments.
   const k = typeof blender === 'function' ? blender(args) : { command: blender, args };
   let result = null;

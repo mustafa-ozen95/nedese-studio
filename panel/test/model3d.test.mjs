@@ -1,15 +1,14 @@
 /**
- * 3D model: sahte ComfyUI (TRELLIS.2 grafi gercek) + sahte Blender + GERCEK ffmpeg (tanitim videosu, videodan kare).
+ * 3D model: fake ComfyUI (the real TRELLIS.2 graph) + fake Blender + REAL ffmpeg (turntable video, previews).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { createPanel } from './env.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
-import { COMPLETE_PROMPT, QUALITY, validate } from '../lib/jobs/model3d.mjs';
+import { COMPLETE_PROMPT, DRAW_SUFFIX, MODEL_EDIT_PROMPT, QUALITY, validate } from '../lib/jobs/model3d.mjs';
 import { graphFiles, SAMPLE_INPUT } from '../lib/models.mjs';
 import * as comfy from '../../tools/comfy.mjs';
 
@@ -75,7 +74,61 @@ test('3D model: full-body completion + TRELLIS.2 + Blender (showcase video, FBX/
   }
 });
 
-test('3D model: frame from video, GLB only without Blender; clear error if a showcase is requested', async (t) => {
+// One input (user 11.10.2026: "3d için videodan kareye gerek yok, fotoğraf, 3d görüntü veya tarif versin"; "3d girdi
+// verilirse düzenleme promtu olur"): a 3D model file is converted, or edited by the description; a description alone
+// is drawn first; a video is no longer a source.
+test('3D model: a 3D model file is converted without a description and edited with one; a description alone is drawn first', async (t) => {
+  const p = await createPanel({ blender: true, server: true });
+  if (!p.setting.ffmpeg) {
+    await p.close();
+    t.skip('no ffmpeg');
+    return;
+  }
+  try {
+    const uploads = join(p.setting.outputRoot, 'uploads');
+    mkdirSync(uploads, { recursive: true });
+    writeFileSync(join(uploads, 'owl.obj'), 'v 0 0 0\n');
+    writeFileSync(join(uploads, 'owl.dwg'), 'x');
+    assert.throws(() => p.queue.add('model3d', {}), /Give an image or a 3D model, or describe what to make/);
+    assert.throws(() => p.queue.add('model3d', { source: 'upload/owl.dwg' }), /The source image must be PNG, JPEG or WebP/);
+
+    // without a description: Blender reads it and writes the GLB, the exports and a front view for the gallery
+    const plain = p.queue.add('model3d', { source: 'upload/owl.obj', formats: ['stl'] });
+    assert.deepEqual([plain.input.kind, plain.input.prompt, plain.summary.detail], ['model', null, 'converted · STL · print 100 mm']);
+    const plainLast = await p.waitUntilDone(plain.id, 60000);
+    assert.equal(plainLast.status, 'done', plainLast.error);
+    assert.equal(promptList(p).length, 0, 'nothing generated');
+    assert.deepEqual(plainLast.outputs.map((c) => [c.file, Boolean(c.main)]), [['model.glb', true], ['model.stl', false]]);
+    assert.equal(plainLast.outputs[0].preview, 'view.preview.jpg', 'the gallery card has a picture');
+    assert.ok(existsSync(join(p.setting.outputRoot, plain.id, 'view.preview.jpg')));
+
+    // with a description: its front view is edited as described and the model is made again from it
+    const edited = p.queue.add('model3d', { source: 'upload/owl.obj', prompt: 'make it golden', translate: false, formats: [], quality: 'fast', seed: 4 });
+    assert.equal(edited.summary.title, 'make it golden');
+    const editedLast = await p.waitUntilDone(edited.id, 60000);
+    assert.equal(editedLast.status, 'done', editedLast.error);
+    const [edit, trellis] = promptList(p);
+    assert.equal(edit.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt)?.inputs.prompt, MODEL_EDIT_PROMPT('make it golden'));
+    assert.match(trellis.find((d) => d.class_type === 'LoadImage').inputs.image, /_3d\.png$/);
+    const k = join(p.setting.outputRoot, edited.id);
+    assert.ok(existsSync(join(k, 'view.png')) && existsSync(join(k, 'edited.png')), 'view, then the edit');
+    assert.deepEqual(editedLast.outputs.map((c) => c.file), ['model.glb']);
+
+    // a description alone: the subject is drawn whole first
+    const drawn = p.queue.add('model3d', { prompt: 'a ceramic owl', translate: false, imageModel: 'flux', formats: [], quality: 'fast', complete: true });
+    assert.deepEqual([drawn.input.kind, drawn.input.complete, drawn.input.draw.imageModel], ['text', false, 'flux'], 'completion is for images only');
+    const drawnLast = await p.waitUntilDone(drawn.id, 60000);
+    assert.equal(drawnLast.status, 'done', drawnLast.error);
+    const [draw] = promptList(p).slice(2);
+    const texts = draw.filter((d) => d.class_type === 'CLIPTextEncode').map((d) => d.inputs.text);
+    assert.ok(texts.includes(`a ceramic owl. ${DRAW_SUFFIX}`), texts.join(' | '));
+    assert.ok(existsSync(join(p.setting.outputRoot, drawn.id, 'drawn.png')));
+  } finally {
+    await p.close();
+  }
+});
+
+test('3D model: GLB only without Blender; a 3D model file needs Blender; clear error if a showcase is requested', async (t) => {
   const p = await createPanel();
   if (!p.setting.ffmpeg) {
     await p.close();
@@ -85,19 +138,18 @@ test('3D model: frame from video, GLB only without Blender; clear error if a sho
   try {
     const uploads = join(p.setting.outputRoot, 'uploads');
     mkdirSync(uploads, { recursive: true });
-    const r = spawnSync(p.setting.ffmpeg, ['-y', '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=10:duration=3', '-pix_fmt', 'yuv420p', join(uploads, 'v.mp4')]);
-    assert.equal(r.status, 0);
-    assert.throws(() => p.queue.add('model3d', { source: 'upload/v.mp4', intro: true }), /Blender is required/);
-    assert.throws(() => p.queue.add('model3d', { source: 'upload/v.mp4', formats: ['dwg'] }), /Invalid export format/);
-    const job = p.queue.add('model3d', { source: 'upload/v.mp4', time: 1.5, quality: 'fast' });
-    assert.deepEqual([job.input.intro, job.input.formats, job.input.time], [false, [], 1.5]);
+    writeFileSync(join(uploads, 'owl.glb'), 'glTF');
+    assert.throws(() => p.queue.add('model3d', { source: 'upload/owl.glb' }), /Blender is required to read a 3D model file/);
+    assert.throws(() => p.queue.add('model3d', { prompt: 'a lamp', intro: true }), /Blender is required/);
+    assert.throws(() => p.queue.add('model3d', { prompt: 'a lamp', formats: ['dwg'] }), /Invalid export format/);
+    const job = p.queue.add('model3d', { prompt: 'a lamp', translate: false, quality: 'fast' });
+    assert.deepEqual([job.input.intro, job.input.formats], [false, []]);
     const last = await p.waitUntilDone(job.id, 60000);
     assert.equal(last.status, 'done', last.error);
-    const [trellis] = promptList(p);
+    const trellis = promptList(p).at(-1);
     assert.equal(trellis.find((d) => d.class_type === 'Trellis2UpsampleStage').inputs.target_resolution, 1536);
     assert.ok(trellis.some((d) => d.class_type === 'Trellis2Conditioning'), 'fast: TRELLIS.2');
     assert.equal(trellis.find((d) => d.class_type === 'DecimateMesh').inputs.target_face_count, 500000);
-    assert.ok(existsSync(join(p.setting.outputRoot, job.id, 'frame.png')), 'frame was taken from the video');
     assert.deepEqual(last.outputs.map((c) => [c.file, c.main]), [['model.glb', true]]);
   } finally {
     await p.close();
@@ -120,9 +172,9 @@ test("3D model: the chosen quality's own model files are checked before the queu
     const setting = { modelRoot, outputRoot: modelRoot, blender: null };
     assert.throws(() => validate({ quality: 'high' }, { mod: comfy, setting }), /Model files missing for 3D model \(Pixal3D\): .*pixal3d_int8_convrot\.safetensors.*moge_2_vitl_normal_fp16\.safetensors\. Download them in Settings > Models/);
     // fast (TRELLIS.2) has its files: the check passes and the next one (the source) speaks
-    assert.throws(() => validate({ quality: 'fast' }, { mod: comfy, setting }), /Choose an image or a video/);
+    assert.throws(() => validate({ quality: 'fast' }, { mod: comfy, setting }), /Give an image or a 3D model, or describe what to make/);
     for (const key of high) put(key);
-    assert.throws(() => validate({ quality: 'high' }, { mod: comfy, setting }), /Choose an image or a video/);
+    assert.throws(() => validate({ quality: 'high' }, { mod: comfy, setting }), /Give an image or a 3D model, or describe what to make/);
   } finally {
     rmSync(modelRoot, { recursive: true, force: true });
   }

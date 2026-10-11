@@ -2261,6 +2261,7 @@ export class AgentManager {
     if (type === 'image') return this.h.loadImage(fileStream(path), name);
     if (type === 'music') return this.h.loadMusic(fileStream(path), name);
     if (type === 'record') return this.h.loadRecord(fileStream(path), name);
+    if (type === 'model') return this.h.load3dModel(fileStream(path), name);
     return this.h.loadData(fileStream(path), name);
   }
 

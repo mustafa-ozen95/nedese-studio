@@ -13,11 +13,16 @@ const SCRIPT = 'tools/blender/model3d.py';
 const a = process.argv.slice(process.argv.indexOf('--') + 1);
 expectArgs(SCRIPT, a);
 expectSource(SCRIPT, "'RESULT '");
-expectKeys(SCRIPT, 'blender', 'triangles', 'files', 'print', 'height', 'size', 'volume', 'watertight', 'solid', 'openEdges', 'engine', 'frames');
+expectKeys(SCRIPT, 'blender', 'triangles', 'files', 'print', 'height', 'size', 'volume', 'watertight', 'solid', 'openEdges', 'engine', 'frames', 'view');
 const s = {};
 for (let i = 0; i < a.length - 1; i += 2) s[a[i].replace(/^--/, '')] = a[i + 1];
 if (!existsSync(s.input)) {
-  console.error(`GLB missing: ${s.input}`);
+  console.error(`Model missing: ${s.input}`);
+  process.exit(1);
+}
+// like the real import: a model it cannot read stops the run
+if (!/\.(glb|gltf|fbx|obj|stl|ply)$/i.test(s.input)) {
+  console.error('Unsupported 3D model format');
   process.exit(1);
 }
 const files = {};
@@ -27,6 +32,10 @@ for (const b of (s.formats ?? '').split(',').filter(Boolean)) {
   files[b] = name;
 }
 const result = { blender: 'fake 9.9', objects: 1, triangles: 1234, size: [1, 1, 1], files };
+if (s.view) {
+  writeFileSync(s.view, makePng(64, 64, [200, 200, 200]));
+  result.view = s.view.split(/[\\/]/).pop();
+}
 if (files.stl) {
   const height = Number(s['print-height']);
   result.print = { file: files.stl, height, size: [height * 0.35, height * 0.21, height], triangles: 5000, openEdges: 0, watertight: true, solid: true, crumbs: 0, volume: 12.5 };

@@ -2300,47 +2300,68 @@
         editFiles(files, $('[data-video-edit-name]', videoEditForm));
     });
 
-    /* 3D model: kaynak görsel ya da videodan kare (TRELLIS.2); Blender yoksa yalnız GLB. */
+    /* 3D model: one input (user 11.10.2026): a photo, a 3D model file or only a description; without Blender only the GLB. */
     const m3Form = $('[data-job-form="model3d"]');
+    const M3_MODEL = /\.(glb|fbx|obj|stl|ply)$/i;
+    const M3_HINT = {
+        text: 'Without a file the subject is drawn first, whole on a plain background, then modeled.',
+        image: 'Empty: the photo is modeled as it is. Written: the photo is changed first as described.',
+        model: 'Empty: the model is only converted (GLB and the exports). Written: the model is changed as described and made again.',
+    };
 
-    function configureM3Image(k) {
-        status.m3Image = k ?? null;
+    function configureM3Source(k) {
+        status.m3Source = k ?? null;
         const slot = $('[data-m3-slot]', m3Form);
         $('[data-slot-field]', slot).value = k?.source ?? '';
+        // a model without a picture (an upload) shows its name
+        const shown = k ? k.previewUrl || (M3_MODEL.test(k.source) ? null : k.url) : null;
         const picture = $('[data-slot-picture]', slot);
         $('[data-slot-empty]', slot).hidden = Boolean(k);
-        picture.hidden = !k;
-        if (k) picture.src = k.previewUrl ?? k.url;
+        picture.hidden = !shown;
+        if (shown) picture.src = shown;
         else picture.removeAttribute('src');
+        $('[data-m3-model]', slot).hidden = !k || Boolean(shown);
+        $('[data-m3-model-name]', slot).textContent = k?.name ?? '';
         $('[data-m3-remove]', m3Form).hidden = !k;
+        applyM3Kind();
         saveDraft();
     }
-    $('[data-m3-remove]', m3Form).addEventListener('click', () => configureM3Image(null));
+    $('[data-m3-remove]', m3Form).addEventListener('click', () => configureM3Source(null));
 
-    function configureM3Video(v) {
-        status.m3Video = v ?? null;
-        m3Form.videoSource.value = v?.source ?? '';
-        showName($('[data-m3v-name]', m3Form), v?.name, 'No video selected');
-        const watch = $('[data-m3v-watch]', m3Form);
-        watch.hidden = !v?.url;
-        if (v?.url) watch.src = v.url;
-        else watch.removeAttribute('src');
-        saveDraft();
+    /** The description's meaning follows the input: what to make, or what to change in the photo / the model. */
+    function applyM3Kind() {
+        const source = m3Form.source.value;
+        const kind = !source ? 'text' : M3_MODEL.test(source) ? 'model' : 'image';
+        m3Form.dataset.kind = kind;
+        $('[data-m3-complete]', m3Form).hidden = kind !== 'image';
+        $('[data-m3-prompt-label]', m3Form).textContent = kind === 'text' ? 'What to make' : 'What to change (optional)';
+        $('[data-m3-prompt-hint]', m3Form).textContent = M3_HINT[kind];
+        m3Form.prompt.placeholder = { text: 'e.g. a ceramic owl figurine with a blue glaze', image: 'e.g. give him a red cape', model: 'e.g. make it golden with ruby eyes' }[kind];
+        if (status.options) updateEstimates();
     }
 
-    function applyM3Type() {
-        const video = m3Form.sourceType.value === 'video';
-        $('[data-m3-image]', m3Form).hidden = video;
-        $('[data-m3-video]', m3Form).hidden = !video;
+    /** A photo goes to the image uploads, a 3D model file to the model uploads. */
+    async function loadM3File(file) {
+        if (!file) return;
+        if (!M3_MODEL.test(file.name)) {
+            const g = await loadImage(file);
+            if (g) configureM3Source(g);
+            return;
+        }
+        try {
+            const j = await api(`/api/model/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
+            configureM3Source(j.model);
+            notify(j.message, 'success');
+        } catch (e) {
+            notify(e.message, 'danger');
+        }
     }
-    $('[data-m3-type]', m3Form).addEventListener('change', applyM3Type);
 
     const m3Slot = $('[data-m3-slot]', m3Form);
-    $('[data-slot-upload]', m3Slot).addEventListener('change', async (event) => {
+    $('[data-slot-upload]', m3Slot).addEventListener('change', (event) => {
         const file = event.target.files?.[0];
         event.target.value = '';
-        const g = await loadImage(file);
-        if (g) configureM3Image(g);
+        loadM3File(file);
     });
     const m3Box = $('[data-slot-box]', m3Slot);
     m3Box.addEventListener('dragover', (event) => {
@@ -2348,35 +2369,11 @@
         m3Box.dataset.drag = 'over';
     });
     m3Box.addEventListener('dragleave', () => delete m3Box.dataset.drag);
-    m3Box.addEventListener('drop', async (event) => {
+    m3Box.addEventListener('drop', (event) => {
         event.preventDefault();
         delete m3Box.dataset.drag;
-        const g = await loadImage(event.dataTransfer?.files?.[0]);
-        if (g) configureM3Image(g);
+        loadM3File(event.dataTransfer?.files?.[0]);
     });
-
-    $('[data-m3v-upload]', m3Form).addEventListener('change', async (event) => {
-        const file = event.target.files?.[0];
-        event.target.value = '';
-        if (!file) return;
-        try {
-            $('[data-m3v-name]', m3Form).textContent = `Uploading: ${file.name}`;
-            const j = await api(`/api/record/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', raw: file, type: file.type || 'application/octet-stream' });
-            configureM3Video(j.record);
-            notify(j.message, 'success');
-        } catch (e) {
-            configureM3Video(null);
-            notify(e.message, 'danger');
-        }
-    });
-    // Video durdurulan / sarılan kare: saniye kendiliğinden yazılır.
-    const watchM3 = $('[data-m3v-watch]', m3Form);
-    for (const event of ['pause', 'seeked']) {
-        watchM3.addEventListener(event, () => {
-            m3Form.time.value = (Math.round(watchM3.currentTime * 10) / 10).toFixed(1);
-            saveDraft();
-        });
-    }
 
     /** Without Blender the turntable and export options are hidden (the server makes only the GLB); the print height only with STL. */
     function applyM3Blender(exists) {
@@ -2608,7 +2605,7 @@
         const trigger = event.target.closest('[data-picker-target]');
         if (!trigger) return;
         const target = trigger.dataset.pickerTarget;
-        status.pickerTarget = target === 'scene' ? trigger.closest('[data-scene]') : target.startsWith('edit:') || target === 'model3d' ? target : 'video';
+        status.pickerTarget = target === 'scene' ? trigger.closest('[data-scene]') : target.startsWith('edit:') ? target : 'video';
         status.pickerChoice = null;
         $('[data-picker-select]', pickerWindow).disabled = true;
         const list = $('[data-picker-list]', pickerWindow);
@@ -2656,13 +2653,29 @@
         const pickerType = trigger.dataset.voicePicker;
         status.voicePickerTarget = pickerType === 'scene' ? trigger.closest('[data-scene]') : ['audioEdit', 'videoEdit', 'videoMusic', 'model3d', 'editMedia'].includes(pickerType) ? pickerType : 'music';
         const both = pickerType === 'editMedia';
-        const videoMu = pickerType === 'videoEdit' || pickerType === 'model3d' || both;
-        $('#voice-picker-title').textContent = both ? 'Pick from the gallery' : videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
-        $('[data-voice-picker-note]', voicePicker).textContent = both ? 'Images, videos and films, music and voice-overs, and your uploads.' : videoMu ? 'Videos, films, edited videos and uploaded videos.' : 'Generated music, voice-overs and uploaded music.';
+        const m3 = pickerType === 'model3d';
+        const videoMu = pickerType === 'videoEdit' || both;
+        $('#voice-picker-title').textContent = both || m3 ? 'Pick from the gallery' : videoMu ? 'Pick a video from the gallery' : 'Choose audio from gallery';
+        $('[data-voice-picker-note]', voicePicker).textContent = m3 ? 'Images and 3D models, and your uploads.' : both ? 'Images, videos and films, music and voice-overs, and your uploads.' : videoMu ? 'Videos, films, edited videos and uploaded videos.' : 'Generated music, voice-overs and uploaded music.';
         const list = $('[data-voice-picker-list]', voicePicker);
         list.replaceChildren(el('p', { class: 'text-sm text-muted', text: 'Loading…' }));
         try {
             const items = [];
+            if (m3) {
+                // 3D: images and 3D models (the gallery's and the uploaded ones), newest first
+                const [g, m, y] = await Promise.all([api('/api/images'), api('/api/v1/gallery?type=model3d'), api('/api/v1/uploads')]);
+                for (const x of g.images) items.push({ source: x.source, url: x.url, poster: x.previewUrl ?? x.url, name: x.name, type: 'Image', dateText: x.dateText, image: true });
+                for (const job of m.gallery) {
+                    const c = job.outputs.find((x) => x.format === 'glb');
+                    if (c) items.push({ source: c.source, url: c.url, poster: c.previewUrl ?? null, name: job.title, type: '3D model', dateText: job.creation, model: true });
+                }
+                for (const x of y.uploads.filter((x) => x.type === 'model')) items.push({ source: x.source, url: x.url, name: x.name, type: '3D model', model: true });
+                items.sort((a, b) => stampOf(b).localeCompare(stampOf(a)));
+                status.voicePickerList = items;
+                status.voicePickerPage = 1;
+                renderVoicePicker();
+                return;
+            }
             if (videoMu) {
                 // Video düzenle: panelin videoları, filmleri, düzenlenmiş videoları ve yüklenen videolar
                 const [v, t, d, b, y] = await Promise.all([api('/api/v1/gallery?type=video'), api('/api/v1/gallery?type=film'), api('/api/v1/gallery?type=videoEdit'), api('/api/v1/gallery?type=beatEdit'), api('/api/v1/uploads')]);
@@ -2719,21 +2732,23 @@
         status.voicePickerPage = d.page;
         if (!d.total) {
             list.replaceChildren(el('div', { class: 'empty' },
-                el('p', { class: 'empty__title', text: status.voicePickerTarget === 'editMedia' ? 'Nothing in the gallery yet' : 'No audio' }),
-                el('p', { class: 'empty__text', text: status.voicePickerTarget === 'editMedia' ? 'Make something first or upload a file.' : 'Generate some in the Music or Voice section first.' })));
+                el('p', { class: 'empty__title', text: ['editMedia', 'model3d'].includes(status.voicePickerTarget) ? 'Nothing in the gallery yet' : 'No audio' }),
+                el('p', { class: 'empty__text', text: ['editMedia', 'model3d'].includes(status.voicePickerTarget) ? 'Make something first or upload a file.' : 'Generate some in the Music or Voice section first.' })));
         } else {
             // Images and videos are tiles with their picture (a tap picks one); sounds are rows with a player and Select
             const meta = (o) => [o.type, o.duration ? `${number(o.duration)} s` : null].filter(Boolean).join(' · ');
-            const videos = d.items.filter((o) => o.video || o.image);
+            const videos = d.items.filter((o) => o.video || o.image || o.model);
             list.replaceChildren(
                 ...(videos.length ? [el('div', { class: 'picker' }, ...videos.map((o) => el('button', { type: 'button', class: 'picker__item', title: o.name || '', 'data-voice-select-item': JSON.stringify(o) },
                     el('span', { class: 'picker__thumb' },
                         // an upload has no preview picture: its first frame (#t: Safari draws no frame for preload alone)
-                        o.poster || o.image ? el('img', { src: o.poster ?? o.url, alt: '', loading: 'lazy' }) : el('video', { src: `${o.url}#t=0.1`, preload: 'metadata', muted: true, playsinline: true }),
+                        o.poster || o.image ? el('img', { src: o.poster ?? o.url, alt: '', loading: 'lazy' })
+                            : o.model ? el('span', { class: 'picker__model', text: (o.source.split('.').pop() ?? '').toUpperCase() })
+                            : el('video', { src: `${o.url}#t=0.1`, preload: 'metadata', muted: true, playsinline: true }),
                         o.duration ? el('span', { class: 'media__badge', text: `${number(o.duration)} s` }) : null),
                     el('span', { class: 'truncate', translate: 'no', text: o.name || '—' }),
                     el('span', { class: 'text-sm text-muted', text: o.type }))))] : []),
-                ...d.items.filter((o) => !o.video && !o.image).map((o) => el('div', { class: 'voice-picker__row' },
+                ...d.items.filter((o) => !o.video && !o.image && !o.model).map((o) => el('div', { class: 'voice-picker__row' },
                     el('span', { class: 'line-title truncate', translate: 'no', title: o.name, text: o.name || '—' }),
                     el('span', { class: 'text-sm text-muted', text: meta(o) }),
                     el('div', { class: 'row' },
@@ -2759,7 +2774,7 @@
             else if (o.video) addEditVideo({ source: o.source, name: o.name, url: o.url, poster: o.poster });
             else configureFileField('audioEdit', { source: o.source, name: o.name, url: o.url });
         } else if (target === 'model3d') {
-            configureM3Video({ source: o.source, name: o.name, url: o.url });
+            configureM3Source({ source: o.source, url: o.url, previewUrl: o.poster ?? null, name: o.name });
         } else if (typeof target === 'string' && FILE_FIELDS[target]) {
             configureFileField(target, { source: o.source, name: o.name, url: o.url });
         } else if (target instanceof HTMLElement) {
@@ -2775,7 +2790,6 @@
         const g = status.pickerChoice;
         if (!g) return;
         if (status.pickerTarget === 'video') configureSource(g);
-        else if (status.pickerTarget === 'model3d') configureM3Image(g);
         else if (typeof status.pickerTarget === 'string' && status.pickerTarget.startsWith('edit:')) configureSlot(Number(status.pickerTarget.slice(5)), g);
         else if (status.pickerTarget instanceof HTMLElement) sceneSource(status.pickerTarget, g);
         window.ndsCloseWindow?.(pickerWindow);
@@ -3441,7 +3455,11 @@
         estimateWrite('music', (o.music ?? 0) * Number(mz.duration.value || 60));
         const m3 = o[`model3d/${m3Form.quality.value}`];
         const m3Blender = m3Form.intro.checked || ['fbx', 'obj', 'stl'].some((b) => m3Form[`format_${b}`].checked) ? (o.blender3d ?? 0) : 0;
-        estimateWrite('model3d', m3 ? m3 + (m3Form.complete.checked ? (o.edit ?? 60) : 0) + (status.options.hasBlender ? m3Blender : 0) : 0);
+        const m3Kind = m3Form.dataset.kind ?? 'text';
+        const m3Prompt = Boolean(m3Form.prompt.value.trim());
+        const m3Picture = (m3Kind === 'image' && m3Form.complete.checked ? (o.edit ?? 60) : 0) + (m3Prompt && m3Kind !== 'text' ? (o.edit ?? 60) : 0) + (m3Kind === 'text' ? (o['image/qwen'] ?? 60) : 0);
+        if (m3Kind === 'model' && !m3Prompt) estimateWrite('model3d', o.blender3d ?? 0);
+        else estimateWrite('model3d', m3 ? m3 + m3Picture + (status.options.hasBlender ? m3Blender : 0) : 0);
 
         const f = filmForm;
         const scenes = scenesCollect();
@@ -3538,14 +3556,13 @@
             delete data.reference2;
         }
         if (type === 'model3d') {
-            const video = data.sourceType === 'video';
-            data.source = video ? data.videoSource : data.imageSource;
-            if (!video) delete data.time;
+            if (!data.source) delete data.source;
+            if (m3Form.dataset.kind !== 'image') delete data.complete;
             const blender = status.options?.hasBlender;
             data.formats = blender ? ['fbx', 'obj', 'stl'].filter((b) => data[`format_${b}`]) : [];
             if (!blender) data.intro = false;
             if (!data.formats.includes('stl')) delete data.printHeight;
-            for (const a of ['sourceType', 'videoSource', 'imageSource', 'format_fbx', 'format_obj', 'format_stl']) delete data[a];
+            for (const a of ['format_fbx', 'format_obj', 'format_stl']) delete data[a];
         }
         const button = $('button[type="submit"]', form);
         button.disabled = true;
@@ -3633,8 +3650,7 @@
             t.video.durationReady = $('[data-duration-preset]', videoForm).value;
             t.video.durationUnit = $('[data-duration-unit]', videoForm).value;
             t.videoSource = status.videoSource;
-            t.m3Image = status.m3Image;
-            t.m3Video = status.m3Video;
+            t.m3Source = status.m3Source;
             t.editVideos = status.editVideos;
             try {
                 localStorage.setItem(DRAFT, JSON.stringify(t));
@@ -3677,8 +3693,8 @@
             renderEditVideos();
         }
         if (t.videoSource?.source) configureSource(t.videoSource);
-        if (t.m3Image?.source) configureM3Image(t.m3Image);
-        if (t.m3Video?.source) configureM3Video(t.m3Video);
+        if (t.m3Source?.source) configureM3Source(t.m3Source);
+        else applyM3Kind();
         // Video suresi: hazir secenek ya da ozel.
         if (t.video?.durationReady) {
             $('[data-duration-preset]', videoForm).value = t.video.durationReady;

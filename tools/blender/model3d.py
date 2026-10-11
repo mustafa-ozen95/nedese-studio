@@ -1,9 +1,13 @@
 """
 3D model showcase and export (Blender, no window):
   blender -b --factory-startup --python-exit-code 1 -P model3d.py -- --input model.glb --output <folder>
-      [--name model] [--frames 120] [--size 1024] [--formats fbx,obj,stl] [--ground 0|1] [--print-height 100]
+      [--name model] [--frames 120] [--size 1024] [--formats glb,fbx,obj,stl] [--ground 0|1] [--print-height 100]
+      [--view view.png]
 
-- Imports the GLB; writes FBX (textures embedded), OBJ (OBJ + MTL + PNG textures in one ZIP) and STL.
+- Imports the model (GLB/glTF, FBX, OBJ, STL or PLY); writes GLB, FBX (textures embedded), OBJ (OBJ + MTL + PNG
+  textures in one ZIP) and STL.
+- --view: one picture of the model from the front on a plain light grey background (the gallery picture of a model
+  given as a file; the picture an edit of the model starts from).
 - STL is for 3D printing: one closed (watertight) body rebuilt from voxels, cut flat at the bottom so it stands on the
   bed, --print-height millimetres tall (slicers read STL numbers as mm). The textured model is left as it is.
 - Turntable: frames <output>/frames/0001.png ...; the panel's ffmpeg encodes the video (Blender's video settings change
@@ -36,14 +40,15 @@ PRINT_SEAL = 4
 
 def args():
     p = argparse.ArgumentParser(description='3D model showcase and export')
-    p.add_argument('--input', required=True, help='GLB file')
+    p.add_argument('--input', required=True, help='3D model: GLB/glTF, FBX, OBJ, STL or PLY')
     p.add_argument('--output', required=True, help='folder for the exports and the turntable frames')
     p.add_argument('--name', default=None, help='file name of the exports (default: the GLB name)')
     p.add_argument('--frames', type=int, default=120, help='turntable frames (0: none)')
     p.add_argument('--size', type=int, default=1024, help='turntable frame size (px)')
-    p.add_argument('--formats', default='fbx,obj,stl', help='exports: fbx, obj, stl')
+    p.add_argument('--formats', default='fbx,obj,stl', help='exports: glb, fbx, obj, stl')
     p.add_argument('--ground', type=int, default=0, help='1: the turntable has a floor')
     p.add_argument('--print-height', type=float, default=100, help='STL height in mm')
+    p.add_argument('--view', default=None, help='PNG: the model from the front on a plain light grey background')
     a = p.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     return a
 
@@ -57,11 +62,46 @@ def clear_scene():
         bpy.data.objects.remove(o, do_unlink=True)
 
 
-def import_glb(path):
-    bpy.ops.import_scene.gltf(filepath=path)
+def import_model(path):
+    """Imports the model by its extension (the 4.x+ operators first, the older add-on ones otherwise)."""
+    extension = os.path.splitext(path)[1].lower()
+    if extension in ('.glb', '.gltf'):
+        bpy.ops.import_scene.gltf(filepath=path)
+    elif extension == '.fbx':
+        bpy.ops.import_scene.fbx(filepath=path)
+    elif extension == '.obj':
+        if has_operator('wm', 'obj_import'):
+            bpy.ops.wm.obj_import(filepath=path)
+        else:
+            bpy.ops.import_scene.obj(filepath=path)
+    elif extension == '.stl':
+        if has_operator('wm', 'stl_import'):
+            bpy.ops.wm.stl_import(filepath=path)
+        else:
+            bpy.ops.import_mesh.stl(filepath=path)
+    elif extension == '.ply':
+        if has_operator('wm', 'ply_import'):
+            bpy.ops.wm.ply_import(filepath=path)
+        else:
+            bpy.ops.import_mesh.ply(filepath=path)
+    else:
+        raise SystemExit(f'Unsupported 3D model format: {extension or "no extension"}')
     # The bounds are wrong until the imported objects' matrix_world is updated.
     bpy.context.view_layer.update()
-    return [o for o in bpy.context.scene.objects if o.type == 'MESH']
+    objects = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+    # An STL / PLY has no material: Blender's default white burns out under the lights; a mid-grey clay shows the shape.
+    clay = None
+    for o in objects:
+        if not any(slot.material for slot in o.material_slots):
+            if clay is None:
+                clay = bpy.data.materials.new('clay')
+                clay.use_nodes = True
+                bsdf = next((n for n in clay.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+                if bsdf is not None:
+                    bsdf.inputs['Base Color'].default_value = (0.32, 0.32, 0.34, 1)
+                    bsdf.inputs['Roughness'].default_value = 0.6
+            o.data.materials.append(clay)
+    return objects
 
 
 def bounds(objects):
@@ -119,6 +159,10 @@ def export(objects, output, name, formats):
     if formats & {'fbx', 'obj'}:
         os.makedirs(temp, exist_ok=True)
         write_textures(temp)
+    if 'glb' in formats:
+        path = os.path.join(output, f'{name}.glb')
+        bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', use_selection=True)
+        files['glb'] = os.path.basename(path)
     if 'fbx' in formats:
         path = os.path.join(output, f'{name}.fbx')
         bpy.ops.export_scene.fbx(filepath=path, use_selection=True, path_mode='COPY', embed_textures=True, bake_anim=False)
@@ -420,14 +464,7 @@ def setup_turntable(objects, frames, size, ground):
     light('fill', 'AREA', 40 * measure * measure, (1.6, -1.0, 0.6), measure * 1.5)
     light('back', 'AREA', 80 * measure * measure, (0.4, 1.8, 1.4), measure)
 
-    world = scene.world or bpy.data.worlds.new('world')
-    scene.world = world
-    world.use_nodes = True
-    background = next((n for n in world.node_tree.nodes if n.type == 'BACKGROUND'), None)
-    if background is not None:
-        # A dark neutral backdrop (product shot), also a little ambient light.
-        background.inputs[0].default_value = (0.045, 0.048, 0.055, 1)
-        background.inputs[1].default_value = 1.0
+    backdrop(scene, DARK)
 
     if ground:
         bpy.ops.mesh.primitive_plane_add(size=measure * 20, location=(center.x, center.y, low.z))
@@ -468,6 +505,40 @@ def setup_turntable(objects, frames, size, ground):
     return engine
 
 
+# A dark neutral backdrop (product shot), also a little ambient light.
+DARK = (0.045, 0.048, 0.055, 1)
+# The front view is put on light grey like a studio photo (the background an image edit and the 3D generation expect);
+# a light world would light the model too and burn a plain one out white, so it is rendered transparent and flattened.
+LIGHT = (0.88, 0.88, 0.88)
+
+
+def backdrop(scene, colour):
+    world = scene.world or bpy.data.worlds.new('world')
+    scene.world = world
+    world.use_nodes = True
+    background = next((n for n in world.node_tree.nodes if n.type == 'BACKGROUND'), None)
+    if background is not None:
+        background.inputs[0].default_value = colour
+        background.inputs[1].default_value = 1.0
+
+
+def flatten(path, colour):
+    """Puts the transparent PNG on a plain colour (the PNG holds display values with straight alpha)."""
+    import numpy as np
+    image = bpy.data.images.load(path)
+    pixels = np.empty(image.size[0] * image.size[1] * 4, dtype=np.float32)
+    image.pixels.foreach_get(pixels)
+    pixels = pixels.reshape(-1, 4)
+    alpha = pixels[:, 3:4]
+    pixels[:, :3] = pixels[:, :3] * alpha + np.array(colour, dtype=np.float32) * (1 - alpha)
+    pixels[:, 3] = 1
+    image.pixels.foreach_set(pixels.ravel())
+    image.filepath_raw = path
+    image.file_format = 'PNG'
+    image.save()
+    bpy.data.images.remove(image)
+
+
 def make_linear(object):
     """Linear keyframe interpolation (constant turning speed); also covers the layered actions of Blender 4.4+."""
     action = object.animation_data.action if object.animation_data else None
@@ -493,9 +564,9 @@ def main():
     formats = {b.strip().lower() for b in a.formats.split(',') if b.strip()}
 
     clear_scene()
-    objects = import_glb(os.path.abspath(a.input))
+    objects = import_model(os.path.abspath(a.input))
     if not objects:
-        raise SystemExit('No mesh in the GLB')
+        raise SystemExit('No mesh in the model file')
     low, high = bounds(objects)
     result = {
         'blender': bpy.app.version_string,
@@ -508,8 +579,21 @@ def main():
         result['print'] = print_body(objects, output, name, a.print_height)
         result['files']['stl'] = result['print']['file']
 
+    if a.view or frames > 0:
+        result['engine'] = setup_turntable(objects, max(frames, 1), a.size, a.ground != 0)
+    if a.view:
+        scene = bpy.context.scene
+        view = os.path.abspath(a.view)
+        scene.render.film_transparent = True
+        scene.render.image_settings.color_mode = 'RGBA'
+        scene.frame_set(1)
+        scene.render.filepath = view
+        bpy.ops.render.render(write_still=True)
+        scene.render.film_transparent = False
+        scene.render.image_settings.color_mode = 'RGB'
+        flatten(view, LIGHT)
+        result['view'] = os.path.basename(view)
     if frames > 0:
-        result['engine'] = setup_turntable(objects, frames, a.size, a.ground != 0)
         folder = os.path.join(output, 'frames')
         os.makedirs(folder, exist_ok=True)
         bpy.context.scene.render.filepath = os.path.join(folder, '')

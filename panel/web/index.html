@@ -757,7 +757,7 @@
                 <header class="page-head">
                     <div class="page-head__text">
                         <h1 id="b-model3d">3D model</h1>
-                        <p class="page-head__subtitle">A textured 3D model from an image or a video; a turntable video and FBX/OBJ/STL with Blender.</p>
+                        <p class="page-head__subtitle">A textured 3D model from a photo, a 3D model or a description; a turntable video and FBX/OBJ/STL with Blender.</p>
                     </div>
                 </header>
 
@@ -767,53 +767,43 @@
                             <header class="panel__head">
                                 <div>
                                     <h2 class="panel__title">Source</h2>
-                                    <p class="text-sm text-muted">Only what the image shows is modeled: a chest-up portrait becomes a bust.</p>
+                                    <p class="text-sm text-muted">A photo, a 3D model or only a description. Only what a photo shows is modeled: a chest-up portrait becomes a bust.</p>
                                 </div>
                             </header>
                             <div class="panel__body">
-                                <div class="mode-choice" data-m3-type role="radiogroup" aria-label="Source type">
-                                    <label class="mode-choice__option"><input type="radio" name="sourceType" value="image" checked><span>Image</span></label>
-                                    <label class="mode-choice__option"><input type="radio" name="sourceType" value="video"><span>Frame from video</span></label>
-                                </div>
-
-                                <div class="field" data-m3-image>
-                                    <span class="field__label">Image <span class="required tag-note">required</span></span>
+                                <!-- One input, no tabs (user 11.10.2026): a photo, a 3D model, or nothing and a description -->
+                                <div class="field">
+                                    <span class="field__label">Photo or 3D model <span class="tag-note tag-note--optional">optional</span></span>
                                     <div class="edit-slots">
                                         <div class="edit-slot" data-m3-slot>
-                                            <input type="hidden" name="imageSource" data-slot-field>
+                                            <input type="hidden" name="source" data-slot-field>
                                             <div class="media media--source" data-slot-box>
                                                 <div class="empty" data-slot-empty>
-                                                    <p class="empty__title">Image to model</p>
-                                                    <p class="empty__text">Upload, drag or pick from the gallery.</p>
+                                                    <p class="empty__title">Photo or 3D model</p>
+                                                    <p class="empty__text">Upload, drag or pick from the gallery: PNG, JPEG, WebP or GLB, FBX, OBJ, STL, PLY.</p>
                                                 </div>
                                                 <img alt="" data-slot-picture hidden>
+                                                <div class="empty" data-m3-model hidden>
+                                                    <p class="empty__title" translate="no" data-m3-model-name></p>
+                                                    <p class="empty__text">3D model</p>
+                                                </div>
                                             </div>
                                             <div class="row row--wrap">
-                                                <label class="btn btn--sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp" data-slot-upload hidden></label>
-                                                <button type="button" class="btn btn--sm" data-modal-open="modal-picker" data-picker-target="model3d">Pick from gallery</button>
+                                                <label class="btn btn--sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp,.glb,.fbx,.obj,.stl,.ply" data-slot-upload hidden></label>
+                                                <button type="button" class="btn btn--sm" data-voice-picker="model3d" data-modal-open="modal-voice-picker">Pick from gallery</button>
                                                 <button type="button" class="btn btn--sm btn--ghost" data-m3-remove hidden>Remove</button>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="field" data-m3-video hidden>
-                                    <span class="field__label">Video <span class="required tag-note">required</span></span>
-                                    <input type="hidden" name="videoSource" data-m3v-field>
-                                    <div class="row row--wrap">
-                                        <label class="btn btn--sm">Upload<input type="file" accept="video/*" data-m3v-upload hidden></label>
-                                        <button type="button" class="btn btn--sm" data-voice-picker="model3d" data-modal-open="modal-voice-picker">Pick from gallery</button>
-                                        <span class="text-sm text-muted" data-m3v-name>No video selected</span>
-                                    </div>
-                                    <video controls preload="metadata" playsinline class="edit-video" data-m3v-watch hidden></video>
-                                    <div class="row row--wrap">
-                                        <label class="field__label" for="m3-time">Frame (seconds)</label>
-                                        <input class="input input--mono" type="number" id="m3-time" name="time" min="0" step="0.1" value="0">
-                                    </div>
-                                    <span class="field__hint">Pause the video on the frame to model; the second is filled in automatically. Pick a sharp frame that shows the whole subject.</span>
+                                <div class="field">
+                                    <label class="field__label" for="m3-prompt" data-m3-prompt-label>What to make</label>
+                                    <textarea class="textarea" id="m3-prompt" name="prompt" rows="3" maxlength="2000" placeholder="e.g. a ceramic owl figurine with a blue glaze"></textarea>
+                                    <span class="field__hint" data-m3-prompt-hint>Without a file the subject is drawn first, whole on a plain background, then modeled.</span>
                                 </div>
 
-                                <div class="field">
+                                <div class="field" data-m3-complete hidden>
                                     <label class="checkbox">
                                         <input type="checkbox" name="complete" value="1">
                                         <span>Complete to full body</span>

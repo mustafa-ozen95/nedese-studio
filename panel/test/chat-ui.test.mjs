@@ -265,11 +265,13 @@ test('UI prompt templates: managed in the /templates window, offered under "/" a
     const modal = "document.getElementById('modal-prompt-templates')";
     assert.ok(await until(`${modal} && !${modal}.hidden`, 5000), 'the window opens');
     assert.equal(await t.evaluate(box), '', 'the command left the box');
+    // "New template" empties the form for the next one, pressed while the save is on its way: the save's answer used
+    // to fill the form with the saved template again, and the next one was saved over it (11.10.2026, flaky full runs)
     const add = async (values) => {
-      await t.evaluate(`(() => { const f = document.querySelector('[data-template-edit]'); for (const [k, v] of Object.entries(${JSON.stringify(values)})) f.elements[k].value = v; f.requestSubmit(); return true; })()`);
+      await t.evaluate(`(() => { const f = document.querySelector('[data-template-edit]'); for (const [k, v] of Object.entries(${JSON.stringify(values)})) f.elements[k].value = v; f.requestSubmit(); [...f.querySelectorAll('button')].find((b) => b.textContent === 'New template').click(); return true; })()`);
       for (let i = 0; i < 200 && !o.agent.templates().some((x) => x.name === values.name); i++) await wait(100);
-      // "New template" empties the form for the next one
-      await t.evaluate("[...document.querySelectorAll('[data-template-edit] button')].find((b) => b.textContent === 'New template').click(), true");
+      assert.ok(await until(`[...document.querySelectorAll('[data-template-list] .preset-list__name')].some((x) => x.textContent === '/${values.name}')`, 5000));
+      assert.deepEqual(await t.evaluate("[document.querySelector('[data-template-form-title]').textContent, document.querySelector('[data-template-edit]').elements.name.value]"), ['New template', ''], 'the form stays empty');
     };
     await add({ name: 'bug', description: 'Find a bug', text: 'Find the bug in {{file}}. It {{what happens}}.' });
     await add({ name: 'hello', description: '', text: 'Say hello to the team.' });

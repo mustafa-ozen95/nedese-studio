@@ -92,6 +92,7 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
     ['POST', /^\/api\/job\/([\w-]+)\/delete$/, async (_i, _u, [id]) => ({ ok: true, ...(await h.deleteJob(id)) })],
     ['POST', /^\/api\/upload$/, async (req, url) => ({ ok: true, ...(await h.loadImage(req, url.searchParams.get('name'))) })],
     ['POST', /^\/api\/record\/upload$/, async (req, url) => ({ ok: true, ...(await h.loadRecord(req, url.searchParams.get('name'))) })],
+    ['POST', /^\/api\/model\/upload$/, async (req, url) => ({ ok: true, ...(await h.load3dModel(req, url.searchParams.get('name'))) })],
     ['POST', /^\/api\/data\/upload$/, async (req, url) => ({ ok: true, ...(await h.loadData(req, url.searchParams.get('name'))) })],
     ['POST', /^\/api\/music\/upload$/, async (req, url) => ({ ok: true, ...(await h.loadMusic(req, url.searchParams.get('name'))) })],
     ['POST', /^\/api\/write-scenes$/, async (req) => ({ ok: true, ...(await h.writeScene(await readJson(req))) })],

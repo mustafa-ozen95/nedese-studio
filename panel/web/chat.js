@@ -3518,7 +3518,10 @@
         const remove = el('button', { type: 'submit', class: 'btn btn--sm btn--ghost', 'data-template-delete': true, 'data-confirm-title': 'Delete template', 'data-confirm-variant': 'danger', text: 'Delete template' });
         const removeForm = el('form', { class: 'row', hidden: true }, remove);
         let editing = null;
+        // a form filled again while a save was on its way (New template, another row) is not taken back by its answer
+        let filled = 0;
         const fill = (t) => {
+            filled++;
             editing = t;
             heading.textContent = t ? 'Edit template' : 'New template';
             name.value = t?.name ?? '';
@@ -3544,13 +3547,14 @@
         formBox.addEventListener('submit', async (e) => {
             e.preventDefault();
             save.disabled = true;
+            const at = filled;
             try {
                 const body = { name: name.value, description: description.value, text: text.value };
                 const r = await api(editing ? `/api/v1/chat/templates/${encodeURIComponent(editing.id)}` : '/api/v1/chat/templates', { method: editing ? 'PATCH' : 'POST', body });
                 notify(r.message, 'success');
                 await loadTemplates();
                 render();
-                fill(state.templates.find((t) => t.id === r.template.id) ?? null);
+                if (filled === at) fill(state.templates.find((t) => t.id === r.template.id) ?? null);
             } catch (err) {
                 notify(err.message, 'danger');
             } finally {

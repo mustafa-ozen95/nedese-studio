@@ -199,8 +199,8 @@ test('UI rename: the job window renames the job; the recent card and the window 
     // 10.10.2026: the type before the title was one text with it ("Image · "), so it stayed English in the queue and
     // the window; the empty file fields ("No song selected") were translate=no for the file name and stayed English
     assert.ok((await t.evaluate(`document.querySelector('#preview-title').textContent`)).startsWith('Görsel · '), await t.evaluate(`document.querySelector('#preview-title').textContent`));
-    assert.deepEqual(await t.evaluate(`['audio-edit', 'video-edit', 'video-music', 'm3v'].map((k) => document.querySelector('[data-' + k + '-name]').textContent)`),
-      ['Ses seçilmedi', 'Video seçilmedi', 'Müzik yok', 'Video seçilmedi']);
+    assert.deepEqual(await t.evaluate(`['audio-edit', 'video-edit', 'video-music'].map((k) => document.querySelector('[data-' + k + '-name]').textContent)`),
+      ['Ses seçilmedi', 'Video seçilmedi', 'Müzik yok']);
     await t.evaluate(`document.querySelector('#modal-preview [data-rename]').click(); true`);
     assert.equal(await t.evaluate(`document.querySelector('[data-rename-form] input').value`), 'a red fox walking in the snowy forest');
     await t.evaluate(`(() => { const f = document.querySelector('[data-rename-form]'); f.title.value = 'Karda yürüyen tilki'; f.requestSubmit(); return true; })()`);
@@ -271,7 +271,7 @@ test('UI 3D model: the print height shows only with STL and goes with the job; t
     assert.equal(await t.evaluate(printShown), false, 'STL unchecked: no print height');
     await t.evaluate(`${form}.format_stl.click(); true`);
     assert.equal(await t.evaluate(printShown), true);
-    await t.evaluate(`(() => { const f = ${form}; f.imageSource.value = 'job/${image.id}/${image.outputs[0].file}'; f.printHeight.value = '80'; f.querySelector('button[type="submit"]').click(); return true; })()`);
+    await t.evaluate(`(() => { const f = ${form}; f.source.value = 'job/${image.id}/${image.outputs[0].file}'; f.printHeight.value = '80'; f.querySelector('button[type="submit"]').click(); return true; })()`);
     await p.waitForState(() => [...p.queue.jobs.values()].some((job) => job.type === 'model3d'));
     const job = [...p.queue.jobs.values()].find((x) => x.type === 'model3d');
     assert.equal(job.input.printHeight, 80);
@@ -297,6 +297,87 @@ test('UI 3D model: the print height shows only with STL and goes with the job; t
     assert.equal((await facts())['Baskı yüksekliği'], '80 mm');
     await t.evaluate(`document.querySelector('[data-language-select="en"]').click()`);
     // the fake ComfyUI's GLB is a line of text, which the 3D viewer cannot parse
+    assert.deepEqual(errors.filter((e) => !/model-viewer\.min\.js/.test(e)), []);
+  } finally {
+    await t.close();
+    await p.close();
+  }
+});
+
+// 11.10.2026 (user: "3d için videodan kareye gerek yok, fotoğraf, 3d görüntü veya tarif versin"; "3d girdi verilirse
+// düzenleme promtu olur"): one input, no video frame; the description's meaning follows what was given.
+test('UI 3D model: one input — a description alone, a photo or a 3D model file (uploaded or picked from the gallery); with a file the description is an edit (headless browser)', { skip: browserPath() ? false : 'Edge/Chrome not found' }, async () => {
+  const p = await createPanel({ server: true, blender: true });
+  const t = new Browser({ height: 900 });
+  const errors = [];
+  const until = async (expression, ms = 15000) => {
+    for (const end = Date.now() + ms; Date.now() < end; await wait(100)) if (await t.evaluate(expression)) return true;
+    return false;
+  };
+  const form = `document.querySelector('[data-job-form="model3d"]')`;
+  const state = async () => JSON.parse(await t.evaluate(`JSON.stringify({ kind: ${form}.dataset.kind, source: ${form}.source.value, label: ${form}.querySelector('[data-m3-prompt-label]').textContent, complete: !${form}.querySelector('[data-m3-complete]').hidden, model: ${form}.querySelector('[data-m3-model]').hidden ? null : ${form}.querySelector('[data-m3-model-name]').textContent })`));
+  const pick = (name, base64, type) => t.evaluate(`(() => {
+    const d = new DataTransfer();
+    d.items.add(new File([Uint8Array.from(atob('${base64}'), (c) => c.charCodeAt(0))], '${name}', { type: '${type}' }));
+    const i = ${form}.querySelector('[data-slot-upload]');
+    i.files = d.files;
+    i.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  const submitted = async (n) => {
+    await p.waitForState(() => [...p.queue.jobs.values()].filter((job) => job.type === 'model3d').length === n);
+    return [...p.queue.jobs.values()].filter((job) => job.type === 'model3d').at(-1);
+  };
+  try {
+    const trial = join(p.setting.outputRoot, 'trial');
+    mkdirSync(trial, { recursive: true });
+    execFileSync(p.setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x120', '-frames:v', '1', join(trial, 'photo.png')]);
+    const photo = readFileSync(join(trial, 'photo.png')).toString('base64');
+    const made = await p.waitUntilDone(p.queue.add('model3d', { prompt: 'a lamp', translate: false, quality: 'fast', formats: [] }).id, 60000);
+    await t.open();
+    collectErrors(t, errors);
+    await openEnglish(t, `${p.address}/#model3d`);
+    assert.ok(await until(`${form}.dataset.kind === 'text'`));
+    assert.deepEqual(await state(), { kind: 'text', source: '', label: 'What to make', complete: false, model: null }, 'nothing given: the description is what to make');
+
+    // a photo: completion is offered, the description becomes a change
+    await pick('photo.png', photo, 'image/png');
+    assert.ok(await until(`${form}.dataset.kind === 'image'`), JSON.stringify(await state()));
+    const withPhoto = await state();
+    assert.match(withPhoto.source, /^upload\/.+\.png$/);
+    assert.deepEqual([withPhoto.label, withPhoto.complete, withPhoto.model], ['What to change (optional)', true, null]);
+    await t.evaluate(`${form}.querySelector('[data-m3-remove]').click(); true`);
+    assert.deepEqual(await state(), { kind: 'text', source: '', label: 'What to make', complete: false, model: null }, 'removed: back to a description');
+
+    // a 3D model file goes to the model uploads and shows its name (it has no picture)
+    await pick('owl.obj', btoa('v 0 0 0\n'), '');
+    assert.ok(await until(`${form}.dataset.kind === 'model'`), JSON.stringify(await state()));
+    const withModel = await state();
+    assert.match(withModel.source, /^upload\/\d{8}-\d{6}-model-owl\.obj$/);
+    assert.deepEqual([withModel.label, withModel.complete, withModel.model], ['What to change (optional)', false, 'owl.obj']);
+
+    // the gallery button: images, the made model and the uploaded one, in one list
+    await t.evaluate(`${form}.querySelector('[data-voice-picker="model3d"]').click(); true`);
+    const items = `[...document.querySelectorAll('#modal-voice-picker [data-voice-select-item]')].map((b) => JSON.parse(b.dataset.voiceSelectItem))`;
+    assert.ok(await until(`${items}.length === 3`), await t.evaluate(`JSON.stringify(${items})`));
+    const listed = JSON.parse(await t.evaluate(`JSON.stringify(${items}.map((o) => [o.type, o.source]))`));
+    assert.deepEqual(listed.map(([type]) => type).sort(), ['3D model', '3D model', 'Image']);
+    assert.ok(listed.some(([, source]) => source === `job/${made.id}/model.glb`), JSON.stringify(listed));
+    assert.equal(await t.evaluate(`document.querySelector('#voice-picker-title').textContent`), 'Pick from the gallery');
+    await t.evaluate(`[...document.querySelectorAll('#modal-voice-picker [data-voice-select-item]')].find((b) => JSON.parse(b.dataset.voiceSelectItem).source === 'job/${made.id}/model.glb').click(); true`);
+    assert.ok(await until(`${form}.source.value === 'job/${made.id}/model.glb'`));
+    assert.equal((await state()).kind, 'model');
+
+    // with the model the description is its edit; complete never goes with a model
+    await t.evaluate(`(() => { const f = ${form}; f.prompt.value = 'make it golden'; f.complete.checked = true; f.querySelector('button[type="submit"]').click(); return true; })()`);
+    const edit = await submitted(2);
+    assert.deepEqual([edit.input.kind, edit.input.source, edit.input.prompt, edit.input.complete], ['model', `job/${made.id}/model.glb`, 'make it golden', false]);
+
+    // nothing given: the description alone, drawn first
+    await t.evaluate(`${form}.querySelector('[data-m3-remove]').click(); true`);
+    await t.evaluate(`(() => { const f = ${form}; f.prompt.value = 'a ceramic owl'; f.querySelector('button[type="submit"]').click(); return true; })()`);
+    const drawn = await submitted(3);
+    assert.deepEqual([drawn.input.kind, drawn.input.source, drawn.input.prompt], ['text', null, 'a ceramic owl']);
     assert.deepEqual(errors.filter((e) => !/model-viewer\.min\.js/.test(e)), []);
   } finally {
     await t.close();

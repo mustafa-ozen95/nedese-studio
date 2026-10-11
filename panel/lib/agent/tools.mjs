@@ -868,13 +868,13 @@ export const TOOLS = [
   {
     name: 'add_upload',
     group: 'panel',
-    description: 'Copies an image/music/recording from disk into the panel uploads; the returned source ("upload/<file>") can be used as input for jobs (e.g. the source image of a video).',
+    description: 'Copies an image/music/recording/3D model from disk into the panel uploads; the returned source ("upload/<file>") can be used as input for jobs (e.g. the source image of a video, the model of a 3D model job).',
     full: true,
-    params: object({ path: text('File path'), type: { type: 'string', enum: ['image', 'music', 'record', 'data'], description: 'Default: from the extension' } }, ['path']),
+    params: object({ path: text('File path'), type: { type: 'string', enum: ['image', 'music', 'record', 'model', 'data'], description: 'Default: from the extension' } }, ['path']),
     async run(g, b) {
       const path = parsePath(b, g.path);
       if (!existsSync(path)) throw new Error(`File not found: ${path}`);
-      const type = g.type ?? (/\.(png|jpe?g|webp)$/i.test(path) ? 'image' : /\.(mp3|wav|m4a|ogg|flac)$/i.test(path) ? 'music' : 'data');
+      const type = g.type ?? (/\.(png|jpe?g|webp)$/i.test(path) ? 'image' : /\.(mp3|wav|m4a|ogg|flac)$/i.test(path) ? 'music' : /\.(glb|fbx|obj|stl|ply)$/i.test(path) ? 'model' : 'data');
       return truncate(JSON.stringify(await b.addUpload(path, type)));
     },
   },
