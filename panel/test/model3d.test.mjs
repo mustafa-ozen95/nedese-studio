@@ -45,7 +45,15 @@ test('3D model: full-body completion + TRELLIS.2 + Blender (showcase video, FBX/
 
     const k = join(p.setting.outputRoot, job.id);
     assert.ok(existsSync(join(k, 'full-size.png')));
-    assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model');
+    // User 11.10.2026: "Gözler düzeltilmeli" — Pixal3D's voxel colours lost a woman's irises; the model is pixel aligned
+    // with input.png through MoGe's field of view, read from the graph, and the picture is projected onto its front
+    const graph = JSON.parse(p.fake.status.records.filter((x) => x.path === '/prompt')[2].prompt).prompt;
+    const fov = Object.values(graph).find((d) => d.class_type === 'PreviewAny');
+    assert.equal(graph[fov.inputs.source[0]].class_type, 'MoGeGeometryToFOV');
+    assert.deepEqual(JSON.parse(readFileSync(join(k, 'camera.json'), 'utf8')), { fov: 39.53125 });
+    assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model projected');
+    assert.deepEqual(JSON.parse(readFileSync(join(k, 'front-projection.json'), 'utf8')).models.map((m) => m.file), ['model.glb']);
+    assert.match(p.queue.logs.get(job.id).join('\n'), /Picture projected onto the front \(FAKE, fov 39\.5°\): model\.glb 12%/);
     const files = last.outputs.map((c) => c.file);
     assert.deepEqual(files, ['turntable.mp4', 'model.glb', 'model.fbx', 'model-obj.zip', 'model.stl']);
     assert.equal(last.outputs.find((c) => c.main)?.file, 'turntable.mp4');
@@ -172,6 +180,7 @@ test('3D model: game copies (low poly + LOD) from the same generation, with FBX;
     // (patchy face): each copy's map is baked again in Blender from model.glb (game-normals.json: a retry does not bake again)
     for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model normals', f);
     assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model');
+    assert.ok(!existsSync(join(k, 'camera.json')), 'TRELLIS.2 (fast) is not pixel aligned: nothing projected');
     assert.deepEqual(JSON.parse(readFileSync(join(k, 'game-normals.json'), 'utf8')).copies.map((c) => c.file), ['game.glb', 'game-lod1.glb']);
     assert.match(p.queue.logs.get(job.id).join('\n'), /Game copy normal maps baked again \(FAKE\): game\.glb 2048 px, game-lod1\.glb 2048 px/);
     assert.equal(last.outputs.find((c) => c.file === 'game-lod1.glb').game.triangles, 617);

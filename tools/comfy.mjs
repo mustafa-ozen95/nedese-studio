@@ -459,6 +459,8 @@ export function musicJob({ style, lyrics = '', duration = 60, seed, bpm = 120, l
  * game: [{ surface, texture }, ...] lighter copies for games (fewer triangles, smaller textures), each decimated
  * from the remeshed surface (QEM), unwrapped and baked from the voxel colours, the normal map and AO from the main
  * mesh (SaveGLB `<prefix>_game<i>`).
+ * A single-picture Pixal3D graph returns the camera's field of view (degrees) as text (PreviewAny): the panel projects
+ * the picture back onto the model's front with it.
  */
 export function trellis2Job({ picture, appearances = null, seed = 0, prefix, mode = 'trellis', detail = 1536, mesh = 768, surface = 500000, texture = 4096, deleteBackPlan = true, game = [] }) {
   const example = (model, condition, latent, step, cfg, timer = 'normal') => ({
@@ -550,7 +552,10 @@ export function trellis2Job({ picture, appearances = null, seed = 0, prefix, mod
     g[37] = { class_type: 'LoadMoGeModel', inputs: { model_name: 'moge_2_vitl_normal_fp16.safetensors' } };
     g[38] = { class_type: 'MoGeInference', inputs: { moge_model: ['37', 0], image: ['4', 0], resolution_level: 9, fov_x_degrees: 0, batch_size: 4, force_projection: true, apply_mask: true, refine_steps: 3 } };
     g[39] = { class_type: 'MoGeGeometryToFOV', inputs: { moge_geometry: ['38', 0], axis: 'horizontal', unit: 'degrees' } };
-    if (!appearances) g[6] = { class_type: 'Pixal3DConditioning', inputs: { clip_vision_model: ['5', 0], image: ['4', 0], camera_angle_x: ['39', 0] } };
+    if (!appearances) {
+      g[6] = { class_type: 'Pixal3DConditioning', inputs: { clip_vision_model: ['5', 0], image: ['4', 0], camera_angle_x: ['39', 0] } };
+      g[50] = { class_type: 'PreviewAny', inputs: { source: ['39', 0] } };
+    }
   }
   return g;
 }

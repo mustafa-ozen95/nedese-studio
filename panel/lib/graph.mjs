@@ -257,7 +257,7 @@ const NODE_NAMES = {
   LoadTrainingDataset: 'Reading dataset',
   TrainLoraNode: 'LoRA training',
   SaveLoRA: 'Saving LoRA',
-  PreviewAny: 'Loss values',
+  PreviewAny: 'Reading values',
 };
 
 export function nodeName(cls) {

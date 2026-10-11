@@ -133,8 +133,10 @@ export async function startFakeComfy({ mode = 'normal', frameSize = [64, 36], st
           status.files.set(`${part.slice(0, -1).join('/')}/${part.at(-1)}_00001_.safetensors`, Buffer.from('sahte lora'));
         }
         if (d.class_type === 'PreviewAny') {
-          const training = job.graph[d.inputs.source[0]];
-          job.outputs[node] = { text: [JSON.stringify({ loss: Array.from({ length: training?.inputs?.steps ?? 1 }, (_, i) => 0.5 - i / 1000) }, null, 4)] };
+          const source = job.graph[d.inputs.source[0]];
+          // MoGe's field of view (degrees) as the real node prints a float; a training's loss values as JSON
+          if (source?.class_type === 'MoGeGeometryToFOV') job.outputs[node] = { text: ['39.53125'] };
+          else job.outputs[node] = { text: [JSON.stringify({ loss: Array.from({ length: source?.inputs?.steps ?? 1 }, (_, i) => 0.5 - i / 1000) }, null, 4)] };
         }
         if (d.class_type === 'NedeseReplacePrep') {
           // the followed person's box in every frame of the window (frame i at x = i / 1000)

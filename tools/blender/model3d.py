@@ -398,6 +398,27 @@ def print_body(objects, output, name, height):
     return result
 
 
+def select_bake_device(scene):
+    """Cycles for a bake: on the GPU when there is one (OptiX, CUDA, HIP, oneAPI, Metal), the CPU otherwise; one sample."""
+    scene.render.engine = 'CYCLES'
+    scene.cycles.samples = 1
+    prefs = bpy.context.preferences.addons['cycles'].preferences
+    for kind in ('OPTIX', 'CUDA', 'HIP', 'ONEAPI', 'METAL'):
+        try:
+            prefs.compute_device_type = kind
+        except TypeError:
+            continue
+        prefs.get_devices()
+        devices = [d for d in prefs.devices if d.type == kind]
+        if devices:
+            for d in prefs.devices:
+                d.use = d.type == kind
+            scene.cycles.device = 'GPU'
+            return kind
+    scene.cycles.device = 'CPU'
+    return 'CPU'
+
+
 def select_engine(scene):
     # EEVEE's identifier depends on the version (BLENDER_EEVEE_NEXT 4.2-4.x, BLENDER_EEVEE 5.x / 4.1-).
     for name in ('BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE', 'CYCLES'):

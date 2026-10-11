@@ -52,6 +52,33 @@ if (/rig\.py$/.test(script)) {
   process.exit(0);
 }
 
+if (/front_projection\.py$/.test(script)) {
+  const SCRIPT = 'tools/blender/front_projection.py';
+  // Like the real call (lib/jobs/model3d.mjs): -- --picture input.png --fov 39.5 --models model.glb game.glb ...
+  expectArgs(SCRIPT, a);
+  expectSource(SCRIPT, "'RESULT '");
+  expectKeys(SCRIPT, 'device', 'fov', 'models', 'file', 'size', 'share', 'seconds', 'skipped');
+  const value = (name) => a[a.indexOf(name) + 1];
+  if (!existsSync(value('--picture')) || !(Number(value('--fov')) > 0)) {
+    console.error(`Picture or field of view missing: ${value('--picture')} ${value('--fov')}`);
+    process.exit(1);
+  }
+  const result = { device: 'FAKE', fov: Number(value('--fov')), models: [] };
+  for (const m of a.slice(a.indexOf('--models') + 1)) {
+    // the real script exports a model without an armature: a rigged model would lose its skeleton
+    if (!existsSync(m) || readFileSync(m, 'utf8').includes(' rigged')) {
+      console.error(`Model missing or rigged: ${m}`);
+      process.exit(1);
+    }
+    appendFileSync(m, ' projected');
+    const file = m.split(/[\\/]/).pop();
+    console.log(`Projected onto ${file}: 12% of 2048 px, 1.0 s`);
+    result.models.push({ file, size: 2048, share: 0.12, seconds: 1 });
+  }
+  console.log(`RESULT ${JSON.stringify(result)}`);
+  process.exit(0);
+}
+
 if (/game_normals\.py$/.test(script)) {
   const SCRIPT = 'tools/blender/game_normals.py';
   // Like the real call (lib/jobs/model3d.mjs): -- --full model.glb --copies game.glb game-lod1.glb

@@ -35,26 +35,6 @@ def args():
     return p.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
 
 
-def select_device(scene):
-    scene.render.engine = 'CYCLES'
-    scene.cycles.samples = 1
-    prefs = bpy.context.preferences.addons['cycles'].preferences
-    for kind in ('OPTIX', 'CUDA', 'HIP', 'ONEAPI', 'METAL'):
-        try:
-            prefs.compute_device_type = kind
-        except TypeError:
-            continue
-        prefs.get_devices()
-        devices = [d for d in prefs.devices if d.type == kind]
-        if devices:
-            for d in prefs.devices:
-                d.use = d.type == kind
-            scene.cycles.device = 'GPU'
-            return kind
-    scene.cycles.device = 'CPU'
-    return 'CPU'
-
-
 def normal_texture(body):
     """The image node feeding the copy's normal map node (None: the copy has no normal map)."""
     material = body.active_material
@@ -115,7 +95,7 @@ def rebake(full, path):
 def main():
     a = args()
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    device = select_device(bpy.context.scene)
+    device = model3d.select_bake_device(bpy.context.scene)
     model3d.clear_scene()
     full = model3d.import_model(os.path.abspath(a.full))
     if not full:

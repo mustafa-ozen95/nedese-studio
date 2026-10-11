@@ -291,6 +291,9 @@ export async function run(ctx) {
     if (!model) throw new Error('ComfyUI did not return the 3D model.');
     const input = inputRecord && images(outputs, inputRecord)[0];
     if (input) await ctx.comfy.getOutput(input, join(k, 'input.png'));
+    // Pixal3D's camera (the model is pixel aligned with input.png through it)
+    const fov = Number(outputs?.[nodes(graph, 'PreviewAny')[0]]?.text?.[0]);
+    if (input && fov > 0) writeFileSync(join(k, CAMERA), JSON.stringify({ fov }));
     // the game copies before model.glb: a retried job that finds model.glb has them too
     if (g.game) {
       for (const [i, level] of GAME.entries()) {
@@ -306,8 +309,11 @@ export async function run(ctx) {
   }
   const picture = existsSync(join(k, 'input.png')) ? await preview(ctx, 'input.png') : null;
 
-  // 2) The game copies' normal maps baked again in Blender (a rigged copy of a retried job had it already).
+  // 2) The input picture projected onto the front of the model and its copies (before the normal maps: their export
+  // writes the copies' tangents), then the game copies' normal maps baked again in Blender (a rigged copy of a retried
+  // job had both already).
   const copies = g.game ? GAME.map((level) => join(k, level.file)) : [];
+  if (ctx.setting.blender && existsSync(join(k, CAMERA)) && !existsSync(join(k, PROJECTION_DONE)) && !existsSync(join(k, RIG_DONE))) await projectPicture(ctx, [glb, ...copies], lastPercent);
   if (copies.length && ctx.setting.blender && !existsSync(join(k, NORMALS_DONE)) && !existsSync(join(k, RIG_DONE))) await bakeNormals(ctx, glb, copies, lastPercent);
 
   // 3) The skeleton into the model and its game copies (before the exports: the FBX carry it); the test motion on the
@@ -353,6 +359,31 @@ export async function run(ctx) {
     ctx.log(`Game copies: ${game.filter((c) => c.format === 'glb').map((c) => `${c.file} ${c.game.triangles} triangles`).join(', ')}`);
   }
   await finish(ctx, result, picture, startedAt, game, rig);
+}
+
+// Pixal3D's camera ({fov}: horizontal, degrees), written with input.png; the projection's result when it is done
+const CAMERA = 'camera.json';
+const PROJECTION_DONE = 'front-projection.json';
+
+/**
+ * The input picture projected onto the front of the models (tools\blender\front_projection.py). Pixal3D decodes the
+ * colours from a voxel grid and loses small details of a full-body figure: a woman's eyes came out white, without
+ * irises (user 11.10.2026: "Gözler düzeltilmeli"). The model is pixel aligned with input.png, the picture's colours
+ * are blended into the texture where the camera sees the surface.
+ */
+async function projectPicture(ctx, models, percent) {
+  const k = ctx.folder;
+  const startedAt = Date.now();
+  const { fov } = JSON.parse(readFileSync(join(k, CAMERA), 'utf8'));
+  ctx.progress({ percent, stage: 'Blender: picture onto the model', detail: '' });
+  const result = await blenderScript(ctx.setting.blender, {
+    script: join(ctx.setting.aiRoot, 'tools', 'blender', 'front_projection.py'),
+    args: ['--picture', join(k, 'input.png'), '--fov', String(fov), '--models', ...models],
+    signal: ctx.signal,
+  });
+  writeFileSync(join(k, PROJECTION_DONE), JSON.stringify(result));
+  const done = result.models.filter((m) => !m.skipped);
+  ctx.log(`Picture projected onto the front (${result.device}, fov ${fov.toFixed(1)}°): ${done.map((m) => `${m.file} ${Math.round(m.share * 100)}%`).join(', ') || 'none'}, ${((Date.now() - startedAt) / 1000).toFixed(0)} s`);
 }
 
 // Written when the game copies have their normal maps from Blender (a retried job does not bake again)

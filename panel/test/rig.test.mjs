@@ -34,7 +34,7 @@ test('skeleton: analysed once on the full model, put into the model and both gam
   const p = await panel(t, { FAKE_RIG_LOG: log });
   if (!p) return;
   try {
-    const job = p.queue.add('model3d', { prompt: 'a knight in armour', translate: false, imageModel: 'flux', quality: 'fast', formats: ['fbx'], game: true, rig: true });
+    const job = p.queue.add('model3d', { prompt: 'a knight in armour', translate: false, imageModel: 'flux', quality: 'high', formats: ['fbx'], game: true, rig: true });
     assert.equal(job.input.rig, true);
     assert.match(job.summary.detail, /game copies · skeleton/);
     const last = await p.waitUntilDone(job.id, 60000);
@@ -45,9 +45,11 @@ test('skeleton: analysed once on the full model, put into the model and both gam
     assert.ok(texts.some((x) => x.startsWith('a knight in armour. ') && x.includes(RIG_POSE)), texts.join(' | '));
     assert.ok(!texts.some((x) => x.includes(DRAW_SUFFIX)));
     assert.deepEqual(calls(log).map((c) => c.input), [join(k, 'model.glb')], 'one analysis, on the full model');
-    // the copies' normal maps baked again before the skeleton (the bake writes a copy without its armature)
-    assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model rigged');
-    for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model normals rigged', f);
+    // Pixal3D: the picture projected onto the front of every model, then the copies' normal maps baked again, both
+    // before the skeleton (each writes a model without its armature)
+    assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model projected rigged');
+    for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model projected normals rigged', f);
+    assert.deepEqual(JSON.parse(readFileSync(join(k, 'front-projection.json'), 'utf8')).models.map((m) => m.file), ['model.glb', 'game.glb', 'game-lod1.glb']);
     // the FBX are written from the rigged GLB: the skeleton is in them
     for (const f of ['model.fbx', 'game.fbx', 'game-lod1.fbx']) assert.equal(readFileSync(join(k, f), 'utf8'), 'fake fbx rigged', f);
     assert.deepEqual(last.outputs.map((c) => c.file), ['model.glb', 'model.fbx', 'game.glb', 'game.fbx', 'game-lod1.glb', 'game-lod1.fbx', 'skeleton.mp4']);
