@@ -259,7 +259,7 @@ export async function run(ctx) {
     ctx.handOver('beatEdit', { sources: g.sources ?? [g.source], music: g.music ? 'file' : 'made', musicFile: g.music, size: first.size, pace: first.pace, length: first.length, title: g.instruction.slice(0, 120) });
   }
   if (first.operation === 'replacePerson') {
-    ctx.handOver('replace', { source: g.source, people: g.pictures.map((picture, i) => ({ picture, prompt: first.prompts[i] || DEFAULT_PROMPT })), title: g.instruction.slice(0, 120) });
+    ctx.handOver('replace', { source: g.source, people: g.pictures.map((picture, i) => ({ picture, prompt: first.prompts[i] || DEFAULT_PROMPT })), area: first.area ?? 'person', title: g.instruction.slice(0, 120) });
   }
 
   // 2. The passes: filter steps in a row in one ffmpeg pass (a retry skips a finished pass)

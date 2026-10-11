@@ -4,7 +4,8 @@ Nedese Studio: the person in a video replaced by the person in a photo (Wan 2.2 
 NedeseReplacePrep turns the frames of a video (and the foreground mask of the background removal model) into what
 WanAnimateToVideo needs: the pose video (the person's body drawn OpenPose style on black), the face video (the face
 cropped square and scaled to 512 x 512 in every frame), the background video (the person's area blacked out) and
-the character mask (that area grown and made blocky, so a person of another build or hair fits in).
+the character mask (that area grown and made blocky, so a person of another build or hair fits in). area 'face' (a
+face swap): the mask is the face only, the body, clothes and hair of the video stay.
 
 Pose: DWPose (IDEA-Research, Apache-2.0) as TorchScript on the GPU: YOLOX-L finds the people, RTMPose (dw-ll ucoco
 384) gives the 133 whole-body keypoints of one of them. The pre and post processing follow mmpose / DWPose; the body
@@ -373,6 +374,13 @@ def person_mask(fg, box, height, width, grow, block):
     return m.astype(np.float32)
 
 
+def face_region(square):
+    """The box to repaint for a face swap from the face square [cx, cy, side] (the face points x 1.3): the face from the
+    hairline to under the chin, not the hair or the neck below it."""
+    cx, cy, side = square
+    return [cx - side * 0.5, cy - side * 0.6, cx + side * 0.5, cy + side * 0.55]
+
+
 def _load(name):
     path = folder_paths.get_full_path_or_raise(POSE, name)
     model = torch.jit.load(path, map_location=mm.get_torch_device())
@@ -392,6 +400,7 @@ class NedeseReplacePrep:
             'optional': {
                 'foreground': ('MASK', {'tooltip': 'The foreground of every frame (Remove Background); without it the person box is used.'}),
                 'target': ('STRING', {'default': '', 'tooltip': 'Which person (JSON): empty the largest; {"order": k} the k-th from the left; {"box": [x0, y0, x1, y1]} (0-1) the one there.'}),
+                'area': (['person', 'face'], {'default': 'person', 'tooltip': 'person: the whole person is repainted; face: only the face (the body, clothes and hair stay).'}),
             },
         }
 
@@ -401,7 +410,7 @@ class NedeseReplacePrep:
     CATEGORY = 'Nedese Studio'
     DESCRIPTION = 'The pose, face, background and person mask of a video for WanAnimateToVideo (replacing its person).'
 
-    def run(self, images, grow, block, foreground=None, target=''):
+    def run(self, images, grow, block, foreground=None, target='', area='person'):
         frames = (images[..., :3].clamp(0, 1) * 255).round().to(torch.uint8).cpu().numpy()
         count, height, width = frames.shape[:3]
         bgr = [np.ascontiguousarray(f[..., ::-1]) for f in frames]
@@ -431,14 +440,18 @@ class NedeseReplacePrep:
 
         pose = np.stack([draw_body(body_points(w), height, width) if p else np.zeros((height, width, 3), np.uint8) for w, p in zip(wholes, present)])
         faces = []
-        for f, (cx, cy, side) in zip(frames, face_boxes(wholes, filled)):
+        squares = face_boxes(wholes, filled)
+        for f, (cx, cy, side) in zip(frames, squares):
             s = max(16, int(round(side)))
             faces.append(cv2.resize(cv2.getRectSubPix(f, (s, s), (float(cx), float(cy))), (512, 512), interpolation=cv2.INTER_AREA if s > 512 else cv2.INTER_CUBIC))
-        masks = np.stack([person_mask(None if fg is None else fg[min(i, len(fg) - 1)], boxes[i], height, width, grow, block) if present[i] else np.zeros((height, width), np.float32) for i in range(count)])
+        # a face swap repaints only the face, with a finer edge (half the growth, half the squares)
+        region = (lambda i: face_region(squares[i])) if area == 'face' else (lambda i: boxes[i])
+        grow, block = (grow // 2, max(1, block // 2)) if area == 'face' else (grow, block)
+        masks = np.stack([person_mask(None if fg is None else fg[min(i, len(fg) - 1)], region(i), height, width, grow, block) if present[i] else np.zeros((height, width), np.float32) for i in range(count)])
         background = frames.astype(np.float32) / 255 * (1 - masks[..., None])
 
         found = sum(1 for d in detections if len(d))
-        print(f'[Nedese] replace prep: {count} frames {width}x{height}, a person in {found}, the followed one in {int(present.sum())}, mask {masks.mean() * 100:.0f}% of the picture')
+        print(f'[Nedese] replace prep: {count} frames {width}x{height}, a person in {found}, the followed one in {int(present.sum())}, {area} mask {masks.mean() * 100:.0f}% of the picture')
         as_image = lambda a: torch.from_numpy(np.ascontiguousarray(a)).float() / 255
         # the person's box in every frame (0-1, null where they are not in the shot): the next window follows them from it
         followed = [None if b is None else [round(float(b[0]) / width, 4), round(float(b[1]) / height, 4), round(float(b[2]) / width, 4), round(float(b[3]) / height, 4)] for b in boxes]

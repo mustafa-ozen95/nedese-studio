@@ -167,6 +167,7 @@ export const JOB_TYPES = {
     fields: [
       { name: 'source', type: 'string', required: true, description: 'Video: "upload/…" (POST /uploads/record) or "job/<id>/<file>" (from the gallery).' },
       { name: 'people', type: 'array', required: true, description: 'Who takes whose place, left to right (1-4): [{ picture: the photo (PNG/JPEG/WebP; "upload/…" or "job/<id>/<file>"), prompt: English, the person in the photo and what they do in the video (default: a person moving naturally) }].' },
+      { name: 'area', type: 'string', required: false, defaultValue: 'person', options: ['person', 'face'], description: 'person: the whole person is repainted; face: only the face (a face swap: the body, clothes and hair of the video stay). From Edit video an instruction such as "change only the face" picks face.' },
       { name: 'title', type: 'string', required: false, description: 'Title.' },
       { name: 'seed', type: 'integer', required: false, description: 'Seed.' },
     ],

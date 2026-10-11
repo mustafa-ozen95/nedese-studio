@@ -75,12 +75,12 @@ const VIDEO_OPERATIONS = {
     validate: (a) => ({ pace: PACES.includes(a.pace) ? a.pace : 'medium', size: SIZES.includes(a.size) ? a.size : 'source', length: limit(a.length, 0, 180, 0) }),
   },
   replacePerson: {
-    description: 'replacePerson {prompts}: ONLY if photosGiven is more than 0: the people in the video are replaced by the people in the given photos, photo 1 the leftmost person, photo 2 the next one to the right... (the motion, the background and the sound stay); prompts = one short English sentence per photo, in photo order, describing the person IN THAT PHOTO (age, hair, beard, clothes; the attached image shows the photos left to right when there is one) and what they do in the video (e.g. ["an old fisherman with a grey beard in a red knit hat and red jacket, talking and smiling"])',
+    description: 'replacePerson {prompts, area}: ONLY if photosGiven is more than 0: the people in the video are replaced by the people in the given photos, photo 1 the leftmost person, photo 2 the next one to the right... (the motion, the background and the sound stay); area = "face" when only the face is to change (face swap: the body, clothes and hair of the video stay), else "person" (the whole person); prompts = one short English sentence per photo, in photo order, describing the person IN THAT PHOTO (age, hair, beard, clothes; with area "face" only the face: age, skin, eyes, beard; the attached image shows the photos left to right when there is one) and what they do in the video (e.g. ["an old fisherman with a grey beard in a red knit hat and red jacket, talking and smiling"])',
     validate: (a, b) => {
       if (!b.hasPhoto) return null;
       // a model that gives one sentence for one photo writes "prompt"
       const list = Array.isArray(a.prompts) ? a.prompts : [a.prompt];
-      return { prompts: Array.from({ length: b.photoCount || 1 }, (_, i) => (typeof list[i] === 'string' ? list[i].trim().slice(0, 500) : '')) };
+      return { prompts: Array.from({ length: b.photoCount || 1 }, (_, i) => (typeof list[i] === 'string' ? list[i].trim().slice(0, 500) : '')), area: a.area === 'face' ? 'face' : 'person' };
     },
   },
 };

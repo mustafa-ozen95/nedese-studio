@@ -43,7 +43,10 @@ test('plan: replacePerson only with a photo, one prompt per photo, and it goes a
   const video = { duration: 10, hasMusic: false, summary: {} };
   const answer = JSON.stringify({ steps: [{ operation: 'blackWhite' }, { operation: 'replacePerson', prompts: [' an old fisherman smiling '] }] });
   const p = parsePlan('video', answer, { ...video, hasPhoto: true, photoCount: 1 });
-  assert.deepEqual(p.steps, [{ operation: 'replacePerson', prompts: ['an old fisherman smiling'] }]);
+  assert.deepEqual(p.steps, [{ operation: 'replacePerson', prompts: ['an old fisherman smiling'], area: 'person' }]);
+  const face = parsePlan('video', JSON.stringify({ steps: [{ operation: 'replacePerson', prompts: ['an old man with a grey beard'], area: 'face' }] }), { ...video, hasPhoto: true, photoCount: 1 });
+  assert.equal(face.steps[0].area, 'face', 'only the face');
+  assert.equal(parsePlan('video', JSON.stringify({ steps: [{ operation: 'replacePerson', prompts: ['a'], area: 'hands' }] }), { ...video, hasPhoto: true, photoCount: 1 }).steps[0].area, 'person');
   assert.match(p.impossible, /blackWhite/);
   assert.deepEqual(parsePlan('video', answer, video).steps, [{ operation: 'blackWhite' }], 'no photo: no replacing');
   const two = parsePlan('video', JSON.stringify({ steps: [{ operation: 'replacePerson', prompts: ['a girl', 'a man', 'a third'] }] }), { ...video, hasPhoto: true, photoCount: 2 });
@@ -133,6 +136,17 @@ test('a video and two photos in Edit video: the job becomes Replace a person, on
     assert.ok(s.streams.some((x) => x.codec_type === 'audio'), 'the video keeps its sound');
     const frames = execFileSync(p.setting.ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-count_frames', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', join(p.queue.folder(job.id), 'replaced.mp4')], { encoding: 'utf8' });
     assert.equal(Number(frames.trim()), 96, 'every frame of the video once');
+    assert.deepEqual([done.input.area, ...prompts.map((g) => of(g, 'NedeseReplacePrep').area)], ['person', 'person', 'person', 'person', 'person']);
+
+    // only the face: the planner says so ("sadece yüzünü"), the prep node gets area face
+    p.setting.editPlan = async () => ({ steps: [{ operation: 'replacePerson', prompts: ['an old man with a grey beard'], area: 'face' }], description: 'face', impossible: '' });
+    const faceJob = p.queue.add('videoEdit', { source: 'job/trial/man.mp4', pictures: ['job/trial/fisherman.png'], instruction: 'sadece yüzünü fotoğraftaki adamın yüzüyle değiştir' });
+    const faceDone = await p.waitUntilDone(faceJob.id, 120000);
+    assert.equal(faceDone.status, 'done', faceDone.error ?? '');
+    assert.deepEqual([faceDone.input.area, faceDone.summary.detail], ['face', 'Wan 2.2 Animate · the face from the photo']);
+    const later = p.fake.status.records.filter((r) => r.path === '/prompt').map((r) => JSON.parse(r.prompt).prompt).slice(4);
+    assert.deepEqual(later.map((g) => of(g, 'NedeseReplacePrep').area), ['face', 'face']);
+    assert.throws(() => p.queue.add('replace', { source: 'job/trial/man.mp4', people: [{ picture: 'job/trial/girl.png' }], area: 'hands' }), /Area: one of person, face/);
   } finally {
     await p.close();
   }

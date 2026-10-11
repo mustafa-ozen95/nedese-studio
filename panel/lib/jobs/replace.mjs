@@ -5,7 +5,8 @@
  * run on without a jump, and follows the person the previous window followed (the prep node's boxes). The background,
  * the camera and the other people stay. One photo: the largest person of the first frame is replaced. Several photos
  * (people, up to 4): they replace the people of the first frame from left to right, one pass each (the model replaces
- * one person at a time; each pass works on the previous pass's frames). The video's own sound is put back.
+ * one person at a time; each pass works on the previous pass's frames). area "face": only the face is repainted (a face
+ * swap: the body, clothes and hair of the video stay). The video's own sound is put back.
  * A RETRY RESUMES WHERE IT LEFT OFF: a finished window or pass (checkpoint.json) is not made again.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,6 +22,7 @@ export const name = 'Replace a person';
 const VIDEO_EXTENSION = /\.(mp4|mov|mkv|webm|avi|m4v|3gp)$/i;
 export const REPLACE = { fps: 16, window: 77, motion: 5, pixels: 832 * 480, longest: 60, people: 4 };
 export const DEFAULT_PROMPT = 'a person moving naturally, realistic, consistent identity';
+export const AREAS = ['person', 'face'];
 
 /** The size the video is made at: its own shape, ~400k pixels, both sides a multiple of 16. */
 export function replaceSize(width, height) {
@@ -87,9 +89,13 @@ export function validate(g, { setting, mod }) {
     // English (the model's language): the person and what they do in the video; the motion comes from the video
     return { picture, prompt: text(p.prompt, 'Prompt', { required: false, max: 500 }) || DEFAULT_PROMPT };
   });
+  // person: the whole person is repainted; face: only the face (the body, clothes and hair of the video stay)
+  const area = g.area ?? 'person';
+  if (!AREAS.includes(area)) throw new UserError(`Area: one of ${AREAS.join(', ')}.`);
   return {
     source,
     people,
+    area,
     title: text(g.title, 'Title', { required: false, max: 120 }) || null,
     seed: seed(g.seed),
   };
@@ -97,6 +103,7 @@ export function validate(g, { setting, mod }) {
 
 export function summary(g) {
   const many = g.people?.length > 1;
+  if (g.area === 'face') return { title: g.title || (many ? 'Faces replaced' : 'Face replaced'), detail: many ? `Wan 2.2 Animate · ${g.people.length} faces from the photos` : 'Wan 2.2 Animate · the face from the photo' };
   return { title: g.title || (many ? 'People replaced' : 'Person replaced'), detail: many ? `Wan 2.2 Animate · ${g.people.length} people from the photos` : 'Wan 2.2 Animate · the person from the photo' };
 }
 
@@ -136,7 +143,7 @@ export async function run(ctx) {
   } catch {
     /* none */
   }
-  const signature = JSON.stringify({ frames: frames.length, width, height, people: g.people.map((p) => p.picture) });
+  const signature = JSON.stringify({ frames: frames.length, width, height, people: g.people.map((p) => p.picture), area: g.area ?? 'person' });
   const save = (s) => {
     status = s;
     writeFileSync(statusPath, JSON.stringify(status), 'utf8');
@@ -173,7 +180,7 @@ export async function run(ctx) {
       // the first window picks the person (one photo: the largest; several: the p-th from the left), later ones follow them
       // (and look like them: a window can start in a shot without them)
       const target = w.no > 1 && status.box ? { box: status.box, ...(status.look ? { look: status.look } : {}) } : passes > 1 ? { order: p } : {};
-      const graph = ctx.mod.replaceJob({ clip, picture, motions, target, text: g.people[p - 1].prompt, seed: g.seed, width, height, frame: w.length, prefix: `panel/${ctx.job.id}/${who}w${w.no}` });
+      const graph = ctx.mod.replaceJob({ clip, picture, motions, target, text: g.people[p - 1].prompt, area: g.area ?? 'person', seed: g.seed, width, height, frame: w.length, prefix: `panel/${ctx.job.id}/${who}w${w.no}` });
       const record = nodes(graph, 'SaveImage')[0];
       const part = (k) => 5 + (90 * (p - 1 + k / windows.length)) / passes;
       const stage = passes > 1 ? `Replacing person ${p}/${passes} · ${w.no}/${windows.length}` : `Replacing the person ${w.no}/${windows.length}`;
