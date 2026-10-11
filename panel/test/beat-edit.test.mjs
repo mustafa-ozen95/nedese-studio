@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { loadSettings } from '../lib/settings.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
 import { cutPlan, musicPlan, share, pickShots, outputSize, musicStart } from '../lib/beat-edit-plan.mjs';
-import { validate, summary, run, parseMotion, withoutSubtitles } from '../lib/jobs/beat-edit.mjs';
+import { validate, summary, run, parseMotion, withoutSubtitles, followCrop, cropOffset } from '../lib/jobs/beat-edit.mjs';
 import { finishSound } from '../lib/jobs/promo.mjs';
 import { makeMusic, BAR } from '../lib/promo-music.mjs';
 
@@ -104,6 +104,39 @@ test('beat cut job: two videos and drawn music, then a music file measured; leng
     film('f1', true);
     film('f2', false);
     assert.deepEqual(withoutSubtitles(setting.outputRoot, ['job/f1/film.mp4', 'job/trial/a.mp4', 'job/f2/film.mp4', 'job/f1/scene02.mp4']), ['job/f1/scene01.mp4', 'job/f1/scene02.mp4', 'job/trial/a.mp4', 'job/f2/film.mp4', 'job/f1/scene02.mp4']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('crop to another shape follows the motion: a box walking right stays in a 9:16 cut of a 16:9 video', async () => {
+  // still pictures and change all over (a camera move) keep the middle
+  const still = Array.from({ length: 8 }, () => new Uint8Array(16 * 9).fill(40));
+  assert.deepEqual(followCrop(still, 16, 9, 'x', 0.3), Array(8).fill(0.5));
+  const pan = Array.from({ length: 8 }, (_, f) => Uint8Array.from({ length: 16 * 9 }, (_, i) => ((i % 16) + f) % 2 ? 200 : 20));
+  assert.ok(followCrop(pan, 16, 9, 'x', 0.3).every((f) => Math.abs(f - 0.5) < 0.05));
+  assert.equal(cropOffset([0.5, 0.5, 0.5], 1), '(iw-ow)*0.500');
+  assert.equal(cropOffset([0, 0.25, 0.5], 0.5, 'ih-oh'), '(ih-oh)*max(0,min(1,if(lt(t,0.500),0.000+0.500*(t-0.000)/0.500,0.500)))');
+
+  const root = mkdtempSync(join(tmpdir(), 'bc-crop-'));
+  const setting = loadSettings({ aiRoot: root });
+  try {
+    const trial = join(setting.outputRoot, 'trial');
+    mkdirSync(trial, { recursive: true });
+    // a 30-pixel box from the left edge to the right edge of a 320×180 picture in 6 s, on a grey ground that has texture
+    execFileSync(setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=0x303030:s=320x180:r=30:d=6,noise=alls=6:allf=t', '-f', 'lavfi', '-i', 'color=white:s=30x30:r=30', '-filter_complex', "[0][1]overlay=x='4+t*47':y=75:shortest=1", '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', join(trial, 'walk.mp4')]);
+    const logs = [];
+    const folder = join(setting.outputRoot, 'walk');
+    mkdirSync(folder, { recursive: true });
+    await run({ job: { id: 'walk', input: validate({ sources: ['job/trial/walk.mp4'], size: '9:16', length: 6, pace: 'fast' }, { setting }) }, setting, folder, signal: new AbortController().signal, progress: () => {}, log: (m) => logs.push(m), save: () => {}, addOutput: () => {} });
+    assert.ok(logs.some((m) => /^Crop: \d+ of \d+ shots follow the motion\.$/.test(m)), logs.join('\n'));
+    // every frame but the fade at the end shows the box (a middle crop lost it on both sides)
+    const total = (await streams(setting.ffprobe, join(folder, 'beat-cut.mp4'))).duration;
+    const raw = execFileSync(setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-i', join(folder, 'beat-cut.mp4'), '-t', (total - 0.8).toFixed(2), '-vf', 'fps=10,scale=54:96,format=gray', '-f', 'rawvideo', '-'], { maxBuffer: 64 << 20 });
+    const size = 54 * 96;
+    const lost = [];
+    for (let i = 0; i < raw.length / size; i++) if (Math.max(...raw.subarray(i * size, (i + 1) * size)) < 150) lost.push((i / 10).toFixed(1));
+    assert.deepEqual(lost, [], 'frames without the box (s)');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

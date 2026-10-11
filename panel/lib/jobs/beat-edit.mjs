@@ -3,7 +3,8 @@
  * cut to the beat of a music. The music is your own file, made by the music model, or drawn by the panel to the cut
  * (120 BPM); a file's or the model's tempo and first bar line are measured (lib/promo-music.mjs beatGrid) and the cut
  * follows them. Every shot is the window of a source with the most motion that does not run over a cut of its own
- * (lib/beat-edit-plan.mjs); flashes and a punch-in on the drops, the last shot held and faded. The sources' own sound
+ * (lib/beat-edit-plan.mjs), cut to another shape where its motion is; flashes and a punch-in on the drops, the last
+ * shot held and faded. The sources' own sound
  * is left out; the music at −14 LUFS. A retry keeps the music and the finished shots.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,6 +25,9 @@ export const name = 'Beat cut';
 export const gpuNotNeeded = (g) => g.music !== 'generate';
 const FPS = 30;
 const MAX_SOURCES = 30;
+// the crop follows the motion seen 8 times a second, 160 pixels along the side it cuts
+const LOOK_FPS = 8;
+const LOOK = 160;
 const VIDEO_EXTENSION = /\.(mp4|mov|mkv|webm|avi|m4v|3gp)$/i;
 export const BEAT_SIZES = ['source', '16:9', '9:16', '1:1'];
 export const BEAT_MUSIC = ['made', 'generate', 'file'];
@@ -102,6 +106,83 @@ export function parseMotion(textOut) {
     if (s && t !== null) motion.push({ t, v: Number(s[1]) });
   }
   return { motion, cuts: motion.filter((m) => m.v > 0.35 && m.t > 0.2).map((m) => m.t) };
+}
+
+/** Gray frames of a window of a video, 8 a second at cols × rows, for the crop to follow its motion. */
+function framesOf(ffmpeg, file, start, length, cols, rows, { signal } = {}) {
+  return new Promise((ok, no) => {
+    const p = spawn(ffmpeg, ['-hide_banner', '-nostdin', '-ss', start.toFixed(3), '-t', length.toFixed(3), '-i', file, '-an', '-vf', `fps=${LOOK_FPS},scale=${cols}:${rows},format=gray`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { windowsHide: true, signal });
+    const parts = [];
+    p.stdout.on('data', (d) => parts.push(d));
+    p.stderr.on('data', () => {});
+    p.on('error', no);
+    p.on('close', () => {
+      const all = Buffer.concat(parts);
+      const size = cols * rows;
+      ok(Array.from({ length: Math.floor(all.length / size) }, (_, i) => all.subarray(i * size, (i + 1) * size)));
+    });
+  });
+}
+
+/**
+ * Where a crop that keeps `keep` of one side (x or y) stands in each frame, 0 at the start of the free room and 1 at
+ * its end (user 10.10.2026: a fox walking right lost its head to the middle of a 16:9 picture cut to 9:16). Each change
+ * between two frames votes for the window holding most of it; change spread over the whole picture (a camera move,
+ * noise) has no say. The votes are smoothed over half a second; with too little of them the crop holds the shot's
+ * average, and with none the middle.
+ */
+export function followCrop(frames, cols, rows, along, keep) {
+  const n = along === 'x' ? cols : rows;
+  const win = Math.max(1, Math.round(n * keep));
+  if (win >= n || frames.length < 2) return frames.map(() => 0.5);
+  const votes = [];
+  for (let f = 1; f < frames.length; f++) {
+    const a = frames[f - 1];
+    const b = frames[f];
+    const profile = new Float64Array(n);
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) profile[along === 'x' ? x : y] += Math.abs(b[y * cols + x] - a[y * cols + x]);
+    const median = [...profile].sort((p, q) => p - q)[n >> 1];
+    let total = 0;
+    for (let i = 0; i < n; i++) total += profile[i] = Math.max(0, profile[i] - median);
+    let sum = 0;
+    for (let i = 0; i < win; i++) sum += profile[i];
+    let top = sum;
+    let at = 0;
+    for (let i = win; i < n; i++) {
+      sum += profile[i] - profile[i - win];
+      if (sum > top) [top, at] = [sum, i - win + 1];
+    }
+    const share = total > 0 ? top / total : 0;
+    votes.push({ t: f - 0.5, at: at / (n - win), w: total * Math.max(0, (share - keep) / (1 - keep)) });
+  }
+  // a quarter of a grey level over the whole picture, held by the window: less than that is noise
+  const least = 0.25 * cols * rows;
+  const all = votes.reduce((s, v) => s + v.w, 0);
+  const average = (votes.reduce((s, v) => s + v.w * v.at, 0) + least * 0.5) / (all + least);
+  const sigma = LOOK_FPS / 2;
+  return frames.map((_, j) => {
+    let s = least * average;
+    let w = least;
+    for (const v of votes) {
+      const k = Math.exp(-((j - v.t) ** 2) / (2 * sigma * sigma)) * v.w;
+      s += k * v.at;
+      w += k;
+    }
+    return s / w;
+  });
+}
+
+/** ffmpeg's crop offset for a path of followCrop (frames 1/8 s of the source apart, played at `speed`). */
+export function cropOffset(path, speed, room = 'iw-ow') {
+  // a key every quarter second, the last frame kept
+  const keys = path.map((f, i) => ({ t: i / LOOK_FPS / speed, f })).filter((_, i) => i % 2 === 0 || i === path.length - 1);
+  if (!keys.length || keys.every((k) => Math.abs(k.f - keys[0].f) < 0.01)) return `(${room})*${(keys[0]?.f ?? 0.5).toFixed(3)}`;
+  let e = keys.at(-1).f.toFixed(3);
+  for (let i = keys.length - 2; i >= 0; i--) {
+    const [a, b] = [keys[i], keys[i + 1]];
+    e = `if(lt(t,${b.t.toFixed(3)}),${a.f.toFixed(3)}+${(b.f - a.f).toFixed(3)}*(t-${a.t.toFixed(3)})/${(b.t - a.t).toFixed(3)},${e})`;
+  }
+  return `(${room})*max(0,min(1,${e}))`;
 }
 
 /**
@@ -196,6 +277,7 @@ export async function run(ctx) {
   const shotDir = join(k, 'shots');
   mkdirSync(shotDir, { recursive: true });
   const list = [];
+  let following = 0;
   for (const [i, shot] of cut.shots.entries()) {
     const name = `shot${String(i + 1).padStart(3, '0')}.mp4`;
     list.push(`file '${name}'`);
@@ -204,7 +286,18 @@ export async function run(ctx) {
     const p = picks[i];
     const frames = Math.round(shot.t1 * FPS) - Math.round(shot.t0 * FPS);
     const d = frames / FPS;
-    const vf = [`setpts=(PTS-STARTPTS)/${p.speed}`, `fps=${FPS}`, `scale=${W}:${H}:force_original_aspect_ratio=increase`, `crop=${W}:${H}`, 'setsar=1'];
+    // a picture of another shape is cut where its motion is, not in the middle
+    const src = sources[p.source];
+    const zoom = Math.max(W / src.width, H / src.height);
+    const along = src.width * zoom - W > 2 ? 'x' : src.height * zoom - H > 2 ? 'y' : null;
+    let crop = `crop=${W}:${H}`;
+    if (along) {
+      const [cols, rows] = along === 'x' ? [LOOK, 2 * Math.max(1, Math.round((LOOK * src.height) / src.width / 2))] : [2 * Math.max(1, Math.round((LOOK * src.width) / src.height / 2)), LOOK];
+      const path = followCrop(await framesOf(ff, files[p.source], p.start, d * p.speed, cols, rows, { signal: ctx.signal }), cols, rows, along, along === 'x' ? W / (src.width * zoom) : H / (src.height * zoom));
+      if (path.some((f) => Math.abs(f - 0.5) > 0.02)) following++;
+      crop = along === 'x' ? `crop=${W}:${H}:x='${cropOffset(path, p.speed)}':y=(ih-oh)/2` : `crop=${W}:${H}:x=(iw-ow)/2:y='${cropOffset(path, p.speed, 'ih-oh')}'`;
+    }
+    const vf = [`setpts=(PTS-STARTPTS)/${p.speed}`, `fps=${FPS}`, `scale=${W}:${H}:force_original_aspect_ratio=increase`, crop, 'setsar=1'];
     // a punch-in on a drop: 12% closer, back in 0.3 s
     if (shot.punch) vf.push(`zoompan=z='if(lt(on,9),1.12-0.12*on/9,1)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${W}x${H}:fps=${FPS}`);
     vf.push(`tpad=stop_mode=clone:stop_duration=${d.toFixed(3)}`);
@@ -214,6 +307,7 @@ export async function run(ctx) {
     await runFfmpeg(ff, ['-ss', p.start.toFixed(3), '-t', (d * p.speed + 0.5).toFixed(3), '-i', files[p.source], '-an', '-vf', vf.join(','), '-frames:v', String(frames), '-r', String(FPS), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', writing], { cwd: k, signal: ctx.signal });
     renameSync(writing, join(shotDir, name));
   }
+  if (following) ctx.log(`Crop: ${following} of ${cut.shots.length} shots follow the motion.`);
   writeFileSync(join(shotDir, 'list.txt'), list.join('\n') + '\n');
   await runFfmpeg(ff, ['-f', 'concat', '-safe', '0', '-i', join(shotDir, 'list.txt'), '-c', 'copy', join(k, 'pictures.mp4')], { cwd: k, signal: ctx.signal });
 
