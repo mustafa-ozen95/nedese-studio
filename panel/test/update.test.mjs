@@ -208,6 +208,18 @@ test('automatic update: checks once a day; does not check when disabled; a packa
   } finally {
     bad.close();
   }
+  // A backslash is a separator on Windows: "panel\..\..\x" would leave the installation
+  for (const name of ['panel\\..\\..\\outside.txt', 'panel/x:stream']) {
+    const odd = await fakeGithub({ files: { 'panel/server.mjs': 'bad', [name]: 'escape' } });
+    const { root: root4, settingFile: s4 } = setupSetup();
+    try {
+      const g4 = new Updater({ setting: setting(root4, odd.api), settingFile: s4, queue: freeQueue() });
+      await assert.rejects(g4.apply(), /Unsafe path/, name);
+      assert.equal(readFileSync(join(root4, 'panel', 'server.mjs'), 'utf8'), 'old server');
+    } finally {
+      odd.close();
+    }
+  }
 });
 
 test('the repository ships no read key: the update needs none', () => {

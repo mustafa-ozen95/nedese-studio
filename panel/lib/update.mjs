@@ -50,7 +50,8 @@ export function localVersion(aiRoot) {
 
 /** Whether a relative path from the repository is safe (does not leave the root, not absolute). */
 function safePath(rel) {
-  return Boolean(rel) && !rel.startsWith('/') && !/^[a-zA-Z]:/.test(rel) && !rel.split('/').some((p) => p === '..' || p === '');
+  // A backslash is a separator and a colon a drive or stream on Windows: neither may appear in a path from the repository
+  return Boolean(rel) && !/[\\:]/.test(rel) && !rel.startsWith('/') && !rel.split('/').some((p) => p === '..' || p === '');
 }
 
 /** The git blob id of a file's content: what the repository tree lists for it. */
