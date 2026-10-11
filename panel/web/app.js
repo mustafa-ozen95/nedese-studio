@@ -2209,6 +2209,7 @@
 
     /* Edit video: one video or several in order (several are cut together to the beat) */
     status.editVideos = [];
+    status.videoPhotos = [];
 
     function renderEditVideos() {
         const list = status.editVideos;
@@ -2237,25 +2238,42 @@
         editKindApply('video');
     }
 
-    /* Edit video: a photo of a person (the person in the video can be replaced by them, from the description) */
-    function configureVideoPhoto(k) {
-        status.videoPhoto = k?.source ? { source: k.source, url: k.url } : null;
-        $('[data-video-photo-field]', videoEditForm).value = k?.source ?? '';
-        const picture = $('[data-video-photo-picture]', videoEditForm);
-        picture.hidden = !k;
-        if (k) picture.src = k.url;
-        else picture.removeAttribute('src');
-        $('[data-video-photo-clear]', videoEditForm).hidden = !k;
+    /* Edit video: photos of people, left to right (the people in the video can be replaced by them, from the description) */
+    const MAX_VIDEO_PHOTOS = 4;
+    function renderVideoPhotos() {
+        const list = status.videoPhotos;
+        $('[data-video-photo-add]', videoEditForm).hidden = list.length >= MAX_VIDEO_PHOTOS;
+        $('[data-video-photo-list]', videoEditForm).replaceChildren(...list.map((k, i) => el('div', { class: 'edit-photo' },
+            el('img', { src: k.url, alt: '' }),
+            el('div', { class: 'row' },
+                ...(list.length > 1 ? [el('span', { class: 'text-sm', text: `${i + 1}.` })] : []),
+                ...(i ? [el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-photo-left': i, title: 'Move left', 'aria-label': 'Move left', text: '←' })] : []),
+                el('button', { type: 'button', class: 'btn btn--ghost btn--sm', 'data-photo-remove': i, text: 'Remove' })))));
         saveDraft();
     }
 
+    function addVideoPhoto(k) {
+        if (!k?.source || status.videoPhotos.length >= MAX_VIDEO_PHOTOS || status.videoPhotos.some((x) => x.source === k.source)) return;
+        status.videoPhotos.push({ source: k.source, url: k.url });
+        renderVideoPhotos();
+    }
+
     $('[data-video-photo-upload]', videoEditForm).addEventListener('change', async (event) => {
-        const file = event.target.files?.[0];
+        const files = [...(event.target.files ?? [])];
         event.target.value = '';
-        const g = await loadImage(file);
-        if (g) configureVideoPhoto(g);
+        for (const file of files) addVideoPhoto(await loadImage(file));
     });
-    $('[data-video-photo-clear]', videoEditForm).addEventListener('click', () => configureVideoPhoto(null));
+    $('[data-video-photo-list]', videoEditForm).addEventListener('click', (event) => {
+        const left = event.target.closest('[data-photo-left]');
+        const remove = event.target.closest('[data-photo-remove]');
+        const list = status.videoPhotos;
+        if (left) {
+            const i = Number(left.dataset.photoLeft);
+            [list[i - 1], list[i]] = [list[i], list[i - 1]];
+        } else if (remove) list.splice(Number(remove.dataset.photoRemove), 1);
+        else return;
+        renderVideoPhotos();
+    });
 
     videoEditForm.addEventListener('click', (event) => {
         const up = event.target.closest('[data-video-up]');
@@ -2287,7 +2305,7 @@
             try {
                 if (kind === 'image') {
                     const g = await loadImage(file);
-                    if (g && withVideo) configureVideoPhoto(g);
+                    if (g && withVideo) addVideoPhoto(g);
                     else if (g) configureSlot(0, g);
                     continue;
                 }
@@ -2808,7 +2826,7 @@
         const g = status.pickerChoice;
         if (!g) return;
         if (status.pickerTarget === 'video') configureSource(g);
-        else if (status.pickerTarget === 'videoPhoto') configureVideoPhoto(g);
+        else if (status.pickerTarget === 'videoPhoto') addVideoPhoto(g);
         else if (typeof status.pickerTarget === 'string' && status.pickerTarget.startsWith('edit:')) configureSlot(Number(status.pickerTarget.slice(5)), g);
         else if (status.pickerTarget instanceof HTMLElement) sceneSource(status.pickerTarget, g);
         window.ndsCloseWindow?.(pickerWindow);
@@ -3544,6 +3562,8 @@
         }
         // several videos are cut together to the beat (the job hands itself over to a Beat cut)
         if (type === 'videoEdit' && status.editVideos.length > 1) data.sources = status.editVideos.map((v) => v.source);
+        // photos of people, left to right (the people in the video can be replaced by them)
+        if (type === 'videoEdit' && status.videoPhotos.length) data.pictures = status.videoPhotos.map((k) => k.source);
         if (type === 'video') {
             data.duration = videoDuration();
             if (data.start === 'text') delete data.source;
@@ -3658,7 +3678,7 @@
             t.videoSource = status.videoSource;
             t.m3Source = status.m3Source;
             t.editVideos = status.editVideos;
-            t.videoPhoto = status.videoPhoto ?? null;
+            t.videoPhotos = status.videoPhotos;
             try {
                 localStorage.setItem(DRAFT, JSON.stringify(t));
             } catch {
@@ -3700,7 +3720,10 @@
             status.editVideos = t.editVideos.filter((v) => v?.source);
             renderEditVideos();
         }
-        configureVideoPhoto(t.videoPhoto?.source ? t.videoPhoto : null);
+        if (Array.isArray(t.videoPhotos)) {
+            status.videoPhotos = t.videoPhotos.filter((k) => k?.source).slice(0, MAX_VIDEO_PHOTOS);
+            renderVideoPhotos();
+        }
         if (t.videoSource?.source) configureSource(t.videoSource);
         if (t.m3Source?.source) configureM3Source(t.m3Source);
         else applyM3Kind();

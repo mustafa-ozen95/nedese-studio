@@ -1,7 +1,7 @@
 /**
  * Replace a person (Wan 2.2 Animate): the windows over the video, the size it is made at, the plan step that needs a
- * photo, and a video with a photo in Edit video handed over and made window by window (fake ComfyUI, real ffmpeg and
- * the real comfy.mjs graph).
+ * photo, and a video with photos in Edit video handed over and made window by window, one pass per person (fake
+ * ComfyUI, real ffmpeg and the real comfy.mjs graph).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { parsePlan } from '../lib/edit-plan.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
 import { makePng } from '../lib/media.mjs';
-import { replaceWindows, replaceSize, REPLACE } from '../lib/jobs/replace.mjs';
+import { replaceWindows, replaceSize, nextBox, REPLACE, DEFAULT_PROMPT } from '../lib/jobs/replace.mjs';
 import { usedFiles, CATALOG, FOLDERS } from '../lib/models.mjs';
 import { replaceJob } from '../../tools/comfy.mjs';
 import { createPanel } from './env.mjs';
@@ -39,13 +39,29 @@ test('replace size: the video\'s own shape at ~400k pixels, sides a multiple of 
   assert.deepEqual(replaceSize(1000, 1000), { width: 624, height: 624 });
 });
 
-test('plan: replacePerson only with a photo, and it goes alone', () => {
+test('plan: replacePerson only with a photo, one prompt per photo, and it goes alone', () => {
   const video = { duration: 10, hasMusic: false, summary: {} };
-  const answer = JSON.stringify({ steps: [{ operation: 'blackWhite' }, { operation: 'replacePerson', prompt: ' an old fisherman smiling ' }] });
-  const p = parsePlan('video', answer, { ...video, hasPhoto: true });
-  assert.deepEqual(p.steps, [{ operation: 'replacePerson', prompt: 'an old fisherman smiling' }]);
+  const answer = JSON.stringify({ steps: [{ operation: 'blackWhite' }, { operation: 'replacePerson', prompts: [' an old fisherman smiling '] }] });
+  const p = parsePlan('video', answer, { ...video, hasPhoto: true, photoCount: 1 });
+  assert.deepEqual(p.steps, [{ operation: 'replacePerson', prompts: ['an old fisherman smiling'] }]);
   assert.match(p.impossible, /blackWhite/);
   assert.deepEqual(parsePlan('video', answer, video).steps, [{ operation: 'blackWhite' }], 'no photo: no replacing');
+  const two = parsePlan('video', JSON.stringify({ steps: [{ operation: 'replacePerson', prompts: ['a girl', 'a man', 'a third'] }] }), { ...video, hasPhoto: true, photoCount: 2 });
+  assert.deepEqual(two.steps[0].prompts, ['a girl', 'a man'], 'one per photo');
+  const short = parsePlan('video', JSON.stringify({ steps: [{ operation: 'replacePerson', prompt: 'a girl' }] }), { ...video, hasPhoto: true, photoCount: 2 });
+  assert.deepEqual(short.steps[0].prompts, ['a girl', ''], 'a missing one is left to the default');
+});
+
+test("next window follows the person: the prep node's box at the frame the next window starts", () => {
+  const graph = replaceJob({ clip: 'c.mp4', picture: 'p.png', target: { order: 2 }, text: 'a', seed: 1, prefix: 'x' });
+  const prep = Object.entries(graph).find(([, d]) => d.class_type === 'NedeseReplacePrep');
+  assert.deepEqual(JSON.parse(prep[1].inputs.target), { order: 2 });
+  const boxes = Array.from({ length: 77 }, (_, i) => [i / 100, 0, 1, 1]);
+  const outputs = { [prep[0]]: { boxes: [JSON.stringify(boxes)] } };
+  const [w1, w2] = replaceWindows(96);
+  assert.deepEqual(nextBox(outputs, graph, w1, w2), [0.72, 0, 1, 1]);
+  assert.equal(nextBox(outputs, graph, w2, undefined), null, 'the last window');
+  assert.equal(nextBox({}, graph, w1, w2), null, 'no boxes from an older node');
 });
 
 test('replace graph: Wan Animate with the prep node, the photo and the motion frames; the model files are known', () => {
@@ -69,12 +85,12 @@ test('replace graph: Wan Animate with the prep node, the photo and the motion fr
   }
 });
 
-test('a video and a photo with "put the person in the photo in place of the man" in Edit video: the job becomes Replace a person, made in windows with the sound kept', async () => {
+test('a video and two photos in Edit video: the job becomes Replace a person, one pass per person from the left, in windows that follow the person, the sound kept', async () => {
   const instructions = [];
   const p = await createPanel();
-  p.setting.editPlan = async ({ instruction, info }) => {
-    instructions.push([instruction, info.hasPhoto, info.summary.photoGiven]);
-    return { steps: [{ operation: 'replacePerson', prompt: 'an old fisherman talking' }], description: 'replace', impossible: '' };
+  p.setting.editPlan = async ({ instruction, info, image }) => {
+    instructions.push([instruction, info.hasPhoto, info.photoCount, info.summary.photosGiven, String(image).startsWith('data:image/jpeg;base64,/9j/')]);
+    return { steps: [{ operation: 'replacePerson', prompts: ['a little girl in a yellow dress talking', ''] }], description: 'replace', impossible: '' };
   };
   try {
     const trial = join(p.setting.outputRoot, 'trial');
@@ -82,23 +98,31 @@ test('a video and a photo with "put the person in the photo in place of the man"
     // 6 s at 25 fps with sound -> 96 frames at 16 fps: two windows (77, then 25 from frame 72)
     execFileSync(p.setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=25:d=6', '-f', 'lavfi', '-i', 'sine=f=440:d=6', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', join(trial, 'man.mp4')]);
     writeFileSync(join(trial, 'fisherman.png'), makePng(40, 60, [200, 60, 40]));
+    writeFileSync(join(trial, 'girl.png'), makePng(30, 70, [240, 220, 40]));
     for (const f of Object.keys(usedFiles(p.mod)).filter((k) => usedFiles(p.mod)[k].includes('replaceJob'))) {
       mkdirSync(join(p.setting.modelRoot, f.split('/')[0]), { recursive: true });
       writeFileSync(join(p.setting.modelRoot, ...f.split('/')), 'x');
     }
-    const job = p.queue.add('videoEdit', { source: 'job/trial/man.mp4', picture: 'job/trial/fisherman.png', instruction: 'fotoğraftaki kişiyi adamın yerine koy' });
-    assert.equal(job.summary.detail, 'Video editing by instruction · with a photo');
+    const job = p.queue.add('videoEdit', { source: 'job/trial/man.mp4', pictures: ['job/trial/girl.png', 'job/trial/fisherman.png'], instruction: 'fotoğraftaki kişileri onların yerine koy' });
+    assert.equal(job.summary.detail, 'Video editing by instruction · with 2 photos');
     const done = await p.waitUntilDone(job.id, 120000);
     assert.equal(done.status, 'done', done.error ?? '');
-    assert.deepEqual(instructions, [['fotoğraftaki kişiyi adamın yerine koy', true, true]]);
+    assert.deepEqual(instructions, [['fotoğraftaki kişileri onların yerine koy', true, 2, 2, true]], 'the planner sees the photos (one JPEG side by side) to describe those people');
     assert.equal(done.type, 'replace');
     assert.equal(done.handedFrom, 'videoEdit');
-    assert.deepEqual([done.input.source, done.input.picture, done.input.prompt], ['job/trial/man.mp4', 'job/trial/fisherman.png', 'an old fisherman talking']);
+    assert.equal(done.summary.detail, 'Wan 2.2 Animate · 2 people from the photos');
+    assert.deepEqual([done.input.source, done.input.people], ['job/trial/man.mp4', [{ picture: 'job/trial/girl.png', prompt: 'a little girl in a yellow dress talking' }, { picture: 'job/trial/fisherman.png', prompt: DEFAULT_PROMPT }]]);
     const prompts = p.fake.status.records.filter((r) => r.path === '/prompt').map((r) => JSON.parse(r.prompt).prompt);
-    assert.equal(prompts.length, 2, 'two windows');
-    const animate = (g) => Object.values(g).find((d) => d.class_type === 'WanAnimateToVideo').inputs;
-    assert.deepEqual(prompts.map((g) => [animate(g).length, animate(g).width, animate(g).height, Boolean(animate(g).continue_motion)]), [[77, 848, 480, false], [25, 848, 480, true]]);
+    assert.equal(prompts.length, 4, 'two people, two windows each');
+    const of = (g, t) => Object.values(g).find((d) => d.class_type === t).inputs;
+    const animate = (g) => of(g, 'WanAnimateToVideo');
+    assert.deepEqual(prompts.map((g) => [animate(g).length, animate(g).width, animate(g).height, Boolean(animate(g).continue_motion)]), [[77, 848, 480, false], [25, 848, 480, true], [77, 848, 480, false], [25, 848, 480, true]]);
+    // window 1 picks the person from the left, window 2 follows them from the box at frame 72 (fake: x = 72 / 1000)
+    assert.deepEqual(prompts.map((g) => JSON.parse(of(g, 'NedeseReplacePrep').target)), [{ order: 1 }, { box: [0.072, 0.2, 0.372, 0.9] }, { order: 2 }, { box: [0.072, 0.2, 0.372, 0.9] }]);
+    assert.deepEqual(prompts.map((g) => of(g, 'CLIPTextEncode').text), ['a little girl in a yellow dress talking', 'a little girl in a yellow dress talking', DEFAULT_PROMPT, DEFAULT_PROMPT]);
     assert.equal(Object.values(prompts[1]).filter((d) => d.class_type === 'LoadImage').length, 6, 'the photo and the 5 motion frames');
+    const photo = (g) => Object.values(g).filter((d) => d.class_type === 'LoadImage').map((d) => d.inputs.image.match(/person\d/)?.[0]).find(Boolean);
+    assert.deepEqual(prompts.map(photo), ['person1', 'person1', 'person2', 'person2'], 'each pass its own photo');
     const main = done.outputs.find((o) => o.main);
     assert.equal(main.file, 'replaced.mp4');
     const s = await streams(p.setting.ffprobe, join(p.queue.folder(job.id), 'replaced.mp4'));

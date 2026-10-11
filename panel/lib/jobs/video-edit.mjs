@@ -4,10 +4,10 @@
  * operations (lib/edit-plan.mjs); filter steps in a row share one ffmpeg pass (crf 18), cut / audio / music get a
  * pass of their own.
  * Music can be added only when the user gave a music file. The plan is saved in the job (for a retry).
- * A video (or several) described as a montage to the beat ("beatCut") goes on as a Beat cut; with a photo of a person,
- * the person in the video replaced by them ("replacePerson") goes on as Replace a person.
+ * A video (or several) described as a montage to the beat ("beatCut") goes on as a Beat cut; with photos of people
+ * (left to right), the people in the video replaced by them ("replacePerson") goes on as Replace a person.
  */
-import { copyFileSync, existsSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
 import { join } from 'node:path';
 import { streams, runFfmpeg, makePreview } from '../ffmpeg.mjs';
@@ -16,6 +16,7 @@ import { plan as makePlan } from '../edit-plan.mjs';
 import { hasText } from '../text-model.mjs';
 import { text, musicPath, sourcePath, MUSIC_LEVEL } from './common.mjs';
 import { recordPath } from './clone.mjs';
+import { REPLACE, DEFAULT_PROMPT } from './replace.mjs';
 
 export const name = 'Edit video';
 // ffmpeg only: the graphics card guard does not hold this job back.
@@ -37,14 +38,16 @@ export function validate(g, { setting }) {
   for (const s of list) if (!VIDEO_EXTENSION.test(recordPath(setting.outputRoot, s))) throw new UserError('Pick a video file (MP4, MOV, MKV, WebM…).');
   const music = String(g.music ?? '').trim();
   if (music) musicPath(setting.outputRoot, music);
-  // a photo of a person: the person in the video can be replaced by them
-  const picture = String(g.picture ?? '').trim();
-  if (picture) sourcePath(setting.outputRoot, picture);
-  return { source: list[0], ...(list.length > 1 ? { sources: list } : {}), instruction: text(g.instruction, 'Instruction', { max: 2000 }), music: music || null, ...(picture ? { picture } : {}) };
+  // photos of people (left to right): the people in the video can be replaced by them
+  const pictures = (Array.isArray(g.pictures) ? g.pictures : []).map((s) => String(s ?? '').trim()).filter(Boolean);
+  if (pictures.length > REPLACE.people) throw new UserError(`At most ${REPLACE.people} photos of people.`);
+  for (const s of pictures) sourcePath(setting.outputRoot, s);
+  return { source: list[0], ...(list.length > 1 ? { sources: list } : {}), instruction: text(g.instruction, 'Instruction', { max: 2000 }), music: music || null, ...(pictures.length ? { pictures } : {}) };
 }
 
 export function summary(g) {
-  return { title: g.instruction, detail: `Video editing by instruction${g.sources ? ` · ${g.sources.length} videos` : ''}${g.music ? ' · with music' : ''}${g.picture ? ' · with a photo' : ''}` };
+  const photos = g.pictures ? (g.pictures.length > 1 ? ` · with ${g.pictures.length} photos` : ' · with a photo') : '';
+  return { title: g.instruction, detail: `Video editing by instruction${g.sources ? ` · ${g.sources.length} videos` : ''}${g.music ? ' · with music' : ''}${photos}` };
 }
 
 /** The steps that need a pass of their own (input cut, the audio stream, the music mix); the others join the filter chain. */
@@ -232,9 +235,20 @@ export async function run(ctx) {
     ctx.progress({ percent: 3, stage: 'Understanding the instruction' });
     const b = await videoInfo(ctx.setting.ffprobe, source);
     if (b.duration > 3 * 3600) throw new UserError('The video is longer than 3 hours.');
-    const info = { duration: b.duration, hasMusic: Boolean(music), hasPhoto: Boolean(g.picture), sourceCount: g.sources?.length ?? 1, summary: { durationSec: Math.round(b.duration * 10) / 10, width: b.width, height: b.height, fps: b.fps, hasVoice: b.voice, musicFileGiven: Boolean(music), photoGiven: Boolean(g.picture) } };
+    const info = { duration: b.duration, hasMusic: Boolean(music), hasPhoto: Boolean(g.pictures), photoCount: g.pictures?.length ?? 0, sourceCount: g.sources?.length ?? 1, summary: { durationSec: Math.round(b.duration * 10) / 10, width: b.width, height: b.height, fps: b.fps, hasVoice: b.voice, musicFileGiven: Boolean(music), photosGiven: g.pictures?.length ?? 0 } };
     const planner = ctx.setting.editPlan ?? makePlan;
-    ctx.job.plan = await planner({ type: 'video', instruction: g.instruction, info, signal: ctx.signal });
+    // the photos of people side by side, small (the image encoder scales it down anyway): the plan describes each person
+    let image = null;
+    if (g.pictures) {
+      const jpg = join(k, 'person-plan.jpg');
+      const n = g.pictures.length;
+      const scaled = g.pictures.map((_, i) => `[${i}:v]scale=-2:${n > 1 ? 384 : 768},setsar=1[p${i}]`).join(';');
+      const joined = n > 1 ? `;${g.pictures.map((_, i) => `[p${i}]`).join('')}hstack=inputs=${n}[all]` : '';
+      await runFfmpeg(ff, ['-y', ...g.pictures.flatMap((s) => ['-i', sourcePath(ctx.setting.outputRoot, s)]), '-filter_complex', scaled + joined, '-map', n > 1 ? '[all]' : '[p0]', '-frames:v', '1', '-q:v', '3', jpg], { signal: ctx.signal });
+      image = `data:image/jpeg;base64,${readFileSync(jpg).toString('base64')}`;
+      rmSync(jpg, { force: true });
+    }
+    ctx.job.plan = await planner({ type: 'video', instruction: g.instruction, info, image, signal: ctx.signal });
     ctx.save();
   }
   const plan = ctx.job.plan;
@@ -244,7 +258,9 @@ export async function run(ctx) {
   if (first.operation === 'beatCut') {
     ctx.handOver('beatEdit', { sources: g.sources ?? [g.source], music: g.music ? 'file' : 'made', musicFile: g.music, size: first.size, pace: first.pace, length: first.length, title: g.instruction.slice(0, 120) });
   }
-  if (first.operation === 'replacePerson') ctx.handOver('replace', { source: g.source, picture: g.picture, prompt: first.prompt, title: g.instruction.slice(0, 120) });
+  if (first.operation === 'replacePerson') {
+    ctx.handOver('replace', { source: g.source, people: g.pictures.map((picture, i) => ({ picture, prompt: first.prompts[i] || DEFAULT_PROMPT })), title: g.instruction.slice(0, 120) });
+  }
 
   // 2. The passes: filter steps in a row in one ffmpeg pass (a retry skips a finished pass)
   let current = source;

@@ -136,6 +136,11 @@ export async function startFakeComfy({ mode = 'normal', frameSize = [64, 36], st
           const training = job.graph[d.inputs.source[0]];
           job.outputs[node] = { text: [JSON.stringify({ loss: Array.from({ length: training?.inputs?.steps ?? 1 }, (_, i) => 0.5 - i / 1000) }, null, 4)] };
         }
+        if (d.class_type === 'NedeseReplacePrep') {
+          // the followed person's box in every frame of the window (frame i at x = i / 1000)
+          const n = Object.values(job.graph).find((x) => x.class_type === 'WanAnimateToVideo')?.inputs.length ?? 1;
+          job.outputs[node] = { boxes: [JSON.stringify(Array.from({ length: n }, (_, i) => [i / 1000, 0.2, i / 1000 + 0.3, 0.9]))] };
+        }
         if (d.class_type === 'SaveImage') {
           const n = frameCount(job.graph, node);
           const prefix = d.inputs.filename_prefix;

@@ -9,8 +9,11 @@ the character mask (that area grown and made blocky, so a person of another buil
 Pose: DWPose (IDEA-Research, Apache-2.0) as TorchScript on the GPU: YOLOX-L finds the people, RTMPose (dw-ll ucoco
 384) gives the 133 whole-body keypoints of one of them. The pre and post processing follow mmpose / DWPose; the body
 is drawn like ControlNet's OpenPose annotator at a 960 pixel short side, as ComfyUI's Wan Animate example does. One
-person is followed: the largest in the first frame with people, then in every frame the box that overlaps it most.
+person is followed: the largest in the first frame with people (or the k-th from the left, or the one at a given box:
+target), then in every frame the box that overlaps it most. Its box in every frame comes back in the node's UI output
+(boxes): a long video is made window by window and the next window follows the same person from it.
 """
+import json
 import os
 
 import cv2
@@ -168,14 +171,42 @@ def _overlap(a, b):
     return w * h / union if union > 0 else 0.0
 
 
-def follow_person(detections):
-    """One box per frame: the largest person of the first frame with people, then the box overlapping the last one
-    most (a frame without one keeps the last box). None when no frame has a person."""
+def people_in_order(boxes):
+    """The people of a frame from left to right (box centers); someone far smaller than the largest (a passer-by in
+    the distance, under 15% of its area) does not count."""
+    area = lambda b: (b[2] - b[0]) * (b[3] - b[1])
+    largest = max(area(b) for b in boxes)
+    return sorted([b for b in boxes if area(b) >= 0.15 * largest], key=lambda b: b[0] + b[2])
+
+
+def pick_person(boxes, target, width, height):
+    """The person to replace in the first frame with people. target: {} the largest; {'order': k} the k-th from the
+    left (1-based); {'box': [x0, y0, x1, y1]} (0-1, the box carried over from the previous window) the box that
+    overlaps it most, else the nearest one."""
+    area = lambda b: (b[2] - b[0]) * (b[3] - b[1])
+    if target.get('order'):
+        ordered = people_in_order(boxes)
+        k = int(target['order'])
+        if k > len(ordered):
+            raise ValueError(f'Only {len(ordered)} people were found in the first frame; photo {k} has no one to replace.')
+        return ordered[k - 1]
+    if target.get('box'):
+        hint = np.array(target['box'], np.float64) * [width, height, width, height]
+        best = max(boxes, key=lambda b: _overlap(b, hint))
+        if _overlap(best, hint) > 0.1:
+            return best
+        center = lambda b: np.array([(b[0] + b[2]) / 2, (b[1] + b[3]) / 2])
+        return min(boxes, key=lambda b: np.linalg.norm(center(b) - center(hint)))
+    return max(boxes, key=area)
+
+
+def follow_person(detections, target=None, width=1, height=1):
+    """One box per frame: the person picked in the first frame with people (pick_person), then the box overlapping
+    the last one most (a frame without one keeps the last box). None when no frame has a person."""
     first = next((i for i, d in enumerate(detections) if len(d)), None)
     if first is None:
         return None
-    area = lambda b: (b[2] - b[0]) * (b[3] - b[1])
-    last = max(detections[first], key=area)
+    last = pick_person(detections[first], target or {}, width, height)
     boxes = []
     for i, d in enumerate(detections):
         if i > first and len(d):
@@ -272,6 +303,7 @@ class NedeseReplacePrep:
             },
             'optional': {
                 'foreground': ('MASK', {'tooltip': 'The foreground of every frame (Remove Background); without it the person box is used.'}),
+                'target': ('STRING', {'default': '', 'tooltip': 'Which person (JSON): empty the largest; {"order": k} the k-th from the left; {"box": [x0, y0, x1, y1]} (0-1) the one there.'}),
             },
         }
 
@@ -281,7 +313,7 @@ class NedeseReplacePrep:
     CATEGORY = 'Nedese Studio'
     DESCRIPTION = 'The pose, face, background and person mask of a video for WanAnimateToVideo (replacing its person).'
 
-    def run(self, images, grow, block, foreground=None):
+    def run(self, images, grow, block, foreground=None, target=''):
         frames = (images[..., :3].clamp(0, 1) * 255).round().to(torch.uint8).cpu().numpy()
         count, height, width = frames.shape[:3]
         bgr = [np.ascontiguousarray(f[..., ::-1]) for f in frames]
@@ -290,7 +322,7 @@ class NedeseReplacePrep:
             detections = [detect_people(detector, f) for f in bgr]
         finally:
             del detector
-        boxes = follow_person(detections)
+        boxes = follow_person(detections, json.loads(target) if target else {}, width, height)
         if boxes is None:
             raise ValueError('No person was found in the video.')
         model = _load(POSE_MODEL)
@@ -314,7 +346,9 @@ class NedeseReplacePrep:
         found = sum(1 for d in detections if len(d))
         print(f'[Nedese] replace prep: {count} frames {width}x{height}, a person in {found}, mask {masks.mean() * 100:.0f}% of the picture')
         as_image = lambda a: torch.from_numpy(np.ascontiguousarray(a)).float() / 255
-        return (as_image(pose), as_image(np.stack(faces)), torch.from_numpy(background), torch.from_numpy(masks))
+        # the person's box in every frame (0-1): the next window follows the same person from it
+        followed = [[round(float(b[0]) / width, 4), round(float(b[1]) / height, 4), round(float(b[2]) / width, 4), round(float(b[3]) / height, 4)] for b in boxes]
+        return {'ui': {'boxes': [json.dumps(followed)]}, 'result': (as_image(pose), as_image(np.stack(faces)), torch.from_numpy(background), torch.from_numpy(masks))}
 
 
 NODE_CLASS_MAPPINGS = {'NedeseReplacePrep': NedeseReplacePrep}

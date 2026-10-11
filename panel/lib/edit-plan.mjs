@@ -7,7 +7,7 @@
  * the edit job hands itself over to that type.
  */
 import { UserError } from './errors.mjs';
-import { runText, hasText } from './text-model.mjs';
+import { runText, hasText, readsImages } from './text-model.mjs';
 
 const limit = (v, min, max, defaultValue) => {
   const n = Number(v);
@@ -75,8 +75,13 @@ const VIDEO_OPERATIONS = {
     validate: (a) => ({ pace: PACES.includes(a.pace) ? a.pace : 'medium', size: SIZES.includes(a.size) ? a.size : 'source', length: limit(a.length, 0, 180, 0) }),
   },
   replacePerson: {
-    description: 'replacePerson {prompt}: ONLY if photoGiven is true: the person in the video is replaced by the person in the given photo (the motion, the background and the sound stay); prompt = one short English sentence of what that person does in the video (e.g. "an old fisherman in a red hat talking and smiling")',
-    validate: (a, b) => (b.hasPhoto ? { prompt: typeof a.prompt === 'string' ? a.prompt.trim().slice(0, 500) : '' } : null),
+    description: 'replacePerson {prompts}: ONLY if photosGiven is more than 0: the people in the video are replaced by the people in the given photos, photo 1 the leftmost person, photo 2 the next one to the right... (the motion, the background and the sound stay); prompts = one short English sentence per photo, in photo order, describing the person IN THAT PHOTO (age, hair, beard, clothes; the attached image shows the photos left to right when there is one) and what they do in the video (e.g. ["an old fisherman with a grey beard in a red knit hat and red jacket, talking and smiling"])',
+    validate: (a, b) => {
+      if (!b.hasPhoto) return null;
+      // a model that gives one sentence for one photo writes "prompt"
+      const list = Array.isArray(a.prompts) ? a.prompts : [a.prompt];
+      return { prompts: Array.from({ length: b.photoCount || 1 }, (_, i) => (typeof list[i] === 'string' ? list[i].trim().slice(0, 500) : '')) };
+    },
   },
 };
 
@@ -133,8 +138,15 @@ export function parsePlan(type, text, info) {
   return { steps: steps.slice(0, 20), description: String(j.description ?? '').trim().slice(0, 300), impossible };
 }
 
-/** From inside a job (audio/video editing): does not wait for the graphics card. */
-export async function plan({ type, instruction, info, signal = null }) {
+/**
+ * From inside a job (audio/video editing): does not wait for the graphics card. image: the photos of people given
+ * with a video side by side (a data URL), shown to the model when it reads images: the replacePerson prompts then
+ * describe those people (measured 11.10.2026: "a man in the video" let the face drift away from the photo).
+ */
+export async function plan({ type, instruction, info, image = null, signal = null }) {
   if (!hasText()) throw new UserError('The instruction interpreter (text model) is not on this machine; editing by instruction is unavailable.');
-  return runText({ system: system(type, info), prompt: instruction, json: true, temperature: 0.2, maxToken: 2048, signal, name: 'Edit plan', parse: (m) => parsePlan(type, m, info) });
+  const shown = image && readsImages() ? image : null;
+  const photos = info.photoCount > 1 ? `the ${info.photoCount} photos of people given with the video, side by side: photo 1 on the left` : 'the photo of the person given with the video';
+  const prompt = shown ? `${instruction}\n\n(The attached image is ${photos}.)` : instruction;
+  return runText({ system: system(type, info), prompt, image: shown, json: true, temperature: 0.2, maxToken: 2048, signal, name: 'Edit plan', parse: (m) => parsePlan(type, m, info) });
 }

@@ -339,9 +339,11 @@ export function lipJob({ picture, motions = null, voice1, voice2, mask1 = null, 
  * NedeseReplacePrep (tools/comfy-nodes) gives the pose, face, background and person mask of its frames; BiRefNet
  * the foreground. picture: the person's photo (already padded to width x height: the node crops to fill). motions:
  * in a later window the previous window's last 5 output frames (uploaded file names); the clip then starts with the
- * frames they stand for and the first 5 output frames are dropped.
+ * frames they stand for and the first 5 output frames are dropped. target: which person ({} the largest, { order: k }
+ * the k-th from the left, { box } the one the previous window followed); the node's UI output `boxes` gives the
+ * followed person's box in every frame.
  */
-export function replaceJob({ clip, picture, motions = null, text, seed, width = 832, height = 480, frame = 77, prefix }) {
+export function replaceJob({ clip, picture, motions = null, target = {}, text, seed, width = 832, height = 480, frame = 77, prefix }) {
   const g = {
     1: { class_type: 'UnetLoaderGGUF', inputs: { unet_name: 'Wan2.2-Animate-14B-Q4_K_M.gguf' } },
     2: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['1', 0], lora_name: 'lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors', strength_model: 1 } },
@@ -358,7 +360,7 @@ export function replaceJob({ clip, picture, motions = null, text, seed, width = 
     13: { class_type: 'GetVideoComponents', inputs: { video: ['12', 0] } },
     14: { class_type: 'LoadBackgroundRemovalModel', inputs: { bg_removal_name: 'birefnet.safetensors' } },
     15: { class_type: 'RemoveBackground', inputs: { bg_removal_model: ['14', 0], image: ['13', 0] } },
-    16: { class_type: 'NedeseReplacePrep', inputs: { images: ['13', 0], foreground: ['15', 0], grow: 20, block: 32 } },
+    16: { class_type: 'NedeseReplacePrep', inputs: { images: ['13', 0], foreground: ['15', 0], grow: 20, block: 32, target: JSON.stringify(target) } },
   };
   let previous = null;
   if (motions?.length) {

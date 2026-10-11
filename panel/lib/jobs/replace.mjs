@@ -2,9 +2,11 @@
  * Replace a person: the person in a video replaced by the person in a photo (Wan 2.2 Animate, replacement mode; the
  * model module's replaceJob). The video is made window by window at 16 fps (~400k pixels, its own shape): each window
  * after the first starts with the previous window's last 5 frames (continue_motion), so the motion and the new person
- * run on without a jump. The background, the camera and the other people stay; the largest person of the first frame
- * is replaced. The video's own sound is put back.
- * A RETRY RESUMES WHERE IT LEFT OFF: a finished window (checkpoint.json) is not made again.
+ * run on without a jump, and follows the person the previous window followed (the prep node's boxes). The background,
+ * the camera and the other people stay. One photo: the largest person of the first frame is replaced. Several photos
+ * (people, up to 4): they replace the people of the first frame from left to right, one pass each (the model replaces
+ * one person at a time; each pass works on the previous pass's frames). The video's own sound is put back.
+ * A RETRY RESUMES WHERE IT LEFT OFF: a finished window or pass (checkpoint.json) is not made again.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,7 +19,8 @@ import { recordPath } from './clone.mjs';
 
 export const name = 'Replace a person';
 const VIDEO_EXTENSION = /\.(mp4|mov|mkv|webm|avi|m4v|3gp)$/i;
-export const REPLACE = { fps: 16, window: 77, motion: 5, pixels: 832 * 480, longest: 60 };
+export const REPLACE = { fps: 16, window: 77, motion: 5, pixels: 832 * 480, longest: 60, people: 4 };
+export const DEFAULT_PROMPT = 'a person moving naturally, realistic, consistent identity';
 
 /** The size the video is made at: its own shape, ~400k pixels, both sides a multiple of 16. */
 export function replaceSize(width, height) {
@@ -45,32 +48,51 @@ export function replaceWindows(total) {
   return list;
 }
 
+/**
+ * Where the followed person is at the start of the next window: the prep node returns the person's box in every frame
+ * of the window (0-1, JSON in its ui output). null when there is no next window or the node gave no boxes.
+ */
+export function nextBox(outputs, graph, window, next) {
+  if (!next) return null;
+  try {
+    const boxes = JSON.parse(outputs?.[nodes(graph, 'NedeseReplacePrep')[0]]?.boxes?.[0] ?? 'null');
+    return Array.isArray(boxes) && boxes.length ? boxes[Math.min(next.start - window.start, boxes.length - 1)] ?? null : null;
+  } catch {
+    return null;
+  }
+}
+
 export function validate(g, { setting, mod }) {
   generatorRequired(mod, 'replaceJob', 'Replacing a person', setting?.modelRoot);
   const source = String(g.source ?? '').trim();
   if (!source) throw new UserError('Pick the video whose person is replaced.');
   if (!VIDEO_EXTENSION.test(recordPath(setting.outputRoot, source))) throw new UserError('Pick a video file (MP4, MOV, MKV, WebM…).');
-  const picture = String(g.picture ?? '').trim();
-  if (!picture) throw new UserError('Pick the photo of the person who takes their place.');
-  sourcePath(setting.outputRoot, picture);
+  const list = Array.isArray(g.people) ? g.people : [];
+  if (!list.length) throw new UserError('Pick the photo of the person who takes their place.');
+  if (list.length > REPLACE.people) throw new UserError(`At most ${REPLACE.people} people can be replaced at once.`);
+  const people = list.map((p) => {
+    const picture = String(p?.picture ?? '').trim();
+    if (!picture) throw new UserError('Pick the photo of the person who takes their place.');
+    sourcePath(setting.outputRoot, picture);
+    // English (the model's language): the person and what they do in the video; the motion comes from the video
+    return { picture, prompt: text(p.prompt, 'Prompt', { required: false, max: 500 }) || DEFAULT_PROMPT };
+  });
   return {
     source,
-    picture,
-    // English (the model's language): what happens in the video with the new person; the motion comes from the video
-    prompt: text(g.prompt, 'Prompt', { required: false, max: 500 }) || 'a person moving naturally, realistic, consistent identity',
+    people,
     title: text(g.title, 'Title', { required: false, max: 120 }) || null,
     seed: seed(g.seed),
   };
 }
 
 export function summary(g) {
-  return { title: g.title || 'Person replaced', detail: 'Wan 2.2 Animate · the person from the photo' };
+  const many = g.people?.length > 1;
+  return { title: g.title || (many ? 'People replaced' : 'Person replaced'), detail: many ? `Wan 2.2 Animate · ${g.people.length} people from the photos` : 'Wan 2.2 Animate · the person from the photo' };
 }
 
 export async function run(ctx) {
   const g = ctx.job.input;
   const source = recordPath(ctx.setting.outputRoot, g.source);
-  const photo = sourcePath(ctx.setting.outputRoot, g.picture);
   const ff = (a, o = {}) => runFfmpeg(ctx.setting.ffmpeg, a, { cwd: ctx.folder, signal: ctx.signal, ...o });
   const info = await streams(ctx.setting.ffprobe, source);
   const v = info.streams.find((s) => s.codec_type === 'video');
@@ -80,12 +102,11 @@ export async function run(ctx) {
   const turned = [90, 270].includes(Math.abs(Number(v.tags?.rotate ?? v.side_data_list?.find((d) => d.rotation != null)?.rotation ?? 0)) % 360);
   const { width, height } = replaceSize(turned ? v.height : v.width, turned ? v.width : v.height);
 
-  // 1. The frames at 16 fps in the made size (cropped to fill), and the photo letterboxed to it (the model crops to fill)
+  // 1. The frames at 16 fps in the made size (cropped to fill)
   const work = join(ctx.folder, 'work');
   const sourceFolder = join(work, 'source');
-  const targetFolder = join(work, 'frames');
+  const passFolder = (p) => join(work, `pass${p}`);
   mkdirSync(sourceFolder, { recursive: true });
-  mkdirSync(targetFolder, { recursive: true });
   if (!existsSync(join(work, 'source.done'))) {
     ctx.progress({ percent: 2, stage: 'Reading the video' });
     for (const d of pngs(sourceFolder)) rmSync(join(sourceFolder, d), { force: true });
@@ -94,11 +115,10 @@ export async function run(ctx) {
   }
   const frames = pngs(sourceFolder);
   if (!frames.length) throw new UserError('No frames could be read from the video.');
-  const reference = join(work, 'person.png');
-  if (!existsSync(reference)) await ff(['-i', photo, '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=white`, '-frames:v', '1', reference]);
 
-  // 2. The windows (a retry continues after the last finished one)
+  // 2. Each person a pass, each pass window by window (a retry continues after the last finished window)
   const windows = replaceWindows(frames.length);
+  const passes = g.people.length;
   const statusPath = join(work, 'checkpoint.json');
   let status = null;
   try {
@@ -106,50 +126,69 @@ export async function run(ctx) {
   } catch {
     /* none */
   }
-  const signature = JSON.stringify({ frames: frames.length, width, height });
+  const signature = JSON.stringify({ frames: frames.length, width, height, people: g.people.map((p) => p.picture) });
+  const save = (s) => {
+    status = s;
+    writeFileSync(statusPath, JSON.stringify(status), 'utf8');
+  };
   if (status?.signature !== signature) {
-    for (const d of pngs(targetFolder)) rmSync(join(targetFolder, d), { force: true });
-    status = { signature, window: 0, frame: 0 };
-    writeFileSync(statusPath, JSON.stringify(status), 'utf8');
+    for (let p = 1; p <= REPLACE.people; p++) rmSync(passFolder(p), { recursive: true, force: true });
+    save({ signature, pass: 1, window: 0, frame: 0, box: null });
   }
-  const deleted = deleteExtraFrames(targetFolder, status.frame);
-  if (deleted) ctx.log(`${deleted} frames removed from the unfinished window (resuming where it left off).`);
-  ctx.log(`${frames.length} frames (${(frames.length / REPLACE.fps).toFixed(1)} s) at ${width}x${height}, ${windows.length} window${windows.length > 1 ? 's' : ''}.`);
+  ctx.log(`${frames.length} frames (${(frames.length / REPLACE.fps).toFixed(1)} s) at ${width}x${height}, ${windows.length} window${windows.length > 1 ? 's' : ''}${passes > 1 ? `, ${passes} people (from the left)` : ''}.`);
   const namePrefix = `panel_${ctx.job.id}_`;
-  const picture = await ctx.comfy.load(reference, `${namePrefix}person.png`);
-  for (const w of windows.slice(status.window)) {
-    const startedAt = Date.now();
-    // the window's frames as a video for ComfyUI (the last frame repeated past the end)
-    const list = join(work, `w${w.no}.txt`);
-    writeFileSync(list, Array.from({ length: w.length }, (_, i) => `file '${join(sourceFolder, frames[Math.min(w.start + i, frames.length - 1)]).replaceAll('\\', '/')}'\nduration ${1 / REPLACE.fps}`).join('\n'), 'utf8');
-    const clipPath = join(work, `w${w.no}.mp4`);
-    await ff(['-f', 'concat', '-safe', '0', '-i', list, '-frames:v', String(w.length), '-r', String(REPLACE.fps), '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', clipPath]);
-    const clip = await ctx.comfy.load(clipPath, `${namePrefix}w${w.no}.mp4`);
-    const existing = pngs(targetFolder);
-    const motions = w.no === 1 ? null : await Promise.all(existing.slice(-REPLACE.motion).map((d, j) => ctx.comfy.load(join(targetFolder, d), `${namePrefix}w${w.no}_m${j + 1}.png`)));
-    const graph = ctx.mod.replaceJob({ clip, picture, motions, text: g.prompt, seed: g.seed, width, height, frame: w.length, prefix: `panel/${ctx.job.id}/w${w.no}` });
-    const record = nodes(graph, 'SaveImage')[0];
-    const [p0, p1] = [5 + (90 * (w.no - 1)) / windows.length, 5 + (90 * w.no) / windows.length];
-    const outputs = await ctx.runComfy(graph, { stage: `Replacing the person ${w.no}/${windows.length}`, range: [p0, p1] });
-    const got = images(outputs, record);
-    if (!got.length) throw new Error('ComfyUI did not return the frames of the window.');
-    let no = existing.length;
-    for (const c of got) {
-      no += 1;
-      await ctx.comfy.getOutput(c, join(targetFolder, `${String(no).padStart(5, '0')}.png`));
+  for (let p = status.pass; p <= passes; p++) {
+    // the pass works on the previous pass's frames
+    const inputFolder = p === 1 ? sourceFolder : passFolder(p - 1);
+    const input = pngs(inputFolder).slice(0, frames.length);
+    const targetFolder = passFolder(p);
+    mkdirSync(targetFolder, { recursive: true });
+    const deleted = deleteExtraFrames(targetFolder, status.frame);
+    if (deleted) ctx.log(`${deleted} frames removed from the unfinished window (resuming where it left off).`);
+    // the photo letterboxed to the made size (the model crops to fill)
+    const reference = join(work, `person${p}.png`);
+    if (!existsSync(reference)) await ff(['-i', sourcePath(ctx.setting.outputRoot, g.people[p - 1].picture), '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=white`, '-frames:v', '1', reference]);
+    const picture = await ctx.comfy.load(reference, `${namePrefix}person${p}.png`);
+    const who = passes > 1 ? `p${p}` : '';
+    for (const w of windows.slice(status.window)) {
+      const startedAt = Date.now();
+      // the window's frames as a video for ComfyUI (the last frame repeated past the end)
+      const list = join(work, `w${w.no}.txt`);
+      writeFileSync(list, Array.from({ length: w.length }, (_, i) => `file '${join(inputFolder, input[Math.min(w.start + i, input.length - 1)]).replaceAll('\\', '/')}'\nduration ${1 / REPLACE.fps}`).join('\n'), 'utf8');
+      const clipPath = join(work, `w${w.no}.mp4`);
+      await ff(['-f', 'concat', '-safe', '0', '-i', list, '-frames:v', String(w.length), '-r', String(REPLACE.fps), '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', clipPath]);
+      const clip = await ctx.comfy.load(clipPath, `${namePrefix}${who}w${w.no}.mp4`);
+      const existing = pngs(targetFolder);
+      const motions = w.no === 1 ? null : await Promise.all(existing.slice(-REPLACE.motion).map((d, j) => ctx.comfy.load(join(targetFolder, d), `${namePrefix}${who}w${w.no}_m${j + 1}.png`)));
+      // the first window picks the person (one photo: the largest; several: the p-th from the left), later ones follow them
+      const target = w.no > 1 && status.box ? { box: status.box } : passes > 1 ? { order: p } : {};
+      const graph = ctx.mod.replaceJob({ clip, picture, motions, target, text: g.people[p - 1].prompt, seed: g.seed, width, height, frame: w.length, prefix: `panel/${ctx.job.id}/${who}w${w.no}` });
+      const record = nodes(graph, 'SaveImage')[0];
+      const part = (k) => 5 + (90 * (p - 1 + k / windows.length)) / passes;
+      const stage = passes > 1 ? `Replacing person ${p}/${passes} · ${w.no}/${windows.length}` : `Replacing the person ${w.no}/${windows.length}`;
+      const outputs = await ctx.runComfy(graph, { stage, range: [part(w.no - 1), part(w.no)] });
+      const got = images(outputs, record);
+      if (!got.length) throw new Error('ComfyUI did not return the frames of the window.');
+      let no = existing.length;
+      for (const c of got) {
+        no += 1;
+        await ctx.comfy.getOutput(c, join(targetFolder, `${String(no).padStart(5, '0')}.png`));
+      }
+      save({ ...status, window: w.no, frame: no, box: nextBox(outputs, graph, w, windows[w.no]) ?? status.box });
+      rmSync(clipPath, { force: true });
+      const seconds = (Date.now() - startedAt) / 1000;
+      ctx.log(`${passes > 1 ? `Person ${p}/${passes}, window` : 'Window'} ${w.no}/${windows.length} (frames ${w.start + 1}-${w.start + w.length}): ${Math.round(seconds)} s`);
+      ctx.measure('replace', seconds / ((w.no === 1 ? w.length : w.length - REPLACE.motion) / REPLACE.fps));
     }
-    status.window = w.no;
-    status.frame = no;
-    writeFileSync(statusPath, JSON.stringify(status), 'utf8');
-    rmSync(clipPath, { force: true });
-    const seconds = (Date.now() - startedAt) / 1000;
-    ctx.log(`Window ${w.no}/${windows.length} (frames ${w.start + 1}-${w.start + w.length}): ${Math.round(seconds)} s`);
-    ctx.measure('replace', seconds / ((w.no === 1 ? w.length : w.length - REPLACE.motion) / REPLACE.fps));
+    // the last window ran past the end: its extra frames go
+    for (const d of pngs(targetFolder).slice(frames.length)) rmSync(join(targetFolder, d), { force: true });
+    save({ ...status, pass: p + 1, window: 0, frame: 0, box: null });
+    if (p > 1) rmSync(inputFolder, { recursive: true, force: true });
   }
 
-  // 3. The video with its own sound (the last window ran past the end: its extra frames go)
+  // 3. The video with its own sound
   ctx.progress({ percent: 96, stage: 'Putting the video together' });
-  for (const d of pngs(targetFolder).slice(frames.length)) rmSync(join(targetFolder, d), { force: true });
+  const targetFolder = passFolder(passes);
   const count = pngs(targetFolder).length;
   const hasVoice = info.streams.some((s) => s.codec_type === 'audio');
   const temp = join(ctx.folder, 'replaced.writing.mp4');

@@ -958,6 +958,8 @@ test('UI without tabs: Film makes what the description asks for (a film or a pro
     'b.mp4': make('b.mp4', ['-f', 'lavfi', '-i', 'rgbtestsrc=s=160x120:r=30:d=2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p']),
     'song.wav': make('song.wav', ['-f', 'lavfi', '-i', 'sine=f=440:d=2']),
     'photo.png': make('photo.png', ['-f', 'lavfi', '-i', 'testsrc2=s=160x120', '-frames:v', '1']),
+    'girl.png': make('girl.png', ['-f', 'lavfi', '-i', 'color=c=yellow:s=60x120', '-frames:v', '1']),
+    'man.png': make('man.png', ['-f', 'lavfi', '-i', 'color=c=red:s=60x120', '-frames:v', '1']),
   };
   const TYPES = { mp4: 'video/mp4', wav: 'audio/wav', png: 'image/png' };
   // the files as if picked in the card's file input (the browser's own upload path)
@@ -1011,6 +1013,13 @@ test('UI without tabs: Film makes what the description asks for (a film or a pro
     await t.evaluate(`document.querySelector('[data-video-up="1"]').click(); true`);
     const order = await t.evaluate(`window.NedesePanel.status.editVideos.map((v) => v.name)`);
     assert.deepEqual(order.map((n) => n.replace(/^.*?(a|b)\.mp4$/, '$1')), ['b', 'a'], order.join());
+    // images given while a video is open are photos of people, numbered left to right; the second one moved first
+    await pick('[data-edit-pick-upload]', ['girl.png', 'man.png']);
+    assert.ok(await until(`document.querySelectorAll('[data-video-photo-list] img').length === 2`), 'both photos are listed');
+    assert.deepEqual(await shown(), ['video'], 'the photos stay with the video');
+    await t.evaluate(`document.querySelector('[data-photo-left="1"]').click(); true`);
+    const photos = await t.evaluate(`window.NedesePanel.status.videoPhotos.map((k) => k.source)`);
+    assert.deepEqual(photos.map((n) => n.replace(/^.*?(girl|man)\.png$/, '$1')), ['man', 'girl'], photos.join());
     // the text model's plan for the description (the real planner is tested in edit-handover.test.mjs)
     const asked = [];
     p.setting.editPlan = async ({ instruction, info }) => {
@@ -1018,12 +1027,20 @@ test('UI without tabs: Film makes what the description asks for (a film or a pro
       return { steps: [{ operation: 'beatCut', pace: 'fast', size: '9:16', length: 2 }], description: 'beat cut', impossible: '' };
     };
     const before = new Set(p.queue.jobs.keys());
+    // what the form sent (the job's input changes when it is handed over)
+    let sent = null;
+    const add = p.queue.add.bind(p.queue);
+    p.queue.add = (type, g, ...rest) => {
+      sent ??= g;
+      return add(type, g, ...rest);
+    };
     await t.evaluate(`(() => { const f = document.querySelector('[data-job-form="videoEdit"]'); f.instruction.value = 'cut them to the beat for Reels'; window.__toasts = []; new MutationObserver(() => window.__toasts.push(document.querySelector('[data-toast-host], .toast-host').textContent)).observe(document.querySelector('[data-toast-host], .toast-host'), { childList: true, subtree: true, characterData: true }); f.requestSubmit(); return true; })()`);
     let job;
     for (const end = Date.now() + 15000; !job && Date.now() < end; await wait(100)) job = [...p.queue.jobs.values()].find((j) => !before.has(j.id));
     assert.ok(job, `the job was queued: ${await t.evaluate(`(() => { const f = document.querySelector('[data-job-form="videoEdit"]'); return JSON.stringify({ valid: f.checkValidity(), bad: [...f.elements].filter((e) => !e.checkValidity()).map((e) => e.name + ':' + e.validationMessage), instr: f.instruction.value, toast: window.__toasts }); })()`)}`);
     assert.equal(job.id.includes('videoEdit'), true, job.id);
     assert.deepEqual(job.input.sources.map((s) => s.replace(/^.*?(a|b)\.mp4$/, '$1')), ['b', 'a'], 'the videos go in the order shown');
+    assert.deepEqual(sent.pictures.map((s) => s.replace(/^.*?(girl|man)\.png$/, '$1')), ['man', 'girl'], 'the photos go in the order shown');
     // the description hands the edit over to a Beat cut, which makes the montage
     const done = await p.waitUntilDone(job.id, 120000);
     assert.equal(done.status, 'done', done.error ?? '');

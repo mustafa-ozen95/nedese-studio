@@ -151,27 +151,26 @@ export const JOB_TYPES = {
   },
   videoEdit: {
     name: 'Edit video',
-    description: 'Edits the given video from a Turkish instruction (ffmpeg): cut, speed/slow motion, rotate, mirror, vertical/square crop, size, mute/lower sound, add text, colour, black and white, fade, reverse, frame rate; adds music if music is given. A montage to the beat ("cut it to the music") or several videos (sources) go on as a Beat cut (the given music, else beat music): the job takes that type. With a photo of a person (picture), "put the person in the photo in place of the man" goes on as Replace a person. The plan is in the job log; requests that cannot be done come back as a warning.',
+    description: 'Edits the given video from a Turkish instruction (ffmpeg): cut, speed/slow motion, rotate, mirror, vertical/square crop, size, mute/lower sound, add text, colour, black and white, fade, reverse, frame rate; adds music if music is given. A montage to the beat ("cut it to the music") or several videos (sources) go on as a Beat cut (the given music, else beat music): the job takes that type. With photos of people (pictures), "put the people in the photos in place of the people in the video" goes on as Replace a person. The plan is in the job log; requests that cannot be done come back as a warning.',
     fields: [
       { name: 'source', type: 'string', required: false, description: 'Video: "upload/…" (POST /uploads/record) or "job/<id>/<file>" (from the gallery). Required unless sources is given.' },
       { name: 'sources', type: 'array', required: false, description: 'Several videos (2-30, same format as source) in order: they are cut together to the beat.' },
       { name: 'instruction', type: 'string', required: true, description: 'What to do (Turkish).' },
       { name: 'music', type: 'string', required: false, description: 'Music to add (audio or video file); used if the instruction says "add music".' },
-      { name: 'picture', type: 'string', required: false, description: 'Photo of a person (PNG/JPEG/WebP, "upload/…" or "job/<id>/<file>"): the person in the video can be replaced by them.' },
+      { name: 'pictures', type: 'array', required: false, description: 'Photos of people, left to right (1-4; PNG/JPEG/WebP, "upload/…" or "job/<id>/<file>"): the people in the video can be replaced by them, photo 1 the leftmost person.' },
     ],
     example: { type: 'videoEdit', source: 'job/20261004-011700-video-2fcf/video.mp4', instruction: 'Make it vertical for Instagram, put "New season" at the bottom, fade to black at the end' },
   },
   replace: {
     name: 'Replace a person',
-    description: 'The person in a video replaced by the person in a photo (Wan 2.2 Animate 14B, replacement mode): their motion, face and expression, the background, the camera, the other people and the sound stay. The largest person of the first frame is replaced. Made at 16 fps, ~832x480 in the shape of the video, window by window (77 frames, each continuing from the last 5 frames of the one before); at most 60 s. Also reached from Edit video with a photo (picture) and an instruction such as "put the person in the photo in place of the man".',
+    description: 'The people in a video replaced by the people in photos (Wan 2.2 Animate 14B, replacement mode): their motion, face and expression, the background, the camera, the other people and the sound stay. One photo: the largest person of the first frame is replaced; several (up to 4): photo 1 the leftmost person of the first frame, photo 2 the next one to the right..., one pass each (the time grows with the people). Each person is followed through the video. Made at 16 fps, ~832x480 in the shape of the video, window by window (77 frames, each continuing from the last 5 frames of the one before); at most 60 s. Also reached from Edit video with photos (pictures) and an instruction such as "put the person in the photo in place of the man".',
     fields: [
       { name: 'source', type: 'string', required: true, description: 'Video: "upload/…" (POST /uploads/record) or "job/<id>/<file>" (from the gallery).' },
-      { name: 'picture', type: 'string', required: true, description: 'Photo of the person who takes their place (PNG/JPEG/WebP; "upload/…" or "job/<id>/<file>").' },
-      { name: 'prompt', type: 'string', required: false, description: 'English: what that person does in the video (default: a person moving naturally).' },
+      { name: 'people', type: 'array', required: true, description: 'Who takes whose place, left to right (1-4): [{ picture: the photo (PNG/JPEG/WebP; "upload/…" or "job/<id>/<file>"), prompt: English, the person in the photo and what they do in the video (default: a person moving naturally) }].' },
       { name: 'title', type: 'string', required: false, description: 'Title.' },
       { name: 'seed', type: 'integer', required: false, description: 'Seed.' },
     ],
-    example: { type: 'replace', source: 'job/20261010-183657-film-23b4/scene01.mp4', picture: 'job/20261010-115445-image-9b9d/image_1.png', prompt: 'an old fisherman in a red hat smiling at a little girl in a hot air balloon' },
+    example: { type: 'replace', source: 'job/20261010-183657-film-23b4/scene01.mp4', people: [{ picture: 'job/20261010-115445-image-9b9d/image_1.png', prompt: 'an old fisherman in a red hat smiling at a little girl in a hot air balloon' }] },
   },
   model3d: {
     name: '3D model',
