@@ -9,10 +9,11 @@ The face of a separately generated head put onto a full-body Pixal3D model (Blen
 - The faces' five points (YuNet: eyes, nose, mouth corners) are cast from each picture's camera onto its model; a
   similarity transform (Umeyama) puts the head on the body's face.
 - Geometry: inside an ellipse around the body's face, on the layer the camera sees first, each vertex moves along its
-  view ray onto the head's surface; where the head gives no surface near it the offset is filled smoothly from its
-  neighbours. Vertices split at UV seams move together (welded by position): a seam does not open. A hidden layer that
-  faces away (the face's inner wall) moves with the surface in front of it and stays under it; the moved region takes
-  the new surface's normals.
+  view ray onto the head's surface where the surface faces the camera at large; everywhere else in the ellipse and
+  in a band around it the offset is harmonic (Laplace's equation, 0 at the band's edge), so the new face settles onto
+  the body without a fold. Vertices split at UV seams move together (welded by position): a seam does not open. A
+  hidden layer that faces away (the face's inner wall) moves with the surface in front of it and stays under it; the
+  moved vertices take the new surface's normals.
 - Texture: each texel of the face region casts the camera's ray onto the head and takes the head's colour (tone matched
   to the body's), roughness and metallic; the normal map is flat there (the head's own detail is in the new geometry).
   Texels whose ray found the head too far from them (the mouth corners, the eyelids' folds) take their neighbours'
@@ -38,17 +39,31 @@ from mathutils.bvhtree import BVHTree
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import model3d  # noqa: E402
 
-# The face region: an ellipse around the face box, EX x its width and EY x its height (radius), faded from FADE on.
-# Measured on a woman (11.10.2026): the face to the hairline and the chin, the ears and the hair stay the body's.
+# The face region: an ellipse around the face box, EX x its width and EY x its height (radius). The head's colours go
+# in it, faded from FADE on. Measured on a woman (11.10.2026): the face to the hairline and the chin, the ears and
+# the hair stay the body's.
 EX, EY, FADE = 0.55, 0.6, 0.8
+# The geometry goes onto the head inside MOVE_REACH x that ellipse: to the hairline (12.10.2026) the hair there,
+# lumpy in the body and the head alike but differently, came out lumpier still put onto the head's; the forehead's
+# top is carried over smoothly instead.
+MOVE_REACH = 0.83
+# The geometry goes onto the head inside the ellipse and settles back onto the body over a band around it, to BAND x
+# the radius: the offsets are harmonic there (Laplace's equation, 0 at the band's edge), so the new face meets the
+# body without a fold. Faded out inside the ellipse's last 20% (12.10.2026) they left a ridge down the cheek and along
+# the hairline, where the head's surface lay up to 0.6 eye distances from the body's.
+BAND = 1.6
+# A view-ray offset is trusted where the surface faces the camera (|normal . ray| from FACING[0] to FACING[1]): at a
+# silhouette a small difference between the head and the body is a long way along the ray.
+FACING = (0.25, 0.5)
+NORMAL_ROUNDS = 20
+HARMONIC_ROUNDS = 6000
 # The first layer the camera sees: a vertex this far (x the eye distance) behind the first surface on its ray is out
 # (the back of the head), with a soft edge from FRONT[0] to FRONT[1]. Eye sockets' walls stay in.
 FRONT = (0.4, 0.8)
 # A head surface farther than this (x the eye distance) along the ray gives no offset (the hair, the shoulders).
 GAP = 0.6
-# The validity of the offsets spread over the mesh: the transfer fades out where the head has no surface near.
+# The validity of the offsets spread over the mesh: the colours fade out where the head has no surface near.
 VALID_ROUNDS, VALID = 30, (0.3, 0.9)
-FILL_ROUNDS = 300
 # Laplacian rounds over the moved region: folds where vertices of different depths landed on the same surface.
 SMOOTH_ROUNDS = 8
 FLIP_ROUNDS = 60
@@ -150,9 +165,10 @@ def place_head(a, head_objects, head, body):
     return eye, float(residual), float(s)
 
 
-def face_region(a, body, eye):
-    """The camera, the body's vertices (world), their weights (the ellipse around the face on the first layer the
-    camera sees) and how far each lies behind the first surface on its ray."""
+def face_region(a, body, eye, reach=1.0):
+    """The camera, the body's vertices (world), their radius from the face's centre (1 at the ellipse's edge) and
+    each one's weight on the first layer the camera sees (0 beyond `reach` x the radius, behind the first surface on
+    its ray, or without a hit)."""
     d = distance_of(a.fov)
     camera = np.array([0, -d, 0], np.float32)
     P = world_points(body)
@@ -161,22 +177,26 @@ def face_region(a, body, eye):
     v = a.size - (a.size * d * P[:, 2] / depth + a.size / 2)
     x, y, w, h = a.face[:4]
     r = np.sqrt(((u - (x + w / 2)) / (w * EX)) ** 2 + ((v - (y + h / 2)) / (h * EY)) ** 2)
-    mask = 1 - smooth(FADE, 1.0, r)
     body_bvh = bvh_of(body)
     cam = Vector(camera)
-    behind = np.zeros(len(P), np.float32)
-    for i in np.nonzero(mask > 0)[0]:
+    front = np.zeros(len(P), np.float32)
+    for i in np.nonzero(r < reach)[0]:
         ray = Vector(P[i]) - cam
         hit = body_bvh.ray_cast(cam, ray.normalized())[0]
         if hit is not None:
-            behind[i] = max(ray.length - (hit - cam).length, 0)
-        mask[i] *= 0 if hit is None else 1 - smooth(FRONT[0], FRONT[1], behind[i] / eye)
-    return camera, P, mask, behind
+            front[i] = 1 - smooth(FRONT[0], FRONT[1], max(ray.length - (hit - cam).length, 0) / eye)
+    return camera, P, r, front
+
+
+def colour_weights(r, front):
+    """The head's colours' weight: the ellipse, faded from FADE on, on the first layer."""
+    return (1 - smooth(FADE, 1.0, r)) * front
 
 
 def move_vertices(a, body, head_bvh, eye):
-    """The face region's vertices onto the head along their view rays; returns the per-vertex weight (0..1)."""
-    camera, P, mask, behind = face_region(a, body, eye)
+    """The face's vertices onto the head along their view rays, the band around the face settled back onto the body;
+    returns the per-vertex weight of the head's colours (0..1)."""
+    camera, P, r, front = face_region(a, body, eye, BAND)
     cam = Vector(camera)
     rays = P - camera
     rays /= np.linalg.norm(rays, axis=1, keepdims=True)
@@ -184,9 +204,13 @@ def move_vertices(a, body, head_bvh, eye):
     body.data.vertices.foreach_get('normal', normals)
     normals = normals.reshape(-1, 3) @ np.array(body.matrix_world.to_3x3().inverted().transposed(), np.float32).T
     inner = (normals * rays).sum(1) > 0
+    # the offsets are cast inside the ellipse on the first layer
+    inside = (r < MOVE_REACH) & (front > 0)
     offset = np.zeros(len(P), np.float32)
     known = np.zeros(len(P), bool)
-    for i in np.nonzero(mask > 0)[0]:
+    behind = np.zeros(len(P), np.float32)
+    body_bvh = bvh_of(body)
+    for i in np.nonzero(inside)[0]:
         hit = head_bvh.ray_cast(cam, Vector(rays[i]))[0]
         if hit is None:
             continue
@@ -195,7 +219,10 @@ def move_vertices(a, body, head_bvh, eye):
         # showed through (z-fighting) and a game copy's normal map baked from it came out in dark blotches
         # (12.10.2026). A hidden part facing the camera (an eye socket's wall under the lid) goes onto the head: kept
         # under it, it left a dark crease around the old eye.
-        t = float(np.dot(np.array(hit) - P[i], rays[i])) + (float(behind[i]) if inner[i] else 0)
+        if inner[i]:
+            first_hit = body_bvh.ray_cast(cam, Vector(rays[i]))[0]
+            behind[i] = max(float((Vector(P[i]) - cam).length - (first_hit - cam).length), 0) if first_hit is not None else 0
+        t = float(np.dot(np.array(hit) - P[i], rays[i])) + float(behind[i])
         if abs(t) <= GAP * eye:
             offset[i], known[i] = t, True
     # every field per position: vertices split at UV seams move as one
@@ -205,8 +232,9 @@ def move_vertices(a, body, head_bvh, eye):
     edges = np.empty(len(body.data.edges) * 2, np.int32)
     body.data.edges.foreach_get('vertices', edges)
     edges = group[edges.reshape(-1, 2)]
-    gmask, gknown, gt, gP, grays = mask[first], known[first], offset[first], P[first], rays[first]
-    region = gmask > 0
+    gknown, gt, gP, grays = known[first], offset[first], P[first], rays[first]
+    # the band: the face and its surroundings on the first layer; the offsets settle to 0 at its edge
+    region = (r[first] < BAND) & (front[first] > 0)
     edges = edges[(region[edges[:, 0]] | region[edges[:, 1]]) & (edges[:, 0] != edges[:, 1])]
     ea, eb = np.concatenate([edges[:, 0], edges[:, 1]]), np.concatenate([edges[:, 1], edges[:, 0]])
     degree = np.bincount(ea, minlength=n).astype(np.float32)
@@ -214,22 +242,37 @@ def move_vertices(a, body, head_bvh, eye):
     def neighbour_mean(f):
         return np.where(degree > 0, np.bincount(ea, weights=f[eb], minlength=n) / np.maximum(degree, 1), f)
 
+    # An offset is trusted where the surface faces the camera at large (the normals averaged over NORMAL_ROUNDS
+    # neighbours: the bumpy rims of the generated eyes face every way, the whole eye faces the camera).
+    smoothed = normals[first].copy()
+    for _ in range(NORMAL_ROUNDS):
+        smoothed = np.stack([neighbour_mean(smoothed[:, c]) for c in range(3)], 1)
+    macro = np.abs((smoothed * grays).sum(1)) / np.maximum(np.linalg.norm(smoothed, axis=1), 1e-6)
+    gtrust = smooth(FACING[0], FACING[1], macro) * front[first] * (r[first] < MOVE_REACH) * gknown
+
+    # The offset field: the trusted offsets where they are trusted, harmonic (each the mean of its neighbours)
+    # elsewhere in the band, 0 outside it (Jacobi iterations; the band is a few hundred edges wide).
+    fill = gt * gtrust
+    for rounds in range(HARMONIC_ROUNDS):
+        new = np.where(region, gtrust * gt + (1 - gtrust) * neighbour_mean(fill), 0)
+        change = float(np.abs(new - fill).max())
+        fill = new
+        if rounds % 100 == 99 and change < 1e-5 * eye:
+            break
+    print(f'Offsets settled: {rounds + 1} rounds, last change {change / eye * 100:.3f}% of the eye distance', flush=True)
+    # the colours' weight: the ellipse on the first layer, out where the head has no surface near
     valid = gknown.astype(np.float32)
     for _ in range(VALID_ROUNDS):
         valid = neighbour_mean(valid)
-    fill = gt.copy()
-    for _ in range(FILL_ROUNDS):
-        fill = np.where(gknown, gt, neighbour_mean(fill))
-    fill = np.where(region, fill, 0)
-    gmask = gmask * smooth(VALID[0], VALID[1], valid) * region
-    moved = gP + (gmask * fill)[:, None] * grays
+    gmask = colour_weights(r, front)[first] * smooth(VALID[0], VALID[1], valid)
+    moved = gP + fill[:, None] * grays
     def relax(points, weight):
         mean = np.stack([np.bincount(ea, weights=points[eb, c], minlength=n) for c in range(3)], 1) / np.maximum(degree, 1)[:, None]
         k = (0.5 * weight * (degree > 0))[:, None]
         return points * (1 - k) + mean * k
 
     for _ in range(SMOOTH_ROUNDS):
-        moved = relax(moved, gmask)
+        moved = relax(moved, gtrust)
     # Triangles the move turned away from the camera (a crease's two sides landed crossed on the head: dark specks at
     # the mouth corners and lines under the eyes in light, 11.10.2026) are relaxed until they face it again.
     body.data.calc_loop_triangles()
@@ -275,7 +318,8 @@ def move_vertices(a, body, head_bvh, eye):
         welded /= np.maximum(np.linalg.norm(welded, axis=1, keepdims=True), 1e-12)
         corners = np.empty(len(mesh.loops), np.int32)
         mesh.loops.foreach_get('vertex_index', corners)
-        w = gmask[group][corners][:, None]
+        # the vertices that moved take the new surface's normals
+        w = np.minimum(np.abs(fill) / (0.02 * eye), 1)[group][corners][:, None]
         new = old * (1 - w) + welded[group][corners] * w
         new /= np.maximum(np.linalg.norm(new, axis=1, keepdims=True), 1e-12)
         mesh.normals_split_custom_set(new.tolist())
@@ -539,7 +583,8 @@ def copy_face(a, source, copy, eye):
     from the head). The mesh stays (moved onto the full model's face, the 15k copy's coarse face came out sheared); its
     normal map is baked from the full model afterwards. The panel makes its copies from the finished model now
     (game_copies.py) and gives this script only model.glb."""
-    _, _, weights, _ = face_region(a, copy, eye)
+    _, _, r, front = face_region(a, copy, eye)
+    weights = colour_weights(r, front)
     base, mr, _ = maps(copy)
     size = tuple(base.image.size)
     texel_weight = texel_weights(copy, size, weights)
