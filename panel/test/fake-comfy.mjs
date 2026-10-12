@@ -172,7 +172,8 @@ export async function startFakeComfy({ mode = 'normal', frameSize = [64, 36], st
           const part = d.inputs.filename_prefix.split('/');
           const name = `${part.pop()}_00001_.mp3`;
           const sub = part.join('/');
-          status.files.set(`${sub}/${name}`, Buffer.from('ID3 sahte mp3'));
+          // a test that listens to the music sets status.audioData (a real MP3)
+          status.files.set(`${sub}/${name}`, status.audioData ? status.audioData() : Buffer.from('ID3 sahte mp3'));
           job.outputs[node] = { audio: [{ filename: name, subfolder: sub, type: 'output' }] };
         }
         if (d.class_type === 'SaveGLB') {

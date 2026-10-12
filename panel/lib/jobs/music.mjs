@@ -2,7 +2,7 @@
  * Muzik isi: tarz (ve istege bagli sozler) ile ACE-Step 1.5 Turbo'dan muzik (MP3).
  * Graf araclar\comfy.mjs muzikIsi. Tek parca filmin "Muzik: Uretilsin" secimi de bunu kullanir.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { voiceOutputs } from '../comfy-client.mjs';
 import { nodes, addLora, modelFiles } from '../graph.mjs';
@@ -10,6 +10,7 @@ import { trainedModels } from './training.mjs';
 import { UserError } from '../errors.mjs';
 import { text, number, choice, seed, generatorRequired } from './common.mjs';
 import { jobPrompt } from '../prompt-translate.mjs';
+import { runFfmpeg } from '../ffmpeg.mjs';
 
 export const name = 'Music';
 
@@ -74,12 +75,32 @@ export async function generateMusic(ctx, { style, lyrics = '', duration, bpm = 1
   return file;
 }
 
+/**
+ * ACE-Step stops at the asked length: a song still loud there ended within a second (11.10.2026: -13 dB two seconds
+ * before the end, the user: "şarkı kesilmiş sonda"). The last seconds fade out.
+ */
+export const FADE_OUT = 4;
+async function fadeOut(ctx, file, duration) {
+  const d = Math.min(FADE_OUT, duration * 0.15);
+  const path = join(ctx.folder, file);
+  const temp = path.replace(/\.mp3$/, '.fading.mp3');
+  try {
+    await runFfmpeg(ctx.setting.ffmpeg, ['-i', path, '-af', `afade=t=out:st=${(duration - d).toFixed(2)}:d=${d.toFixed(2)}`, '-c:a', 'libmp3lame', '-q:a', '2', temp], { cwd: ctx.folder, signal: ctx.signal });
+    renameSync(temp, path);
+  } catch (e) {
+    if (ctx.signal?.aborted) throw e;
+    rmSync(temp, { force: true });
+    ctx.log(`The ending could not be faded out: ${e.message}`);
+  }
+}
+
 export async function run(ctx) {
   const g = ctx.job.input;
   const startedAt = Date.now();
   // ACE-Step tarz etiketleri Ingilizceyle trained: tarz cevrilir, sozler oldugu gibi.
   const style = await jobPrompt(ctx, g.style, 'music', { field: 'styleEnglish', translate: g.translate !== false });
   const file = await generateMusic(ctx, { ...g, style, seed: g.seed });
+  await fadeOut(ctx, file, g.duration);
   const duration = (Date.now() - startedAt) / 1000;
   ctx.addOutput({ file, type: 'voice', duration: g.duration, main: true });
   ctx.measure('music', duration / g.duration);
