@@ -52,10 +52,6 @@ MOVE_REACH = 0.83
 # body without a fold. Faded out inside the ellipse's last 20% (12.10.2026) they left a ridge down the cheek and along
 # the hairline, where the head's surface lay up to 0.6 eye distances from the body's.
 BAND = 1.6
-# A view-ray offset is trusted where the surface faces the camera (|normal . ray| from FACING[0] to FACING[1]): at a
-# silhouette a small difference between the head and the body is a long way along the ray.
-FACING = (0.25, 0.5)
-NORMAL_ROUNDS = 20
 HARMONIC_ROUNDS = 6000
 # The first layer the camera sees: a vertex this far (x the eye distance) behind the first surface on its ray is out
 # (the back of the head), with a soft edge from FRONT[0] to FRONT[1]. Eye sockets' walls stay in.
@@ -204,8 +200,10 @@ def move_vertices(a, body, head_bvh, eye):
     body.data.vertices.foreach_get('normal', normals)
     normals = normals.reshape(-1, 3) @ np.array(body.matrix_world.to_3x3().inverted().transposed(), np.float32).T
     inner = (normals * rays).sum(1) > 0
-    # the offsets are cast inside the ellipse on the first layer
-    inside = (r < MOVE_REACH) & (front > 0)
+    # The offsets are cast over the whole ellipse on the first layer: the colours reach its edge and their validity
+    # comes from the casts (cast inside MOVE_REACH only, the ring outside it kept the body's colours in patches beside
+    # the mouth and on the chin, 12.10.2026).
+    inside = (r < 1) & (front > 0)
     offset = np.zeros(len(P), np.float32)
     known = np.zeros(len(P), bool)
     behind = np.zeros(len(P), np.float32)
@@ -242,13 +240,20 @@ def move_vertices(a, body, head_bvh, eye):
     def neighbour_mean(f):
         return np.where(degree > 0, np.bincount(ea, weights=f[eb], minlength=n) / np.maximum(degree, 1), f)
 
-    # An offset is trusted where the surface faces the camera at large (the normals averaged over NORMAL_ROUNDS
-    # neighbours: the bumpy rims of the generated eyes face every way, the whole eye faces the camera).
-    smoothed = normals[first].copy()
-    for _ in range(NORMAL_ROUNDS):
-        smoothed = np.stack([neighbour_mean(smoothed[:, c]) for c in range(3)], 1)
-    macro = np.abs((smoothed * grays).sum(1)) / np.maximum(np.linalg.norm(smoothed, axis=1), 1e-6)
-    gtrust = smooth(FACING[0], FACING[1], macro) * front[first] * (r[first] < MOVE_REACH) * gknown
+    # the validity of the offsets: how much of the neighbourhood found the head near (0 in a pocket where it gives
+    # no surface: the mouth's and the nostrils' insides, an eye's depth)
+    valid = gknown.astype(np.float32)
+    for _ in range(VALID_ROUNDS):
+        valid = neighbour_mean(valid)
+    valid = smooth(VALID[0], VALID[1], valid)
+    # The offsets inside MOVE_REACH are trusted where they are valid: the cheeks' silhouettes, where a view ray is a
+    # poor measure, lie outside it. (Gated by how much the surface faces the camera, the generated eyes' deep pits and
+    # the folds beside the mouth, whose walls face sideways, stayed half way and took the wrong colours, 12.10.2026.)
+    # A hidden layer with a hit under a pocket's surface without one is not trusted either: moved onto the head in
+    # full under the surface left in place, the layer under the fold beside the nose came out in front of it in
+    # patches of the body's colours, and the eye sockets' walls over the lids (12.10.2026, a woman with curly hair).
+    core = region & (r[first] < MOVE_REACH)
+    gtrust = front[first] * core * gknown * valid
 
     # The offset field: the trusted offsets where they are trusted, harmonic (each the mean of its neighbours)
     # elsewhere in the band, 0 outside it (Jacobi iterations; the band is a few hundred edges wide).
@@ -260,11 +265,12 @@ def move_vertices(a, body, head_bvh, eye):
         if rounds % 100 == 99 and change < 1e-5 * eye:
             break
     print(f'Offsets settled: {rounds + 1} rounds, last change {change / eye * 100:.3f}% of the eye distance', flush=True)
+    # A pocket stays where it was: moved by the offsets around it, the inner surfaces came through the lips and the
+    # cheeks in dark patches (12.10.2026). The band around the face keeps its offsets: they settle to 0 by design.
+    # The layers under the first one (FRONT's fade: 0.4 to 0.8 eye distances behind it) move less the deeper they lie.
+    fill = np.where(core, fill * valid, fill) * front[first]
     # the colours' weight: the ellipse on the first layer, out where the head has no surface near
-    valid = gknown.astype(np.float32)
-    for _ in range(VALID_ROUNDS):
-        valid = neighbour_mean(valid)
-    gmask = colour_weights(r, front)[first] * smooth(VALID[0], VALID[1], valid)
+    gmask = colour_weights(r, front)[first] * valid
     moved = gP + fill[:, None] * grays
     def relax(points, weight):
         mean = np.stack([np.bincount(ea, weights=points[eb, c], minlength=n) for c in range(3)], 1) / np.maximum(degree, 1)[:, None]
@@ -522,6 +528,9 @@ def transfer_texture(a, body, head, weights, eye):
                 mb, sb = old[ys[core], xs[core], :3].mean(0), old[ys[core], xs[core], :3].std(0)
                 full[ys, xs, :3] = np.clip((values[:, :3] - mh) * (sb / np.maximum(sh, 1e-3)) ** 0.5 + mb, 0, 1)
         filled = fill_texels(full, have, want)
+        # (The edge of `filled` is not softened over the texture: Pixal3D's atlas is hundreds of shards a few texels
+        # wide, a 16 texel feather emptied the narrow ones, the eyes and the cheeks beside the mouth kept the body's
+        # colours in triangular patches, 12.10.2026.)
         k = (texel_weight * filled)[..., None]
         old[..., :3] = old[..., :3] * (1 - k) + full[..., :3] * k
         image.pixels.foreach_set(old.ravel())
