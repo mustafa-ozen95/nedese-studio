@@ -79,6 +79,43 @@ if (/front_projection\.py$/.test(script)) {
   process.exit(0);
 }
 
+if (/face_transfer\.py$/.test(script)) {
+  const SCRIPT = 'tools/blender/face_transfer.py';
+  // Like the real call (lib/jobs/model3d.mjs): -- --head head.glb --head-fov 39.5 --head-face [...] --head-size 1024
+  //   --fov 39.5 --face [...] --size 1024 --models model.glb game.glb ...
+  expectArgs(SCRIPT, a);
+  expectSource(SCRIPT, "'RESULT '", 'print(f"Face onto ', "print(f'Head placed");
+  expectKeys(SCRIPT, 'device', 'models', 'file', 'moved', 'sampled', 'filled', 'seconds', 'skipped', 'scale', 'residual');
+  const value = (name) => a[a.indexOf(name) + 1];
+  const head = value('--head');
+  // the head is generated and the portrait's picture projected onto it first
+  if (!existsSync(head) || !readFileSync(head, 'utf8').endsWith(' projected')) {
+    console.error(`Head missing or without its picture: ${head}`);
+    process.exit(1);
+  }
+  for (const name of ['--face', '--head-face']) {
+    if (JSON.parse(value(name)).length !== 15) {
+      console.error(`Not a face: ${value(name)}`);
+      process.exit(1);
+    }
+  }
+  const result = { device: 'FAKE', models: [], scale: 0.42, residual: 0.05 };
+  console.log('Head placed: scale 0.420, the face points within 5% of the eye distance');
+  for (const m of a.slice(a.indexOf('--models') + 1)) {
+    // before the skeleton (exported without an armature) and the copies' normal maps (baked from the new face)
+    if (!existsSync(m) || /( rigged| normals)/.test(readFileSync(m, 'utf8'))) {
+      console.error(`Model missing, rigged or with its normal map baked: ${m}`);
+      process.exit(1);
+    }
+    appendFileSync(m, ' face');
+    const file = m.split(/[\\/]/).pop();
+    console.log(`Face onto ${file}: 900 vertices, 40000 texels (+120 filled), 2.0 s`);
+    result.models.push({ file, moved: 900, sampled: 40000, filled: 120, seconds: 2 });
+  }
+  console.log(`RESULT ${JSON.stringify(result)}`);
+  process.exit(0);
+}
+
 if (/game_normals\.py$/.test(script)) {
   const SCRIPT = 'tools/blender/game_normals.py';
   // Like the real call (lib/jobs/model3d.mjs): -- --full model.glb --copies game.glb game-lod1.glb

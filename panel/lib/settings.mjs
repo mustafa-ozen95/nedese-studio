@@ -191,6 +191,16 @@ export function loadSettings(parent = {}) {
         args: ['-s', join(aiRoot, 'tools', 'upscale.py'), ...args],
         env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
       })),
+    // The faces of a 3D model's pictures (tools\face_points.py, ComfyUI's python: OpenCV is there) with YuNet
+    // (models\face_detection, Settings > Models > TRELLIS.2): the face transfer of a full-body figure.
+    faceModel: parent.faceModel ?? join(parent.modelRoot ?? join(aiRoot, 'models'), 'face_detection', 'face_detection_yunet_2023mar.onnx'),
+    faceCommand:
+      parent.faceCommand ??
+      ((args) => ({
+        command: join(aiRoot, 'ComfyUI_windows_portable', 'python_embeded', 'python.exe'),
+        args: ['-s', join(aiRoot, 'tools', 'face_points.py'), ...args],
+        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
+      })),
     // Model training (training\train.py, training\.venv: torch cu128 + peft + bitsandbytes + the llama.cpp converter).
     hasTrainingEnv: parent.trainingCommand ? true : existsSync(join(aiRoot, 'training', 'train.py')) && existsSync(join(aiRoot, 'training', '.venv', 'Scripts', 'python.exe')),
     trainingCommand:

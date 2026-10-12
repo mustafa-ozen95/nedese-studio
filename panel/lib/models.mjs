@@ -20,6 +20,7 @@ export const FOLDERS = {
   background_removal: 'Background removal',
   pose: 'Pose detection (replacing a person)',
   geometry_estimation: 'Geometry estimation',
+  face_detection: 'Face detection (3D faces)',
   upscale_models: 'Upscaling (1080p video)',
   audio_encoders: 'Audio encoders (lip sync)',
   model_patches: 'Model patches (lip sync)',
@@ -208,6 +209,7 @@ export const CATALOG = [
   { id: 'trellis2-dino', group: 'TRELLIS.2 (3D model)', name: 'DINOv3 L vision encoder', folder: 'clip_vision', file: 'dino_v3_L_naf_fp32.safetensors', url: `${HF}/Comfy-Org/Pixal3D/resolve/main/clip_vision/dino_v3_L_naf_fp32.safetensors`, size: 1215214176, sha256: '4ad2ec4e0879a5b5b04cd97325cc37da954a7b6edca5170b86510f17f2b2290f' },
   { id: 'pixal3d', group: 'TRELLIS.2 (3D model)', name: 'Pixal3D int8', folder: 'diffusion_models', file: 'pixal3d_int8_convrot.safetensors', url: `${HF}/Comfy-Org/Pixal3D/resolve/main/diffusion_models/pixal3d_int8_convrot.safetensors`, size: 5584555824, sha256: '4621eac3b715484f79303c7152af641fe0b2b14f4d0e3d394fd6922d00f955ec', note: 'Image to 3D, same pipeline as TRELLIS.2; better face and fine detail (high quality).' },
   { id: 'moge2', group: 'TRELLIS.2 (3D model)', name: 'MoGe-2 camera angle (Pixal3D)', folder: 'geometry_estimation', file: 'moge_2_vitl_normal_fp16.safetensors', url: `${HF}/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors`, size: 661859924, sha256: 'cb1a692d03235671e959e81360d7b4d9f44aefadb1f852d6ca6aa17799d5e31f' },
+  { id: 'yunet', group: 'TRELLIS.2 (3D model)', name: 'YuNet face detection (OpenCV Zoo, MIT)', folder: 'face_detection', file: 'face_detection_yunet_2023mar.onnx', url: 'https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx', size: 232589, sha256: '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4', note: "Finds a full-body figure's face: its face is generated again from a close portrait and put on the model (high quality)." },
   { id: 'birefnet', group: 'TRELLIS.2 (3D model)', name: 'BiRefNet background removal', folder: 'background_removal', file: 'birefnet.safetensors', url: `${HF}/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors`, size: 444473596, sha256: '9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154' },
   // Replacing a person in a video (Edit > video + a photo): Wan 2.2 Animate 14B (Apache 2.0) replacement mode; UMT5, the
   // Wan 2.1 VAE, the lightx2v LoRA (lip sync) and BiRefNet above are shared. Pose: DWPose (Apache 2.0) as TorchScript,

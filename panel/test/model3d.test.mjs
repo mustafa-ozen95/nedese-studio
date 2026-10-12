@@ -8,10 +8,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
 import { streams } from '../lib/ffmpeg.mjs';
-import { COMPLETE_PROMPT, DRAW_SUFFIX, GAME, MODEL_EDIT_PROMPT, QUALITY, validate } from '../lib/jobs/model3d.mjs';
+import { fileURLToPath } from 'node:url';
+import { COMPLETE_PROMPT, DRAW_SUFFIX, GAME, MODEL_EDIT_PROMPT, PORTRAIT_PROMPT, QUALITY, validate } from '../lib/jobs/model3d.mjs';
 import { graphFiles, SAMPLE_INPUT } from '../lib/models.mjs';
 import * as comfy from '../../tools/comfy.mjs';
 
+const FAKE_FACE = fileURLToPath(new URL('./fake-face.mjs', import.meta.url));
 const promptList = (p) => p.fake.status.records.filter((x) => x.path === '/prompt').map((x) => Object.values(JSON.parse(x.prompt).prompt));
 
 test('3D model: full-body completion + TRELLIS.2 + Blender (showcase video, FBX/OBJ/STL)', async (t) => {
@@ -202,6 +204,60 @@ test('3D model: game copies (low poly + LOD) from the same generation, with FBX;
     assert.equal((await p.waitUntilDone(plain.id, 60000)).status, 'done');
     assert.equal(promptList(p).at(-1).filter((d) => d.class_type === 'SaveGLB').length, 1);
   } finally {
+    await p.close();
+  }
+});
+
+// User 11.10.2026, the eyes projected from the picture: "yeterli değil". A full-body figure's face (~10% of input.png)
+// is generated again from a close portrait: a Pixal3D head, its face put on the model and its game copies.
+test("3D model: a full-body figure's small face is generated again from a portrait and put on the model and its game copies; a large face is left", async (t) => {
+  const faceModel = join(mkdtempSync(join(tmpdir(), 'yunet-')), 'face_detection_yunet_2023mar.onnx');
+  writeFileSync(faceModel, 'onnx');
+  const p = await createPanel({ blender: true, setting: { faceModel, faceCommand: (args) => ({ command: process.execPath, args: [FAKE_FACE, ...args], env: { ...process.env } }) } });
+  if (!p.setting.ffmpeg) {
+    await p.close();
+    t.skip('no ffmpeg');
+    return;
+  }
+  const small = [477.3, 75.6, 75.5, 107.0, 497.2, 116.3, 531.2, 116.4, 513.3, 136.5, 499.2, 152.8, 529.3, 153.1, 0.9];
+  const portraitFace = [358.6, 173.7, 292.4, 424.8, 442.1, 342.8, 576.2, 335.6, 519.6, 418.8, 459.3, 491.9, 572.5, 484.9, 0.9];
+  try {
+    const previous = await p.waitUntilDone(p.queue.add('image', { prompt: 'a woman in a leather jacket, full body', model: 'flux', ratio: '1:1' }).id);
+    const source = `job/${previous.id}/${previous.outputs[0].file}`;
+    process.env.FAKE_FACES = JSON.stringify({ 'input.png': [small], 'head-input.png': [portraitFace] });
+    const before = promptList(p).length;
+    const job = p.queue.add('model3d', { source, seed: 5, formats: ['fbx'], game: true });
+    assert.equal(job.input.face, true, 'on by default');
+    const last = await p.waitUntilDone(job.id, 120000);
+    assert.equal(last.status, 'done', last.error);
+    const [body, portrait, head] = promptList(p).slice(before);
+    assert.ok(body.some((d) => d.class_type === 'Pixal3DConditioning'));
+    assert.equal(portrait.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt)?.inputs.prompt, PORTRAIT_PROMPT);
+    assert.match(head.find((d) => d.class_type === 'LoadImage').inputs.image, /_head\.png$/, 'the head from the portrait');
+    assert.ok(head.some((d) => d.class_type === 'Pixal3DConditioning'), 'the head in high quality');
+    assert.equal(head.filter((d) => d.class_type === 'SaveGLB').length, 1, 'no game copies of the head');
+    const k = join(p.setting.outputRoot, job.id);
+    // the face after the picture's projection, before the copies' normal maps (baked from the new face) and the exports
+    assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model projected face');
+    for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model projected face normals', f);
+    assert.deepEqual(JSON.parse(readFileSync(join(k, 'face-transfer.json'), 'utf8')).models.map((m) => m.file), ['model.glb', 'game.glb', 'game-lod1.glb']);
+    assert.ok(existsSync(join(k, 'portrait.png')), 'the portrait stays');
+    assert.ok(!existsSync(join(k, 'head.glb')) && !existsSync(join(k, 'head-input.png')), 'the head (80 MB) is deleted once its face is on the model');
+    const log = p.queue.logs.get(job.id).join('\n');
+    assert.match(log, /Head placed: scale 0\.420/);
+    assert.match(log, /Face transferred from a separately generated head \(FAKE\): model\.glb, game\.glb, game-lod1\.glb/);
+    assert.deepEqual(last.outputs.map((c) => c.file), ['model.glb', 'model.fbx', 'game.glb', 'game.fbx', 'game-lod1.glb', 'game-lod1.fbx']);
+
+    // a bust: its face is already large, nothing is generated again
+    process.env.FAKE_FACES = JSON.stringify({ 'input.png': [portraitFace] });
+    const count = promptList(p).length;
+    const bust = await p.waitUntilDone(p.queue.add('model3d', { source, seed: 6, formats: [] }).id, 120000);
+    assert.equal(bust.status, 'done', bust.error);
+    assert.equal(promptList(p).length, count + 1, 'only the model itself');
+    assert.equal(readFileSync(join(p.setting.outputRoot, bust.id, 'model.glb'), 'utf8'), 'glTF fake model projected');
+    assert.match(p.queue.logs.get(bust.id).join('\n'), /Face transfer skipped: the face is large enough/);
+  } finally {
+    delete process.env.FAKE_FACES;
     await p.close();
   }
 });

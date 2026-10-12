@@ -27,7 +27,8 @@ test('catalog: every entry is complete (url, bytes, sha256), ids are unique, fil
     // Hugging Face; MediaPipe yuz isaretleri Google'in resmi model deposundan (agiz duzeltme)
     // (or pinned to a commit, as YingMusic-SVC)
     assert.match(k.url, /^https:\/\/(huggingface\.co\/.+\/resolve\/(main|[0-9a-f]{40})\/.+|storage\.googleapis\.com\/mediapipe-models\/.+)/, k.id);
-    assert.ok(Number.isInteger(k.size) && k.size > 1e6, k.id);
+    // over 100 KB: an error page is not a model (YuNet face detection is 232 KB)
+    assert.ok(Number.isInteger(k.size) && k.size > 1e5, k.id);
     assert.match(k.sha256, /^[0-9a-f]{64}$/, k.id);
     // urlDosyasi: uzaktaki ad yereldekinden farkliysa (model klasorunde alt klasor yok: whisper/tiny.pt -> whisper-tiny.pt)
     assert.ok(k.url.endsWith(`/${k.urlFile ?? k.file}`), `${k.id}: url must end with the file name`);

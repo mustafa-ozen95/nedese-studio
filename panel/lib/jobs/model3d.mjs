@@ -127,6 +127,7 @@ export function validate(g, { mod, setting }) {
     complete,
     game,
     rig,
+    face: g.face === undefined ? true : yes(g.face),
     intro,
     formats: [...new Set(formats)],
     printHeight: number(g.printHeight, 'Print height (mm)', { min: 10, max: 1000, defaultValue: 100 }),
@@ -314,6 +315,9 @@ export async function run(ctx) {
   // job had both already).
   const copies = g.game ? GAME.map((level) => join(k, level.file)) : [];
   if (ctx.setting.blender && existsSync(join(k, CAMERA)) && !existsSync(join(k, PROJECTION_DONE)) && !existsSync(join(k, RIG_DONE))) await projectPicture(ctx, [glb, ...copies], lastPercent);
+  // A full-body figure's face from a head generated on its own (before the copies' normal maps: they are baked from
+  // model.glb's new face)
+  if (g.face !== false && ctx.setting.blender && existsSync(join(k, CAMERA)) && !existsSync(join(k, FACE_DONE)) && !existsSync(join(k, RIG_DONE))) await transferFace(ctx, [glb, ...copies], lastPercent);
   if (copies.length && ctx.setting.blender && !existsSync(join(k, NORMALS_DONE)) && !existsSync(join(k, RIG_DONE))) await bakeNormals(ctx, glb, copies, lastPercent);
 
   // 3) The skeleton into the model and its game copies (before the exports: the FBX carry it); the test motion on the
@@ -384,6 +388,105 @@ async function projectPicture(ctx, models, percent) {
   writeFileSync(join(k, PROJECTION_DONE), JSON.stringify(result));
   const done = result.models.filter((m) => !m.skipped);
   ctx.log(`Picture projected onto the front (${result.device}, fov ${fov.toFixed(1)}°): ${done.map((m) => `${m.file} ${Math.round(m.share * 100)}%`).join(', ') || 'none'}, ${((Date.now() - startedAt) / 1000).toFixed(0)} s`);
+}
+
+// Written when the face transfer is done or skipped (a retried job does not do it again)
+const FACE_DONE = 'face-transfer.json';
+// A face under this share of the picture's height is generated again: a full-body figure's face was 10% of input.png,
+// a head-and-shoulders portrait's 41% (11.10.2026)
+export const FACE_SHARE = 0.2;
+// The portrait the head is generated from: the face large and straight on, the same person
+export const PORTRAIT_PROMPT = 'Close-up head and shoulders portrait of the main person of image 1, facing the camera straight on, neutral expression, eyes open looking at the camera. Keep exactly the same face, skin, hair, clothing and colors as in image 1. Plain black background, sharp detailed face, even soft studio light.';
+
+/** The faces in pictures of the job folder (tools\face_points.py, YuNet): [{ file, width, height, faces }]. */
+async function facePoints(ctx, pictures) {
+  const command = ctx.setting.faceCommand(['--model', ctx.setting.faceModel, '--pictures', ...pictures]);
+  let result = null;
+  await runProcess(command.command, command.args, {
+    env: command.env,
+    cwd: ctx.folder,
+    signal: ctx.signal,
+    name: 'face',
+    line: (s) => {
+      if (s.startsWith('RESULT ')) result = JSON.parse(s.slice(7));
+      else if (/ERROR|Traceback/.test(s)) ctx.log(s);
+    },
+  });
+  if (!result) throw new Error('Face detection returned no result.');
+  return result.pictures;
+}
+
+/**
+ * A full-body figure's face (user 11.10.2026, the eyes projected from the picture: "yeterli değil"): Pixal3D's voxels
+ * lose a face ~100 px tall. Qwen-Image-Edit makes a close portrait of the same person, Pixal3D a head from it, and
+ * Blender (tools\blender\face_transfer.py) puts the head's face, its shape and texture, on the model and its game
+ * copies. YuNet's five face points align the head. A failure leaves the model its own face.
+ */
+async function transferFace(ctx, models, percent) {
+  const g = ctx.job.input;
+  const k = ctx.folder;
+  const done = (result) => writeFileSync(join(k, FACE_DONE), JSON.stringify(result));
+  if (!existsSync(ctx.setting.faceModel ?? '')) {
+    ctx.log('Face transfer skipped: the face detection model is not installed (Settings > Models > TRELLIS.2).');
+    return;
+  }
+  const startedAt = Date.now();
+  try {
+    const [body] = await facePoints(ctx, [join(k, 'input.png')]);
+    const face = body.faces[0];
+    const reason = !face ? 'no face found' : body.faces.length > 1 ? `${body.faces.length} faces` : face[3] > FACE_SHARE * body.height ? 'the face is large enough' : null;
+    if (reason) {
+      done({ skipped: reason });
+      ctx.log(`Face transfer skipped: ${reason}.`);
+      return;
+    }
+    const portrait = join(k, 'portrait.png');
+    await editPicture(ctx, { input: join(k, 'input.png'), target: portrait, prompt: PORTRAIT_PROMPT, stage: 'Face: a close portrait', range: [percent, percent] });
+    const head = join(k, 'head.glb');
+    const headCamera = join(k, 'head-camera.json');
+    if (!existsSync(headCamera)) {
+      const picture = await ctx.comfy.load(portrait, `panel_${ctx.job.id}_head.png`);
+      const graph = ctx.mod.trellis2Job({ picture, seed: g.seed, prefix: `panel/${ctx.job.id}/head`, deleteBackPlan: true, ...QUALITY.high, game: [] });
+      const outputs = await ctx.runComfy(graph, { stage: 'Face: generating the head', range: [percent, percent] });
+      const model = outputs?.[nodes(graph, 'SaveGLB')[0]]?.['3d']?.[0];
+      const input = images(outputs, nodes(graph, 'SaveImage')[0])[0];
+      const fov = Number(outputs?.[nodes(graph, 'PreviewAny')[0]]?.text?.[0]);
+      if (!model || !input || !(fov > 0)) throw new Error('ComfyUI did not return the head model.');
+      await ctx.comfy.getOutput(input, join(k, 'head-input.png'));
+      await ctx.comfy.getOutput(model, head);
+      // the head's own picture on its front, like the body's
+      ctx.progress({ percent, stage: 'Blender: picture onto the head', detail: '' });
+      await blenderScript(ctx.setting.blender, { script: join(ctx.setting.aiRoot, 'tools', 'blender', 'front_projection.py'), args: ['--picture', join(k, 'head-input.png'), '--fov', String(fov), '--models', head], signal: ctx.signal });
+      writeFileSync(headCamera, JSON.stringify({ fov }));
+    }
+    const [portraitFaces] = await facePoints(ctx, [join(k, 'head-input.png')]);
+    if (!portraitFaces.faces.length) {
+      done({ skipped: 'no face in the portrait' });
+      ctx.log('Face transfer skipped: no face in the portrait.');
+      return;
+    }
+    const { fov } = JSON.parse(readFileSync(join(k, CAMERA), 'utf8'));
+    ctx.progress({ percent, stage: 'Blender: face onto the model', detail: '' });
+    const result = await blenderScript(ctx.setting.blender, {
+      script: join(ctx.setting.aiRoot, 'tools', 'blender', 'face_transfer.py'),
+      args: [
+        '--head', head, '--head-fov', String(JSON.parse(readFileSync(headCamera, 'utf8')).fov), '--head-face', JSON.stringify(portraitFaces.faces[0]), '--head-size', String(portraitFaces.width),
+        '--fov', String(fov), '--face', JSON.stringify(face), '--size', String(body.width), '--models', ...models,
+      ],
+      signal: ctx.signal,
+      line: (s) => {
+        if (/^(Head placed|Face onto|Only \d|Error|Traceback|CONTRACT)/.test(s)) ctx.log(s);
+      },
+    });
+    done(result);
+    for (const f of [head, join(k, 'head-input.png'), headCamera]) rmSync(f, { force: true });
+    ctx.measure('face3d', (Date.now() - startedAt) / 1000);
+    ctx.log(`Face transferred from a separately generated head (${result.device}): ${result.models.filter((m) => !m.skipped).map((m) => m.file).join(', ')}, ${((Date.now() - startedAt) / 1000).toFixed(0)} s`);
+  } catch (e) {
+    if (ctx.signal?.aborted) throw e;
+    done({ error: e.message });
+    ctx.log(`Face transfer failed, the model keeps its own face: ${e.message}`);
+  }
 }
 
 // Written when the game copies have their normal maps from Blender (a retried job does not bake again)
