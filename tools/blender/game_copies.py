@@ -6,7 +6,10 @@ Game copies (Blender, no window): low-poly copies of the full model for game eng
   or fur is a mass of open curls. Decimated as it is, the two sheets cross each other (a curly-haired woman's copy had
   shards of the inner sheet all over her face) and the curls take the triangles (three quarters of a 30k copy went to
   the hair, the face had a few dozen). So the shell is thickened, remeshed into one closed solid on a voxel grid (the
-  curls melt into a lumpy mass) and that is decimated to each copy's triangles.
+  curls melt into a lumpy mass), pulled back onto the model's surface and that is decimated to each copy's triangles.
+  (Quadriflow quads instead of the decimation, measured 12.10.2026 on the woman: regular triangles (0.1% slivers
+  against 1.6%) but a 20% larger deviation from the model, half the face's polygons, 21 open edges and 2.5x the time;
+  not taken.)
 - The look: the copy gets its own UVs, and its colour, metallic/roughness/occlusion and normal maps are baked from the
   full model (selected to active), so its face is the full model's (projected picture, transferred face) and the curls
   are back in the normal map. Cycles bakes the normal map for the MikkTSpace tangents game engines compute; the copy is
@@ -34,6 +37,11 @@ import model3d  # noqa: E402
 # close into a solid.
 VOXELS = 440
 THICKNESS = 3
+# The solid pulled back onto the model by this many voxels (measured 12.10.2026 on a woman and a furry dwarf: 1.0 cut
+# the woman's deviation from 3.4‰ of her height to 1.3‰ (95th percentile 3.9‰ -> 2.4‰) and left the dwarf's fur
+# closed; 1.5 reached 0.4‰ but turned 5-10 of 2000 test rays' faces inside out in the fur, a 4-voxel solid pulled
+# back 2.0 turned 452)
+SHRINK = 1.0
 # The cage and the ray reach of the bakes, a share of the copy's largest dimension (the normal-map bake's of 11.10.2026:
 # a furry dwarf's copy lay under the fur, 0.005 started rays inside it)
 EXTRUSION = 0.02
@@ -78,6 +86,9 @@ def solid_shape(full):
     bpy.context.scene.collection.objects.link(body)
     model3d.apply_modifier(body, 'SOLIDIFY', thickness=voxel * THICKNESS, offset=0)
     model3d.apply_modifier(body, 'REMESH', mode='VOXEL', voxel_size=voxel, adaptivity=0)
+    # The solid's surface lies half the thickening outside the model's (a woman's 30k copy was 3.4‰ of her height
+    # fatter all over, 12.10.2026); pulled back along its normals by SHRINK voxels it lies closer to the model
+    model3d.apply_modifier(body, 'DISPLACE', direction='NORMAL', mid_level=0, strength=-voxel * SHRINK)
     bm = bmesh.new()
     bm.from_mesh(body.data)
     model3d.drop_crumbs(bm)
