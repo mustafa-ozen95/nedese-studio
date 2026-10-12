@@ -139,7 +139,7 @@ test('3D model: a 3D model file is converted without a description and edited wi
 });
 
 // User 11.10.2026: "3d alanımız oyunlar için asset üretiyo dimi" — the million-triangle model is too heavy for a game.
-test('3D model: game copies (low poly + LOD) from the same generation, with FBX; none for a converted file', async (t) => {
+test('3D model: game copies (low poly + LOD) made by Blender from the generated model, with FBX; none for a converted file', async (t) => {
   const p = await createPanel({ blender: true, server: true });
   if (!p.setting.ffmpeg) {
     await p.close();
@@ -156,38 +156,27 @@ test('3D model: game copies (low poly + LOD) from the same generation, with FBX;
     assert.match(job.summary.detail, /game copies/);
     const last = await p.waitUntilDone(job.id, 60000);
     assert.equal(last.status, 'done', last.error);
+    // User 12.10.2026 ("Çöz sorunları"): ComfyUI's decimated copies shattered a curly-haired woman's face. The graph
+    // makes only the full model; Blender makes the copies from it (one closed solid, baked from the model).
     const trellis = promptList(p).at(-1);
-    assert.deepEqual(trellis.filter((d) => d.class_type === 'DecimateMesh').map((d) => d.inputs.target_face_count), [500000, ...GAME.map((l) => l.surface)]);
-    assert.deepEqual(trellis.filter((d) => d.class_type === 'SaveGLB').map((d) => d.inputs.filename_prefix), [`panel/${job.id}/model`, `panel/${job.id}/model_game0`, `panel/${job.id}/model_game1`]);
-    // the copies with QEM placement, creases weighted (midpoint broke a knight's 30k copy into shards); each in its own
-    // texture size, its normal map and AO baked from the main 1M mesh (the remesh took twice as long for the same look)
-    assert.deepEqual(trellis.filter((d) => d.class_type === 'DecimateMesh').map((d) => d.inputs.placement_mode), ['midpoint', 'qem', 'qem']);
-    assert.ok(trellis.filter((d) => d.class_type === 'DecimateMesh').slice(1).every((d) => d.inputs['placement_mode.feature_edge_quadric_weight'] > 0));
-    const graph = JSON.parse(p.fake.status.records.filter((x) => x.path === '/prompt').at(-1).prompt).prompt;
-    const main = Object.keys(graph).find((id) => graph[id].class_type === 'DecimateMesh' && graph[id].inputs.target_face_count === 500000);
-    // the first copy from the remesh, the LOD from the first copy (a second pass over a furry dwarf's remesh ran out of VRAM)
-    const copies = GAME.map((l) => Object.keys(graph).find((id) => graph[id].class_type === 'DecimateMesh' && graph[id].inputs.target_face_count === l.surface));
-    assert.deepEqual(copies.map((id) => graph[graph[id].inputs.mesh[0]].class_type), ['RemeshMesh', 'DecimateMesh']);
-    assert.equal(graph[copies[1]].inputs.mesh[0], copies[0]);
-    for (const [i, level] of GAME.entries()) {
-      const normal = trellis.filter((d) => d.class_type === 'BakeNormalMapFromMesh')[i + 1];
-      assert.equal(normal.inputs.resolution, level.texture);
-      assert.equal(normal.inputs.high_poly[0], main);
-    }
+    assert.deepEqual(trellis.filter((d) => d.class_type === 'DecimateMesh').map((d) => d.inputs.target_face_count), [500000]);
+    assert.deepEqual(trellis.filter((d) => d.class_type === 'SaveGLB').map((d) => d.inputs.filename_prefix), [`panel/${job.id}/model`]);
     assert.deepEqual(last.outputs.map((c) => [c.file, c.format, c.game?.lod ?? null]), [['model.glb', 'glb', null], ['model.fbx', 'fbx', null], ['game.glb', 'glb', 0], ['game.fbx', 'fbx', 0], ['game-lod1.glb', 'glb', 1], ['game-lod1.fbx', 'fbx', 1]]);
     assert.equal(last.outputs.find((c) => c.main)?.file, 'model.glb', 'the gallery still shows the full model');
     assert.equal(last.outputs.find((c) => c.file === 'game.glb').game.triangles, 1234, 'the count Blender read');
     const k = join(p.setting.outputRoot, job.id);
-    // User 11.10.2026: "3d model güzel ama oyun hali kötü" — ComfyUI's normal map did not match the copies' tangents
-    // (patchy face): each copy's map is baked again in Blender from model.glb (game-normals.json: a retry does not bake again)
-    for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model normals', f);
+    // each copy made from model.glb in its own size (game-copies.json: a retry does not make them again)
+    for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model copy', f);
     assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model');
     assert.ok(!existsSync(join(k, 'camera.json')), 'TRELLIS.2 (fast) is not pixel aligned: nothing projected');
-    assert.deepEqual(JSON.parse(readFileSync(join(k, 'game-normals.json'), 'utf8')).copies.map((c) => c.file), ['game.glb', 'game-lod1.glb']);
-    assert.match(p.queue.logs.get(job.id).join('\n'), /Game copy normal maps baked again \(FAKE\): game\.glb 2048 px, game-lod1\.glb 2048 px/);
+    const made = JSON.parse(readFileSync(join(k, 'game-copies.json'), 'utf8')).copies;
+    assert.deepEqual(made.map((c) => [c.file, c.triangles, c.size, c.face]), GAME.map((l) => [l.file, l.surface, l.texture, 0]), 'no face: no focus');
+    const log = p.queue.logs.get(job.id).join('\n');
+    assert.match(log, /Game copies made from model\.glb \(FAKE\): game\.glb 30000 triangles, game-lod1\.glb 15000 triangles/);
+    assert.match(log, /Solid shape: 500000 triangles/);
     assert.equal(last.outputs.find((c) => c.file === 'game-lod1.glb').game.triangles, 617);
-    // a furry dwarf (11.10.2026): the fur's small pieces dropped, the copy ended at 9711 of 30000 triangles and the LOD
-    // made from it was the same mesh: no second file of the same thing
+    // a small, simple model: the copy has fewer triangles than asked and the LOD is the same mesh: no second file of
+    // the same thing
     process.env.FAKE_BLENDER_TRIANGLES = JSON.stringify({ game: 9711, 'game-lod1': 9711 });
     try {
       const furry = await p.waitUntilDone(p.queue.add('model3d', { prompt: 'a furry dwarf', translate: false, imageModel: 'flux', quality: 'fast', formats: ['fbx'], game: true }).id, 60000);
@@ -199,18 +188,18 @@ test('3D model: game copies (low poly + LOD) from the same generation, with FBX;
     } finally {
       delete process.env.FAKE_BLENDER_TRIANGLES;
     }
-    // without game: the graph has a single bake and a single SaveGLB
+    // without game: no copies
     const plain = p.queue.add('model3d', { prompt: 'a wooden barrel', translate: false, imageModel: 'flux', quality: 'fast', formats: [] });
     assert.equal((await p.waitUntilDone(plain.id, 60000)).status, 'done');
-    assert.equal(promptList(p).at(-1).filter((d) => d.class_type === 'SaveGLB').length, 1);
+    assert.ok(!existsSync(join(p.setting.outputRoot, plain.id, 'game.glb')) && !existsSync(join(p.setting.outputRoot, plain.id, 'game-copies.json')));
   } finally {
     await p.close();
   }
 });
 
 // User 11.10.2026, the eyes projected from the picture: "yeterli değil". A full-body figure's face (~10% of input.png)
-// is generated again from a close portrait: a Pixal3D head, its face put on the model and its game copies.
-test("3D model: a full-body figure's small face is generated again from a portrait and put on the model and its game copies; a large face is left", async (t) => {
+// is generated again from a close portrait: a Pixal3D head, its face put on the model; the game copies made from it.
+test("3D model: a full-body figure's small face is generated again from a portrait and put on the model, the game copies take it with more texels; a large face is left", async (t) => {
   const faceModel = join(mkdtempSync(join(tmpdir(), 'yunet-')), 'face_detection_yunet_2023mar.onnx');
   writeFileSync(faceModel, 'onnx');
   const p = await createPanel({ blender: true, setting: { faceModel, faceCommand: (args) => ({ command: process.execPath, args: [FAKE_FACE, ...args], env: { ...process.env } }) } });
@@ -237,15 +226,19 @@ test("3D model: a full-body figure's small face is generated again from a portra
     assert.ok(head.some((d) => d.class_type === 'Pixal3DConditioning'), 'the head in high quality');
     assert.equal(head.filter((d) => d.class_type === 'SaveGLB').length, 1, 'no game copies of the head');
     const k = join(p.setting.outputRoot, job.id);
-    // the face after the picture's projection, before the copies' normal maps (baked from the new face) and the exports
+    // the face after the picture's projection; the copies made from the finished model, the face's box given to them
     assert.equal(readFileSync(join(k, 'model.glb'), 'utf8'), 'glTF fake model projected face');
-    for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model projected face normals', f);
-    assert.deepEqual(JSON.parse(readFileSync(join(k, 'face-transfer.json'), 'utf8')).models.map((m) => m.file), ['model.glb', 'game.glb', 'game-lod1.glb']);
+    for (const f of ['game.glb', 'game-lod1.glb']) assert.equal(readFileSync(join(k, f), 'utf8'), 'glTF fake model projected face copy', f);
+    const transfer = JSON.parse(readFileSync(join(k, 'face-transfer.json'), 'utf8'));
+    assert.deepEqual(transfer.models.map((m) => m.file), ['model.glb']);
+    assert.deepEqual(transfer.face, small);
+    assert.ok(transfer.size > 0, 'the picture width the box is in');
+    assert.ok(JSON.parse(readFileSync(join(k, 'game-copies.json'), 'utf8')).copies.every((c) => c.face > 0), 'the face focused');
     assert.ok(existsSync(join(k, 'portrait.png')), 'the portrait stays');
     assert.ok(!existsSync(join(k, 'head.glb')) && !existsSync(join(k, 'head-input.png')), 'the head (80 MB) is deleted once its face is on the model');
     const log = p.queue.logs.get(job.id).join('\n');
     assert.match(log, /Head placed: scale 0\.420/);
-    assert.match(log, /Face transferred from a separately generated head \(FAKE\): model\.glb, game\.glb, game-lod1\.glb/);
+    assert.match(log, /Face transferred from a separately generated head \(FAKE\): model\.glb, \d+ s/);
     assert.deepEqual(last.outputs.map((c) => c.file), ['model.glb', 'model.fbx', 'game.glb', 'game.fbx', 'game-lod1.glb', 'game-lod1.fbx']);
 
     // a bust: its face is already large, nothing is generated again
@@ -275,6 +268,7 @@ test('3D model: GLB only without Blender; a 3D model file needs Blender; clear e
     writeFileSync(join(uploads, 'owl.glb'), 'glTF');
     assert.throws(() => p.queue.add('model3d', { source: 'upload/owl.glb' }), /Blender is required to read a 3D model file/);
     assert.throws(() => p.queue.add('model3d', { prompt: 'a lamp', intro: true }), /Blender is required/);
+    assert.throws(() => p.queue.add('model3d', { prompt: 'a lamp', game: true }), /Blender is required for the game copies/);
     assert.throws(() => p.queue.add('model3d', { prompt: 'a lamp', formats: ['dwg'] }), /Invalid export format/);
     const job = p.queue.add('model3d', { prompt: 'a lamp', translate: false, quality: 'fast' });
     assert.deepEqual([job.input.intro, job.input.formats], [false, []]);

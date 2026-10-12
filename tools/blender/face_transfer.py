@@ -56,7 +56,7 @@ FLIP_ROUNDS = 60
 TEXEL_TOLERANCE = 0.15
 FILL_TEXELS = 24
 # A game copy takes the full model's new face by a selected-to-active bake: the cage and the ray reach, a share of the
-# copy's largest dimension (game_normals.py's values: they held for the woman and a furry dwarf)
+# copy's largest dimension (game_copies.py's values: they held for the woman and a furry dwarf)
 COPY_EXTRUSION = 0.02
 COPY_REACH = 0.05
 
@@ -494,7 +494,7 @@ def transfer_texture(a, body, head, weights, eye):
 
 def bake_from(source, copy, size, image_of):
     """The source's image (image_of(object) -> its TEX_IMAGE node) baked onto the copy's UVs (selected to active, like
-    game_normals.py), its stored values unchanged; alpha 0 where the rays found no source."""
+    game_copies.py), its stored values unchanged; alpha 0 where the rays found no source."""
     node = image_of(source)
     space = node.image.colorspace_settings.name
     node.image.colorspace_settings.name = 'Non-Color'
@@ -537,7 +537,8 @@ def copy_face(a, source, copy, eye):
     """A game copy's face from the full model that has the new face: its colours, roughness and metallic baked into
     the copy's texels (the head's own way gave the 30k copy a face of patches, 11.10.2026: its coarse mesh lies too far
     from the head). The mesh stays (moved onto the full model's face, the 15k copy's coarse face came out sheared); its
-    normal map is baked from the full model afterwards (game_normals.py)."""
+    normal map is baked from the full model afterwards. The panel makes its copies from the finished model now
+    (game_copies.py) and gives this script only model.glb."""
     _, _, weights, _ = face_region(a, copy, eye)
     base, mr, _ = maps(copy)
     size = tuple(base.image.size)

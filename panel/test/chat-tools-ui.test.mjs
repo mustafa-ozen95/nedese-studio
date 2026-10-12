@@ -71,6 +71,8 @@ test('UI Knowledge (phone 402 px): Options › Knowledge… opens its window; do
     await t.evaluate("document.querySelector('[data-knowledge-manage]').click(), true");
     const modal = "document.querySelector('#modal-chat-knowledge')";
     assert.ok(await until(`${modal} && !${modal}.hidden`, 5000), 'the window opens');
+    // the window shows the state read when the page opened (no model yet) until its own fetch answers (slow under load)
+    await until("/^Search: by words and by meaning/.test(document.querySelector('[data-knowledge-status]').textContent)", 10000);
     assert.match(await t.evaluate("document.querySelector('[data-knowledge-status]').textContent"), /^Search: by words and by meaning \(multilingual-e5-small-q8_0, on the CPU\)/);
     const pdf = makePdf([['The board met in March.'], ['The new car fleet arrives in May.']]).toString('base64');
     const xlsx = makeXlsx({ Costs: [['Rent', 900]] }).toString('base64');

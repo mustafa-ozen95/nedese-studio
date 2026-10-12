@@ -10,8 +10,9 @@
  * (textures embedded), OBJ (ZIP: OBJ + MTL + textures) and STL, a solid print copy printHeight mm tall.
  * TRELLIS models only what the image shows (a portrait cut at the chest -> a bust). complete: Qwen-Image-Edit first
  * draws the person or object whole, looking the same, on a plain background; the model is made from that image.
- * game: low-poly copies for game engines made in the same ComfyUI run (GAME): the dense mesh decimated, unwrapped
- * again, its detail baked into a normal map (game.glb and a lighter LOD, game-lod1.glb; game.fbx with FBX).
+ * game: low-poly copies for game engines (GAME) made by Blender from the finished model (tools\blender\game_copies.py):
+ * one closed solid decimated, unwrapped again and its colours and detail baked from the model (game.glb and a lighter
+ * LOD, game-lod1.glb; game.fbx with FBX).
  * rig: the character skeleton (user 11.10.2026: "İskelet (rig) henüz yok ... yap"): Make-It-Animatable (tools\rig\infer.py)
  * finds the 52 Mixamo bones and the skin weights of the model, Blender (tools\blender\rig.py) puts them into every GLB
  * (the game copies too) before the exports, so the FBX carry them; a short test motion shows the skeleton works.
@@ -41,8 +42,8 @@ export const QUALITY = {
 };
 const MODEL_NAME = { trellis: 'TRELLIS.2', pixal: 'Pixal3D' };
 // The game copies (user 11.10.2026: "3d alanımız oyunlar için asset üretiyo dimi"): a main game mesh and one LOD.
-// Measured on a knight: the 30k copy (QEM, ~27.5k) is close to the full model on screen; an 8k LOD (~4.8k) lost the
-// figure's shape, so the LOD is half the main copy. Both add ~2 min to the generation.
+// Measured on a knight: the 30k copy is close to the full model on screen; an 8k LOD lost the figure's shape, so the
+// LOD is half the main copy. Both take ~1 min in Blender (12.10.2026: 46 s for a woman, 58 s for a furry dwarf).
 export const GAME = [
   { file: 'game.glb', surface: 30000, texture: 2048 },
   { file: 'game-lod1.glb', surface: 15000, texture: 1024 },
@@ -101,9 +102,10 @@ export function validate(g, { mod, setting }) {
   if (kind === 'image') sourcePath(setting.outputRoot, source);
   const complete = kind === 'image' && yes(g.complete);
   if (complete || (prompt && kind !== 'text') || posed({ kind, prompt, rig: yes(g.rig) })) generatorRequired(mod, 'editJob', 'Image edit (Qwen-Image-Edit)', setting?.modelRoot);
-  // the game copies are baked from the generation's own voxels: a converted file has none
+  // the game copies come with a generation (Blender makes them from the finished model): a converted file stays as it is
   const game = yes(g.game);
   if (game && !generate) throw new UserError('Game copies are made while generating; a 3D model file without a description is only converted. Describe a change or give an image.');
+  if (game && !setting.blender) throw new UserError(`Blender is required for the game copies; ${BLENDER_MISSING}`);
   // the skeleton is put in by Blender; a converted file gets one too
   const rig = yes(g.rig);
   if (rig && !setting.hasRig) throw new UserError('The character skeleton is not installed: download "Character skeleton (Make-It-Animatable)" in Settings > Models.');
@@ -281,10 +283,9 @@ export async function run(ctx) {
   if (!existsSync(glb)) {
     const picture = await ctx.comfy.load(source, `panel_${ctx.job.id}_3d${extname(source).toLowerCase() || '.png'}`);
     const prefix = `panel/${ctx.job.id}/model`;
-    const graph = ctx.mod.trellis2Job({ picture, seed: g.seed, prefix, deleteBackPlan: g.deleteBackPlan, ...QUALITY[g.quality], game: g.game ? GAME : [] });
+    const graph = ctx.mod.trellis2Job({ picture, seed: g.seed, prefix, deleteBackPlan: g.deleteBackPlan, ...QUALITY[g.quality] });
     ctx.job.modelFiles = modelFiles(graph);
-    const saved = (name) => Object.keys(graph).find((id) => graph[id].class_type === 'SaveGLB' && graph[id].inputs.filename_prefix === name);
-    const record = saved(prefix);
+    const record = nodes(graph, 'SaveGLB')[0];
     const inputRecord = Object.keys(graph).find((id) => graph[id].class_type === 'SaveImage');
     const startedAt = Date.now();
     const outputs = await ctx.runComfy(graph, { stage: 'Generating the 3D model', range: [g.complete || posed(g) || g.prompt || g.kind === 'text' ? 20 : 2, lastPercent] });
@@ -295,14 +296,6 @@ export async function run(ctx) {
     // Pixal3D's camera (the model is pixel aligned with input.png through it)
     const fov = Number(outputs?.[nodes(graph, 'PreviewAny')[0]]?.text?.[0]);
     if (input && fov > 0) writeFileSync(join(k, CAMERA), JSON.stringify({ fov }));
-    // the game copies before model.glb: a retried job that finds model.glb has them too
-    if (g.game) {
-      for (const [i, level] of GAME.entries()) {
-        const copy = outputs?.[saved(`${prefix}_game${i}`)]?.['3d']?.[0];
-        if (!copy) throw new Error('ComfyUI did not return the game copy of the 3D model.');
-        await ctx.comfy.getOutput(copy, join(k, level.file));
-      }
-    }
     await ctx.comfy.getOutput(model, glb);
     const duration = (Date.now() - startedAt) / 1000;
     ctx.measure(`model3d/${g.quality}`, duration);
@@ -310,15 +303,13 @@ export async function run(ctx) {
   }
   const picture = existsSync(join(k, 'input.png')) ? await preview(ctx, 'input.png') : null;
 
-  // 2) The input picture projected onto the front of the model and its copies (before the normal maps: their export
-  // writes the copies' tangents), then the game copies' normal maps baked again in Blender (a rigged copy of a retried
-  // job had both already).
+  // 2) The input picture projected onto the front of the model, a full-body figure's face from a head generated on its
+  // own, then the game copies made from the finished model (they take its picture and face; a rigged model of a
+  // retried job had all of them already).
   const copies = g.game ? GAME.map((level) => join(k, level.file)) : [];
-  if (ctx.setting.blender && existsSync(join(k, CAMERA)) && !existsSync(join(k, PROJECTION_DONE)) && !existsSync(join(k, RIG_DONE))) await projectPicture(ctx, [glb, ...copies], lastPercent);
-  // A full-body figure's face from a head generated on its own (before the copies' normal maps: they are baked from
-  // model.glb's new face)
-  if (g.face !== false && ctx.setting.blender && existsSync(join(k, CAMERA)) && !existsSync(join(k, FACE_DONE)) && !existsSync(join(k, RIG_DONE))) await transferFace(ctx, [glb, ...copies], lastPercent);
-  if (copies.length && ctx.setting.blender && !existsSync(join(k, NORMALS_DONE)) && !existsSync(join(k, RIG_DONE))) await bakeNormals(ctx, glb, copies, lastPercent);
+  if (ctx.setting.blender && existsSync(join(k, CAMERA)) && !existsSync(join(k, PROJECTION_DONE)) && !existsSync(join(k, RIG_DONE))) await projectPicture(ctx, [glb], lastPercent);
+  if (g.face !== false && ctx.setting.blender && existsSync(join(k, CAMERA)) && !existsSync(join(k, FACE_DONE)) && !existsSync(join(k, RIG_DONE))) await transferFace(ctx, [glb], lastPercent);
+  if (copies.length && !existsSync(join(k, COPIES_DONE)) && !existsSync(join(k, RIG_DONE))) await makeCopies(ctx, glb, lastPercent);
 
   // 3) The skeleton into the model and its game copies (before the exports: the FBX carry it); the test motion on the
   // game copy, the one a game plays.
@@ -341,24 +332,20 @@ export async function run(ctx) {
   if (g.game) {
     for (const [i, level] of GAME.entries()) {
       const output = { file: level.file, type: 'model', format: 'glb', game: { lod: i, triangles: level.surface, texture: level.texture } };
-      if (ctx.setting.blender) {
-        ctx.progress({ percent: 97, stage: 'Blender: game copies', detail: level.file });
-        const name = level.file.replace(/\.glb$/, '');
-        const copy = await blenderPresentation(ctx.setting.blender, { script: blenderScript, input: join(k, level.file), output: k, name, frames: 0, formats: g.formats.includes('fbx') ? ['fbx'] : [], signal: ctx.signal });
-        // Fur or hair of many small pieces: the decimation drops the pieces, the first copy ends far under its budget
-        // (a dwarf: 9711 of 30000) and the LOD made from it is the same mesh. A second file of the same thing is no LOD.
-        const previous = game.findLast((c) => c.format === 'glb');
-        if (previous && copy.triangles > previous.game.triangles * LOD_SHARE) {
-          for (const f of [level.file, copy.files?.fbx]) if (f) rmSync(join(k, f), { force: true });
-          ctx.log(`${level.file} left out: ${previous.file} has only ${previous.game.triangles} triangles (many small pieces, e.g. fur or hair, were dropped), a LOD of it would be the same mesh`);
-          continue;
-        }
-        output.game.triangles = copy.triangles;
-        game.push(output);
-        if (copy.files?.fbx) game.push({ file: copy.files.fbx, type: 'model', format: 'fbx', game: { ...output.game } });
-      } else {
-        game.push(output);
+      ctx.progress({ percent: 97, stage: 'Blender: game copies', detail: level.file });
+      const name = level.file.replace(/\.glb$/, '');
+      const copy = await blenderPresentation(ctx.setting.blender, { script: blenderScript, input: join(k, level.file), output: k, name, frames: 0, formats: g.formats.includes('fbx') ? ['fbx'] : [], signal: ctx.signal });
+      // A small, simple model: its solid has fewer triangles than the copy asks for and the LOD is the same mesh as the
+      // copy before it. A second file of the same thing is no LOD.
+      const previous = game.findLast((c) => c.format === 'glb');
+      if (previous && copy.triangles > previous.game.triangles * LOD_SHARE) {
+        for (const f of [level.file, copy.files?.fbx]) if (f) rmSync(join(k, f), { force: true });
+        ctx.log(`${level.file} left out: ${previous.file} has only ${previous.game.triangles} triangles, a LOD of it would be the same mesh`);
+        continue;
       }
+      output.game.triangles = copy.triangles;
+      game.push(output);
+      if (copy.files?.fbx) game.push({ file: copy.files.fbx, type: 'model', format: 'fbx', game: { ...output.game } });
     }
     ctx.log(`Game copies: ${game.filter((c) => c.format === 'glb').map((c) => `${c.file} ${c.game.triangles} triangles`).join(', ')}`);
   }
@@ -419,8 +406,8 @@ async function facePoints(ctx, pictures) {
 /**
  * A full-body figure's face (user 11.10.2026, the eyes projected from the picture: "yeterli değil"): Pixal3D's voxels
  * lose a face ~100 px tall. Qwen-Image-Edit makes a close portrait of the same person, Pixal3D a head from it, and
- * Blender (tools\blender\face_transfer.py) puts the head's face, its shape and texture, on the model and its game
- * copies. YuNet's five face points align the head. A failure leaves the model its own face.
+ * Blender (tools\blender\face_transfer.py) puts the head's face, its shape and texture, on the model (the game copies
+ * are made from it afterwards). YuNet's five face points align the head. A failure leaves the model its own face.
  */
 async function transferFace(ctx, models, percent) {
   const g = ctx.job.input;
@@ -435,8 +422,10 @@ async function transferFace(ctx, models, percent) {
     const [body] = await facePoints(ctx, [join(k, 'input.png')]);
     const face = body.faces[0];
     const reason = !face ? 'no face found' : body.faces.length > 1 ? `${body.faces.length} faces` : face[3] > FACE_SHARE * body.height ? 'the face is large enough' : null;
+    // the face's box in the picture: the game copies give it more texels (a large face too)
+    const box = face ? { face, size: body.width } : {};
     if (reason) {
-      done({ skipped: reason });
+      done({ skipped: reason, ...box });
       ctx.log(`Face transfer skipped: ${reason}.`);
       return;
     }
@@ -446,7 +435,7 @@ async function transferFace(ctx, models, percent) {
     const headCamera = join(k, 'head-camera.json');
     if (!existsSync(headCamera)) {
       const picture = await ctx.comfy.load(portrait, `panel_${ctx.job.id}_head.png`);
-      const graph = ctx.mod.trellis2Job({ picture, seed: g.seed, prefix: `panel/${ctx.job.id}/head`, deleteBackPlan: true, ...QUALITY.high, game: [] });
+      const graph = ctx.mod.trellis2Job({ picture, seed: g.seed, prefix: `panel/${ctx.job.id}/head`, deleteBackPlan: true, ...QUALITY.high });
       const outputs = await ctx.runComfy(graph, { stage: 'Face: generating the head', range: [percent, percent] });
       const model = outputs?.[nodes(graph, 'SaveGLB')[0]]?.['3d']?.[0];
       const input = images(outputs, nodes(graph, 'SaveImage')[0])[0];
@@ -461,7 +450,7 @@ async function transferFace(ctx, models, percent) {
     }
     const [portraitFaces] = await facePoints(ctx, [join(k, 'head-input.png')]);
     if (!portraitFaces.faces.length) {
-      done({ skipped: 'no face in the portrait' });
+      done({ skipped: 'no face in the portrait', ...box });
       ctx.log('Face transfer skipped: no face in the portrait.');
       return;
     }
@@ -478,7 +467,7 @@ async function transferFace(ctx, models, percent) {
         if (/^(Head placed|Face onto|Only \d|Error|Traceback|CONTRACT)/.test(s)) ctx.log(s);
       },
     });
-    done(result);
+    done({ ...result, ...box });
     for (const f of [head, join(k, 'head-input.png'), headCamera]) rmSync(f, { force: true });
     ctx.measure('face3d', (Date.now() - startedAt) / 1000);
     ctx.log(`Face transferred from a separately generated head (${result.device}): ${result.models.filter((m) => !m.skipped).map((m) => m.file).join(', ')}, ${((Date.now() - startedAt) / 1000).toFixed(0)} s`);
@@ -489,25 +478,36 @@ async function transferFace(ctx, models, percent) {
   }
 }
 
-// Written when the game copies have their normal maps from Blender (a retried job does not bake again)
-const NORMALS_DONE = 'game-normals.json';
+// Written when the game copies are made (a retried job does not make them again)
+const COPIES_DONE = 'game-copies.json';
 
 /**
- * The game copies' normal maps baked again from the full model (tools\blender\game_normals.py). ComfyUI's map does not
- * match the MikkTSpace tangents game engines compute for a copy: the face and the body came out patchy, seams along
- * the UV islands. Cycles bakes for those tangents; the copies are written back in place.
+ * The game copies made by Blender from the finished model (tools\blender\game_copies.py). ComfyUI's decimation of the
+ * dense mesh shattered a curly-haired woman's face (12.10.2026): Pixal3D's surface is two sheets that cross once
+ * decimated, and the hair's open strands took most of the triangles. The copies are one closed solid of the model,
+ * decimated, unwrapped again and baked from it (colours, ORM and the normal map for MikkTSpace tangents); the face found
+ * in the picture gets twice the texels.
  */
-async function bakeNormals(ctx, full, copies, percent) {
+async function makeCopies(ctx, full, percent) {
+  const k = ctx.folder;
   const startedAt = Date.now();
-  ctx.progress({ percent, stage: 'Blender: game copy normal maps', detail: '' });
+  const args = ['--full', full, '--copies', ...GAME.map((level) => `${join(k, level.file)}:${level.surface}:${level.texture}`)];
+  const face = existsSync(join(k, FACE_DONE)) ? JSON.parse(readFileSync(join(k, FACE_DONE), 'utf8')) : {};
+  if (face.face && existsSync(join(k, CAMERA))) {
+    const { fov } = JSON.parse(readFileSync(join(k, CAMERA), 'utf8'));
+    args.push('--focus', JSON.stringify({ fov, face: face.face, size: face.size }));
+  }
+  ctx.progress({ percent, stage: 'Blender: making the game copies', detail: '' });
   const result = await blenderScript(ctx.setting.blender, {
-    script: join(ctx.setting.aiRoot, 'tools', 'blender', 'game_normals.py'),
-    args: ['--full', full, '--copies', ...copies],
+    script: join(ctx.setting.aiRoot, 'tools', 'blender', 'game_copies.py'),
+    args,
     signal: ctx.signal,
+    line: (s) => {
+      if (/^(Solid shape|Game copy|Error|Traceback|CONTRACT)/.test(s)) ctx.log(s);
+    },
   });
-  writeFileSync(join(ctx.folder, NORMALS_DONE), JSON.stringify(result));
-  const baked = result.copies.filter((c) => !c.skipped);
-  ctx.log(`Game copy normal maps baked again (${result.device}): ${baked.map((c) => `${c.file} ${c.size} px`).join(', ') || 'none'}, ${((Date.now() - startedAt) / 1000).toFixed(0)} s`);
+  writeFileSync(join(k, COPIES_DONE), JSON.stringify(result));
+  ctx.log(`Game copies made from model.glb (${result.device}): ${result.copies.map((c) => `${c.file} ${c.triangles} triangles`).join(', ')}, ${((Date.now() - startedAt) / 1000).toFixed(0)} s`);
 }
 
 // Written when the skeleton is in every model file (a retried job does not rig again)

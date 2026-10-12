@@ -3,6 +3,8 @@
  * - tools\blender\model3d.py: writes the export files and the turntable frames (PNG) and prints RESULT on the last line;
  *   an export of a rigged model says so in its content ("fake fbx rigged").
  * - tools\blender\rig.py: marks each model as rigged (" rigged" appended), writes the test motion frames of --show.
+ * - front_projection.py / face_transfer.py append " projected" / " face" to each model; game_copies.py writes each copy
+ *   as the full model's content + " copy".
  * The options, the printed token and the result keys are checked against the real script (script-contract.mjs).
  */
 import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } from 'node:fs';
@@ -54,7 +56,7 @@ if (/rig\.py$/.test(script)) {
 
 if (/front_projection\.py$/.test(script)) {
   const SCRIPT = 'tools/blender/front_projection.py';
-  // Like the real call (lib/jobs/model3d.mjs): -- --picture input.png --fov 39.5 --models model.glb game.glb ...
+  // Like the real call (lib/jobs/model3d.mjs): -- --picture input.png --fov 39.5 --models model.glb
   expectArgs(SCRIPT, a);
   expectSource(SCRIPT, "'RESULT '");
   expectKeys(SCRIPT, 'device', 'fov', 'models', 'file', 'size', 'share', 'seconds', 'skipped');
@@ -82,7 +84,7 @@ if (/front_projection\.py$/.test(script)) {
 if (/face_transfer\.py$/.test(script)) {
   const SCRIPT = 'tools/blender/face_transfer.py';
   // Like the real call (lib/jobs/model3d.mjs): -- --head head.glb --head-fov 39.5 --head-face [...] --head-size 1024
-  //   --fov 39.5 --face [...] --size 1024 --models model.glb game.glb ...
+  //   --fov 39.5 --face [...] --size 1024 --models model.glb
   expectArgs(SCRIPT, a);
   expectSource(SCRIPT, "'RESULT '", 'print(f"Face onto ', "print(f'Head placed");
   expectKeys(SCRIPT, 'device', 'models', 'file', 'moved', 'sampled', 'filled', 'seconds', 'skipped', 'scale', 'residual');
@@ -102,9 +104,9 @@ if (/face_transfer\.py$/.test(script)) {
   const result = { device: 'FAKE', models: [], scale: 0.42, residual: 0.05 };
   console.log('Head placed: scale 0.420, the face points within 5% of the eye distance');
   for (const m of a.slice(a.indexOf('--models') + 1)) {
-    // before the skeleton (exported without an armature) and the copies' normal maps (baked from the new face)
-    if (!existsSync(m) || /( rigged| normals)/.test(readFileSync(m, 'utf8'))) {
-      console.error(`Model missing, rigged or with its normal map baked: ${m}`);
+    // before the skeleton (exported without an armature)
+    if (!existsSync(m) || readFileSync(m, 'utf8').includes(' rigged')) {
+      console.error(`Model missing or rigged: ${m}`);
       process.exit(1);
     }
     appendFileSync(m, ' face');
@@ -116,28 +118,38 @@ if (/face_transfer\.py$/.test(script)) {
   process.exit(0);
 }
 
-if (/game_normals\.py$/.test(script)) {
-  const SCRIPT = 'tools/blender/game_normals.py';
-  // Like the real call (lib/jobs/model3d.mjs): -- --full model.glb --copies game.glb game-lod1.glb
+if (/game_copies\.py$/.test(script)) {
+  const SCRIPT = 'tools/blender/game_copies.py';
+  // Like the real call (lib/jobs/model3d.mjs): -- --full model.glb --copies game.glb:30000:2048 game-lod1.glb:15000:1024
+  //   [--focus {"fov":39.5,"face":[...],"size":1024}]
   expectArgs(SCRIPT, a);
-  expectSource(SCRIPT, "'RESULT '", 'export_tangents=True');
-  expectKeys(SCRIPT, 'device', 'copies', 'file', 'size', 'seconds', 'skipped');
-  const full = a[a.indexOf('--full') + 1];
-  if (!existsSync(full)) {
-    console.error(`Model missing: ${full}`);
+  expectSource(SCRIPT, "'RESULT '", 'export_tangents=True', 'Solid shape: ', 'Game copy ');
+  expectKeys(SCRIPT, 'device', 'copies', 'file', 'triangles', 'size', 'face', 'seconds', 'fov');
+  const value = (name) => a[a.indexOf(name) + 1];
+  const full = value('--full');
+  // made from the finished model: its picture and face are on it, the skeleton is not yet (the copies get theirs after)
+  if (!existsSync(full) || readFileSync(full, 'utf8').includes(' rigged')) {
+    console.error(`Model missing or rigged: ${full}`);
     process.exit(1);
   }
+  const focus = a.includes('--focus') ? JSON.parse(value('--focus')) : null;
+  if (focus && !(focus.fov > 0 && focus.face?.length >= 4 && focus.size > 0)) {
+    console.error(`Not a face box: ${value('--focus')}`);
+    process.exit(1);
+  }
+  const end = a.findIndex((x, i) => i > a.indexOf('--copies') && x.startsWith('--'));
   const result = { device: 'FAKE', copies: [] };
-  for (const m of a.slice(a.indexOf('--copies') + 1)) {
-    // the real script exports a copy without an armature: a rigged copy would lose its skeleton
-    if (!existsSync(m) || readFileSync(m, 'utf8').includes(' rigged')) {
-      console.error(`Copy missing or rigged: ${m}`);
+  console.log('Solid shape: 500000 triangles, 1.0 s');
+  for (const c of a.slice(a.indexOf('--copies') + 1, end < 0 ? a.length : end)) {
+    const [, path, triangles, size] = c.match(/^(.+):(\d+):(\d+)$/) ?? [];
+    if (!path) {
+      console.error(`Not file:triangles:size: ${c}`);
       process.exit(1);
     }
-    appendFileSync(m, ' normals');
-    const file = m.split(/[\\/]/).pop();
-    console.log(`Normal map ${file}: 2048 px, 1.0 s`);
-    result.copies.push({ file, size: 2048, seconds: 1 });
+    writeFileSync(path, `${readFileSync(full, 'utf8')} copy`);
+    const info = { file: path.split(/[\\/]/).pop(), triangles: Number(triangles), size: Number(size), face: focus ? 100 : 0, seconds: 1 };
+    console.log(`Game copy ${info.file}: ${info.triangles} triangles (${info.face} on the face), ${info.size} px, 1.0 s`);
+    result.copies.push(info);
   }
   console.log(`RESULT ${JSON.stringify(result)}`);
   process.exit(0);
