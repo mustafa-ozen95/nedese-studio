@@ -14,6 +14,9 @@ Game sprites from transparent pictures (the Game assets job; ComfyUI's python: P
 - --mode tiles: reads <folder>/source_<name>.png, makes each seamless (the picture and its half-shifted copy are cross-faded,
   so the opposite edges meet) at --cell x --cell: tile_<name>.png, the sheet, the atlas and tile-preview.png (the first tile
   repeated 3 x 3: the seams show there).
+- --mode loop --frames DIR --count N: the frames of a clip (PNG, sorted by name); the loop is closed where the picture
+  is closest to the first one (the clip's second half is searched); N evenly spaced frames of that part are picked.
+  Prints RESULT {files, length, closure}: the picked file names, the loop's length in frames and the mean difference (0-255).
 - Prints "progress <done>/<total> <text>" lines and a last line "RESULT {json}".
 """
 import argparse
@@ -31,8 +34,8 @@ ALPHA_CUT = 8
 
 def args():
     p = argparse.ArgumentParser()
-    p.add_argument('--folder', required=True)
-    p.add_argument('--names', nargs='+', required=True)
+    p.add_argument('--folder', default='')
+    p.add_argument('--names', nargs='+')
     p.add_argument('--cell', type=int, default=512)
     p.add_argument('--padding', type=int, default=8)
     p.add_argument('--anchor', choices=('bottom', 'center'), default='bottom')
@@ -40,7 +43,9 @@ def args():
     p.add_argument('--prefix', default='')
     p.add_argument('--fps', type=float, default=0)
     p.add_argument('--union', action='store_true')
-    p.add_argument('--mode', choices=('sprites', 'tiles'), default='sprites')
+    p.add_argument('--mode', choices=('sprites', 'tiles', 'loop'), default='sprites')
+    p.add_argument('--frames', default='')
+    p.add_argument('--count', type=int, default=12)
     return p.parse_args()
 
 
@@ -119,8 +124,29 @@ def tiles(a):
     print('RESULT ' + json.dumps({'sheet': [sheet.width, sheet.height], 'frames': len(frames)}))
 
 
+def loop(a):
+    files = sorted(f for f in os.listdir(a.frames) if f.lower().endswith('.png'))
+    if len(files) < 4:
+        print('ERROR: the clip has too few frames', flush=True)
+        sys.exit(1)
+    small = [np.asarray(Image.open(os.path.join(a.frames, f)).convert('L').resize((64, 64), Image.BILINEAR)).astype(np.float32) for f in files]
+    diffs = [float(np.abs(x - small[0]).mean()) for x in small]
+    # the loop may not be shorter than 40% of the clip (the figure must have moved away and come back)
+    start = max(2, int(len(files) * 0.4))
+    best = min(diffs[start:])
+    # the earliest frame that is about as close as the closest: a longer loop would repeat the motion more than once
+    end = next(i for i in range(start, len(files)) if diffs[i] <= best * 1.1 + 1.0)
+    picks = [min(end - 1, round(i * end / a.count)) for i in range(a.count)]
+    print('RESULT ' + json.dumps({'files': [files[i] for i in picks], 'length': end, 'closure': round(diffs[end], 2), 'frames': len(files)}))
+
+
 def main():
     a = args()
+    if a.mode == 'loop':
+        return loop(a)
+    if not a.names or not a.folder:
+        print('ERROR: --folder and --names are required', flush=True)
+        sys.exit(1)
     if a.mode == 'tiles':
         return tiles(a)
     loaded = []

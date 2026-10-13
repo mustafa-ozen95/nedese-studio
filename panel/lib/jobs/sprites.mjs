@@ -4,11 +4,12 @@
  * packed into a sprite sheet with an atlas (tools\sprites.py).
  * Steps: base picture (drawn from the description, or the given source) -> one edit per pose (one ComfyUI request) ->
  * one cut-out request -> sprites, sheet.png, atlas.json. Files already written are not made again (a retried job resumes).
- * Animations: the base picture moved by Wan 2.2 from the base picture to the same picture (first = last frame: a loop),
- * evenly spaced frames cut out and packed as their own sheet with an animated preview.
+ * Animations: a picture of the described motion (Qwen-Image-Edit from the base picture) moved by Wan 2.2 (a 3 second clip),
+ * the loop closed where the clip comes back closest to its first frame, evenly spaced frames of the loop cut out and packed
+ * as their own sheet with an animated preview. (First = last frame as one picture gave frames that hardly moved: 13.10.2026.)
  * Kind "tile": seamless ground/wall textures (drawn variants made tileable by tools\sprites.py).
  */
-import { copyFileSync, existsSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { images } from '../comfy-client.mjs';
 import { merge, nodes, modelFiles, addLora } from '../graph.mjs';
@@ -25,7 +26,7 @@ export const name = 'Game assets';
 const KINDS = ['character', 'vehicle', 'object', 'tile'];
 const MAX_POSES = 12;
 const MAX_ANIMATIONS = 4;
-const ANIMATION = { frame: 33, fps: 16, size: 640 };
+const ANIMATION = { frame: 49, fps: 16, size: 640 };
 const DEFAULT_POSES = {
   character: [
     'walk: seen from the side facing right, in the middle of a walking stride',
@@ -115,9 +116,7 @@ export function validate(g, { mod, setting }) {
   }
   const poses = kind === 'tile' ? [] : parsePoses(g.poses, kind);
   const animations = kind === 'tile' ? [] : parseAnimations(g.animations);
-  if (poses.length) {
-    generatorRequired(mod, 'editJob', 'Image editing', setting?.modelRoot);
-  }
+  if (poses.length || animations.length) generatorRequired(mod, 'editJob', 'Image editing', setting?.modelRoot);
   if (animations.length) generatorRequired(mod, 'wan14Job', 'Animation (Wan 2.2 A14B)', setting?.modelRoot);
   if (kind !== 'tile') generatorRequired(mod, 'cutoutJob', 'Background removal', setting?.modelRoot);
   const ratio = kind === 'tile' ? '1:1' : choice(g.ratio, 'Aspect ratio', Object.keys(RATIOS), '1:1');
@@ -157,16 +156,21 @@ async function saveFirst(ctx, list, target, what) {
 async function packer(ctx, args) {
   const k = ctx.setting.spritesCommand(args);
   let last = [];
+  let result = null;
   await runProcess(k.command, k.args, {
     env: k.env,
     cwd: ctx.folder,
     signal: ctx.signal,
     name: 'sprites',
-    line: (s) => { last = [...last, s].slice(-12); },
+    line: (s) => {
+      last = [...last, s].slice(-12);
+      if (s.startsWith('RESULT ')) result = JSON.parse(s.slice(7));
+    },
   }).catch((e) => {
     const h = last.find((s) => s.startsWith('ERROR:'));
     throw h ? new UserError(`Sprites: ${h.slice(6).trim()}`) : e;
   });
+  return result;
 }
 
 /** The first picture(s) drawn from the description: one request, `count` different seeds. */
@@ -202,44 +206,66 @@ async function runTiles(ctx) {
   ctx.addOutputs(outputs);
 }
 
-/** One animation: Wan from the base picture back to itself, the frames cut out and packed as <name>_sheet.png. */
+/** The picture an animation starts from: the base picture changed as the animation describes (written once). */
+async function animationPicture(ctx, animation, baseFile, range) {
+  const g = ctx.job.input;
+  const target = join(ctx.folder, `animpose_${animation.name}.png`);
+  if (existsSync(target)) return target;
+  const picture = await ctx.comfy.load(baseFile, `panel_${ctx.job.id}_base${extname(baseFile).toLowerCase()}`);
+  const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
+  const prompt = `The same ${g.kind} as in image 1, ${instruction}, shown in the middle of that motion. Keep exactly the same design, colours, clothing or parts and art style. Plain solid light grey background, no ground, no cast shadow, nothing else in the picture.`;
+  const graph = ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + 100, prefix: `panel/${ctx.job.id}/animpose_${animation.name}` });
+  const outputs = await ctx.runComfy(graph, { stage: `Animation: the starting picture (${animation.name})`, range });
+  await saveFirst(ctx, images(outputs, nodes(graph, 'SaveImage')[0]), target, `the starting picture of ${animation.name}`);
+  return target;
+}
+
+/** One animation: a picture of the motion moved by Wan, the loop closed, its frames cut out and packed as <name>_sheet.png. */
 async function runAnimation(ctx, animation, baseFile, index) {
   const g = ctx.job.input;
   const folder = ctx.folder;
   const sheet = join(folder, `${animation.name}_sheet.png`);
   const names = Array.from({ length: g.frames }, (_, i) => `${animation.name}-${String(i + 1).padStart(2, '0')}`);
   const frameDir = join(folder, `frames_${animation.name}`);
-  const size = imageSize(baseFile) ?? { width: 1, height: 1 };
-  const [width, height] = animationSize(size.width, size.height);
-  const total = ANIMATION.frame;
+  const loopFile = join(folder, `loop_${animation.name}.json`);
+  // this animation's part of the bar (60-95 shared by all): the starting picture, the clip, the cut-outs
+  const span = 35 / g.animations.length;
+  const part = (from, to) => [60 + index * span + from * span, 60 + index * span + to * span];
+  let loop = existsSync(loopFile) ? JSON.parse(readFileSync(loopFile, 'utf8')) : null;
   if (!names.every((n) => existsSync(join(folder, `cutout_${n}.png`)))) {
-    if (!existsSync(frameDir) || readdirSync(frameDir).length < total) {
-      rmSync(frameDir, { recursive: true, force: true });
-      const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
-      const prompt = `The ${g.kind} ${instruction}. It stays in the same place with a static camera, on the same plain light grey background, no ground, no cast shadow, smooth looping motion.`;
-      await runWan(ctx, {
-        model: 'wan14', source: baseFile, lastSource: baseFile, prompt, seed: g.seed + index, width, height, frame: total, smooth: 1,
-        target: frameDir, stage: `Animation: ${animation.name}`, range: [0, 60], prefixExtra: `anim_${animation.name}`,
-      });
+    if (!loop) {
+      const start = await animationPicture(ctx, animation, baseFile, part(0, 0.1));
+      const size = imageSize(start) ?? { width: 1, height: 1 };
+      const [width, height] = animationSize(size.width, size.height);
+      if (!existsSync(frameDir) || readdirSync(frameDir).length < ANIMATION.frame) {
+        rmSync(frameDir, { recursive: true, force: true });
+        const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
+        const prompt = `The ${g.kind} ${instruction}. It stays in the same place with a static camera, on the same plain light grey background, no ground, no cast shadow, a steady repeating motion.`;
+        await runWan(ctx, {
+          model: 'wan14', source: start, prompt, seed: g.seed + index, width, height, frame: ANIMATION.frame, smooth: 1,
+          target: frameDir, stage: `Animation: ${animation.name}`, range: part(0.1, 0.7), prefixExtra: `anim_${animation.name}`,
+        });
+      }
+      loop = await packer(ctx, ['--mode', 'loop', '--frames', frameDir, '--count', String(g.frames)]);
+      writeFileSync(loopFile, JSON.stringify(loop));
+      ctx.log(`Animation ${animation.name}: loop of ${loop.length} frames of ${loop.frames}, closing difference ${loop.closure}`);
     }
-    const frames = readdirSync(frameDir).filter((f) => f.endsWith('.png')).sort();
-    const picked = pickFrames(frames.length, g.frames).map((i) => join(frameDir, frames[i]));
     const graphs = [];
-    for (const [i, file] of picked.entries()) {
-      const picture = await ctx.comfy.load(file, `panel_${ctx.job.id}_${names[i]}.png`);
+    for (const [i, name] of loop.files.entries()) {
+      const picture = await ctx.comfy.load(join(frameDir, name), `panel_${ctx.job.id}_${names[i]}.png`);
       graphs.push(ctx.mod.cutoutJob({ picture, prefix: `panel/${ctx.job.id}/cutout_${names[i]}` }));
     }
     const { job, match } = merge(graphs);
-    const outputs = await ctx.runComfy(job, { stage: `Removing the backgrounds (${animation.name})`, range: [60, 90] });
+    const outputs = await ctx.runComfy(job, { stage: `Removing the backgrounds (${animation.name})`, range: part(0.7, 1) });
     for (const [i, n] of names.entries()) await saveFirst(ctx, images(outputs, match[i][nodes(graphs[i], 'SaveImage')[0]]), join(folder, `cutout_${n}.png`), `the cut-out ${n}`);
     rmSync(frameDir, { recursive: true, force: true });
   }
   if (!existsSync(sheet)) {
-    const fps = Math.round((g.frames / ((total - 1) / ANIMATION.fps)) * 10) / 10;
+    const fps = Math.round((g.frames / (loop.length / ANIMATION.fps)) * 10) / 10;
     await packer(ctx, ['--folder', folder, '--cell', String(g.cell), '--anchor', g.kind === 'object' ? 'center' : 'bottom', '--prefix', `${animation.name}_`, '--union', '--fps', String(fps), '--columns', '6', '--names', ...names]);
   }
   return [
-    { file: `${animation.name}_sheet.png`, type: 'image', atlas: `${animation.name}_atlas.json`, archive: `${animation.name}_sprites.zip`, animation: animation.name, sprites: names.length, cell: g.cell, seed: g.seed },
+    { file: `${animation.name}_sheet.png`, type: 'image', atlas: `${animation.name}_atlas.json`, archive: `${animation.name}_sprites.zip`, animation: animation.name, sprites: names.length, cell: g.cell, loop: loop.length, seed: g.seed },
     { file: `${animation.name}_animation.webp`, type: 'image', animation: animation.name, seed: g.seed },
   ];
 }

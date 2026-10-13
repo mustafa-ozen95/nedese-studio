@@ -103,35 +103,40 @@ test('animation helpers: a loop leaves out its last frame, the size fits Wan, th
   assert.throws(() => parseAnimations(Array.from({ length: 5 }, (_, i) => `a${i}: x`)), /At most 4 animations/);
 });
 
-test('Game assets: an animation is a looping Wan clip from the base picture to itself, its frames cut out and packed on their own', async () => {
+test('Game assets: an animation starts from a picture of the motion, Wan plays it, the loop is closed, its frames are cut out and packed on their own', async () => {
   const p = await createPanel();
   try {
-    const job = p.queue.add('sprites', { prompt: 'a robot', kind: 'character', poses: ['side: from the side'], animations: ['walk: walking in place'], frames: 6, cell: 256, translate: false, seed: 2 });
+    const job = p.queue.add('sprites', { prompt: 'a robot', kind: 'character', poses: ['side: from the side'], animations: ['walk: walking in place seen from the side'], frames: 6, cell: 256, translate: false, seed: 2 });
     assert.match(job.summary.detail, /character · 2 sprites · 1 animation · 256 px cells/);
     const done = await p.waitUntilDone(job.id, 90000);
     assert.equal(done.status, 'done', done.error);
     const requests = promptList(p);
-    const wan = requests.find((r) => r.some((d) => d.class_type === 'WanFirstLastFrameToVideo'));
-    assert.ok(wan, 'the clip is made between the base picture and the same picture (a loop)');
-    const loads = wan.filter((d) => d.class_type === 'LoadImage').map((d) => d.inputs.image);
-    assert.deepEqual(loads.map((n) => n.replace(/^panel_[0-9-]+-sprites-[0-9a-f]+_/, '')), ['anim_walk.png', 'anim_walk_last.png'], 'first and last frame are both the base picture (uploaded twice under two names)');
-    assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character walking in place. It stays in the same place with a static camera/);
-    const frames = wan.find((d) => d.class_type === 'WanFirstLastFrameToVideo').inputs;
-    assert.equal(frames.length, 33);
+    // draw, poses, cut-outs, the starting picture (an edit), the clip, the frame cut-outs
+    const start = requests.find((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && /shown in the middle of that motion/.test(d.inputs.prompt ?? '')));
+    assert.ok(start, 'the starting picture is the base picture changed as the animation describes');
+    assert.match(start.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt, /^The same character as in image 1, walking in place seen from the side, shown in the middle of that motion./);
+    const wan = requests.find((r) => r.some((d) => d.class_type === 'WanImageToVideo'));
+    assert.ok(wan, 'one start picture, no last frame: a first = last frame clip hardly moved on the real machine');
+    assert.equal(wan.some((d) => d.class_type === 'WanFirstLastFrameToVideo'), false);
+    assert.equal(wan.find((d) => d.class_type === 'WanImageToVideo').inputs.length, 49);
+    assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character walking in place seen from the side. It stays in the same place with a static camera/);
     const cuts = requests.at(-1).filter((d) => d.class_type === 'RemoveBackground');
     assert.equal(cuts.length, 6, 'the six frames in one cut-out request');
     const calls = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8'));
+    assert.ok(calls.some((c) => c.includes('--mode') && c[c.indexOf('--mode') + 1] === 'loop'), 'the loop is closed by the script');
     const anim = calls.at(-1);
     assert.equal(anim[anim.indexOf('--prefix') + 1], 'walk_');
     assert.ok(anim.includes('--union'), 'the frames keep their place in the cell');
-    assert.equal(anim[anim.indexOf('--fps') + 1], '3', '6 frames over 2 seconds');
+    assert.equal(anim[anim.indexOf('--fps') + 1], '3.2', '6 frames over the 30-frame loop at 16 fps');
     assert.deepEqual(anim.slice(anim.indexOf('--names') + 1), ['walk-01', 'walk-02', 'walk-03', 'walk-04', 'walk-05', 'walk-06']);
     const sheet = done.outputs.find((o) => o.animation === 'walk' && o.atlas);
     assert.equal(sheet.file, 'walk_sheet.png');
     assert.equal(sheet.archive, 'walk_sprites.zip');
+    assert.equal(sheet.loop, 30);
     assert.ok(done.outputs.some((o) => o.file === 'walk_animation.webp'));
     assert.equal(done.outputs[0].file, 'sheet.png', 'the pose sheet stays the main output');
-    assert.equal(existsSync(join(p.setting.outputRoot, done.id, 'frames_walk')), false, 'the 33 raw frames are removed');
+    assert.equal(existsSync(join(p.setting.outputRoot, done.id, 'frames_walk')), false, 'the raw frames are removed');
+    assert.ok(existsSync(join(p.setting.outputRoot, done.id, 'loop_walk.json')), 'the loop is kept: a retried job does not play the clip again');
   } finally {
     await p.close();
   }

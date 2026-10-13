@@ -3,13 +3,13 @@
  * mode), a sheet, an atlas and a zip. The options and the printed tokens are checked against the real script
  * (script-contract.mjs). FAKE_SPRITES_ERROR=1: "ERROR:" and exit 1. Every call is appended to sprites-calls.json.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expectArgs, expectSource } from './script-contract.mjs';
 
 const SCRIPT = 'tools/sprites.py';
 expectArgs(SCRIPT, process.argv.slice(2));
-expectSource(SCRIPT, "f'progress {", "'RESULT '", "f'ERROR: {", 'cutout_{name}.png', 'sprite_{name}.png', 'source_{name}.png', 'tile_{name}.png', "{a.prefix}atlas.json", "{a.prefix}sheet.png", "{a.prefix}sprites.zip", "{a.prefix}animation.webp");
+expectSource(SCRIPT, "f'progress {", "'RESULT '", "f'ERROR: {", 'cutout_{name}.png', 'sprite_{name}.png', 'source_{name}.png', 'tile_{name}.png', "{a.prefix}atlas.json", "{a.prefix}sheet.png", "{a.prefix}sprites.zip", "{a.prefix}animation.webp", "'loop'", "'closure'");
 const argv = process.argv.slice(2);
 const arg = (name) => {
   const i = argv.indexOf(name);
@@ -18,6 +18,19 @@ const arg = (name) => {
 if (process.env.FAKE_SPRITES_ERROR) {
   console.log('ERROR: base: nothing is left after the background removal');
   process.exit(1);
+}
+if (arg('--mode') === 'loop') {
+  // the picks: evenly spaced files of the first 30 frames (a loop of 30); FAKE_SPRITES_CLOSURE sets the difference
+  const dir = arg('--frames');
+  const files = readdirSync(dir).filter((x) => x.endsWith('.png')).sort();
+  const count = Number(arg('--count'));
+  const length = Math.min(30, files.length);
+  const picks = Array.from({ length: count }, (_, i) => files[Math.min(length - 1, Math.round((i * length) / count))]);
+  const log = join(dir, '..', 'sprites-calls.json');
+  const before = existsSync(log) ? JSON.parse(readFileSync(log, 'utf8')) : [];
+  writeFileSync(log, JSON.stringify([...before, argv]));
+  console.log('RESULT ' + JSON.stringify({ files: picks, length, closure: Number(process.env.FAKE_SPRITES_CLOSURE ?? 3.5), frames: files.length }));
+  process.exit(0);
 }
 const folder = arg('--folder');
 const prefix = arg('--prefix') ?? '';
