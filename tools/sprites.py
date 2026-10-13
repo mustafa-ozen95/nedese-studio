@@ -56,6 +56,8 @@ def clean_edge(image):
         take = (~known) & (count > 0)
         colour[take] = grown[take] / count[take][..., None]
         known = known | take
+    # BiRefNet's probabilities leave the inside of the figure at 250-254: made fully opaque (a game blends sprites)
+    a[..., 3] = np.where(alpha >= 240, 255, alpha)
     weak = alpha < 200
     a[..., :3][weak] = colour[weak]
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), 'RGBA')
