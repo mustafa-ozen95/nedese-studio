@@ -1342,6 +1342,13 @@
         }
         if (media.children.length) parts.push(media);
 
+        // Game assets: the atlas (frames, pivots, scale) and every sprite in one ZIP next to the sprite sheet.
+        for (const sheet of job.outputs.filter((c) => c.atlas)) {
+            const label = sheet.animation ? ` · ${sheet.animation}` : '';
+            parts.push(el('div', { class: 'row' },
+                el('a', { class: 'btn btn--sm', href: `/file/job/${job.id}/${sheet.atlas}?download=1`, download: true, target: '_blank', rel: 'noopener' }, el('span', { text: 'Download atlas (JSON)' }), label ? el('span', { translate: 'no', text: label }) : null),
+                sheet.archive ? el('a', { class: 'btn btn--sm', href: `/file/job/${job.id}/${sheet.archive}?download=1`, download: true, target: '_blank', rel: 'noopener' }, el('span', { text: 'Download all sprites (ZIP)' }), label ? el('span', { translate: 'no', text: label }) : null) : null));
+        }
         // 3D model: GLB / FBX / OBJ (ZIP) / STL downloads; the STL is the print copy with its size and volume.
         const models = job.outputs.filter((c) => c.type === 'model' && !c.game);
         const game = job.outputs.filter((c) => c.type === 'model' && c.game);

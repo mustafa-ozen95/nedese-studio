@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
-import { parsePoses } from '../lib/jobs/sprites.mjs';
+import { animationSize, parseAnimations, parsePoses, pickFrames } from '../lib/jobs/sprites.mjs';
 import * as comfy from '../../tools/comfy.mjs';
 
 const promptList = (p) => p.fake.status.records.filter((x) => x.path === '/prompt').map((x) => Object.values(JSON.parse(x.prompt).prompt));
@@ -39,7 +39,7 @@ test('Game assets: base picture, one edit request for the poses, one cut-out req
   try {
     assert.throws(() => p.queue.add('sprites', {}), /Description cannot be empty/);
     assert.throws(() => p.queue.add('sprites', { prompt: 'a knight', kind: 'ship' }), /Kind is invalid/);
-    assert.throws(() => p.queue.add('sprites', { prompt: 'a knight', cell: 64 }), /Cell size must be at least 128/);
+    assert.throws(() => p.queue.add('sprites', { prompt: 'a knight', cell: 32 }), /Cell size must be at least 64/);
     const job = p.queue.add('sprites', { prompt: 'chibi knight with a blue sword', poses: ['walk: seen from the side', 'back: seen from behind'], cell: 256, translate: false, seed: 7 });
     assert.match(job.summary.detail, /character · 3 sprites · 256 px cells/);
     const done = await p.waitUntilDone(job.id, 60000);
@@ -58,7 +58,7 @@ test('Game assets: base picture, one edit request for the poses, one cut-out req
     assert.equal(p.fake.status.records.filter((x) => x.path === '/prompt').length, 3, 'three ComfyUI requests in all');
 
     const folder = join(p.setting.outputRoot, done.id);
-    const args = JSON.parse(readFileSync(join(folder, 'sprites-args.json'), 'utf8'));
+    const args = JSON.parse(readFileSync(join(folder, 'sprites-calls.json'), 'utf8'))[0];
     assert.deepEqual(args.slice(args.indexOf('--names') + 1), ['base', 'walk', 'back']);
     assert.equal(args[args.indexOf('--anchor') + 1], 'bottom');
     assert.equal(args[args.indexOf('--cell') + 1], '256');
@@ -71,7 +71,7 @@ test('Game assets: base picture, one edit request for the poses, one cut-out req
     const upload = p.queue.add('sprites', { source: `job/${done.id}/base.png`, kind: 'object', poses: ['open: with the lid open'], translate: false });
     const second = await p.waitUntilDone(upload.id, 60000);
     assert.equal(second.status, 'done', second.error);
-    const args2 = JSON.parse(readFileSync(join(p.setting.outputRoot, second.id, 'sprites-args.json'), 'utf8'));
+    const args2 = JSON.parse(readFileSync(join(p.setting.outputRoot, second.id, 'sprites-calls.json'), 'utf8'))[0];
     assert.equal(args2[args2.indexOf('--anchor') + 1], 'center');
     assert.equal(promptList(p).length, 3 + 2, 'no drawing request this time: edit and cut-out only');
   } finally {
@@ -89,6 +89,74 @@ test('Game assets: an error of the sprite script is shown as a message of the jo
     assert.match(done.error, /Sprites: base: nothing is left after the background removal/);
   } finally {
     delete process.env.FAKE_SPRITES_ERROR;
+    await p.close();
+  }
+});
+
+test('animation helpers: a loop leaves out its last frame, the size fits Wan, the list is capped at 4', () => {
+  assert.deepEqual(pickFrames(33, 8), [0, 4, 8, 12, 16, 20, 24, 28], 'evenly spaced, never the last (= the first again)');
+  assert.deepEqual(pickFrames(5, 12).every((i) => i >= 0 && i <= 4), true, 'fewer frames than wanted: indexes stay inside');
+  assert.deepEqual(animationSize(1328, 1328), [640, 640]);
+  assert.deepEqual(animationSize(1200, 800), [640, 432], 'both sides on 16');
+  assert.deepEqual(parseAnimations(undefined), [], 'none unless asked');
+  assert.deepEqual(parseAnimations(['walk: walking in place']).map((a) => a.name), ['walk']);
+  assert.throws(() => parseAnimations(Array.from({ length: 5 }, (_, i) => `a${i}: x`)), /At most 4 animations/);
+});
+
+test('Game assets: an animation is a looping Wan clip from the base picture to itself, its frames cut out and packed on their own', async () => {
+  const p = await createPanel();
+  try {
+    const job = p.queue.add('sprites', { prompt: 'a robot', kind: 'character', poses: ['side: from the side'], animations: ['walk: walking in place'], frames: 6, cell: 256, translate: false, seed: 2 });
+    assert.match(job.summary.detail, /character · 2 sprites · 1 animation · 256 px cells/);
+    const done = await p.waitUntilDone(job.id, 90000);
+    assert.equal(done.status, 'done', done.error);
+    const requests = promptList(p);
+    const wan = requests.find((r) => r.some((d) => d.class_type === 'WanFirstLastFrameToVideo'));
+    assert.ok(wan, 'the clip is made between the base picture and the same picture (a loop)');
+    const loads = wan.filter((d) => d.class_type === 'LoadImage').map((d) => d.inputs.image);
+    assert.deepEqual(loads.map((n) => n.replace(/^panel_[0-9-]+-sprites-[0-9a-f]+_/, '')), ['anim_walk.png', 'anim_walk_last.png'], 'first and last frame are both the base picture (uploaded twice under two names)');
+    assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character walking in place. It stays in the same place with a static camera/);
+    const frames = wan.find((d) => d.class_type === 'WanFirstLastFrameToVideo').inputs;
+    assert.equal(frames.length, 33);
+    const cuts = requests.at(-1).filter((d) => d.class_type === 'RemoveBackground');
+    assert.equal(cuts.length, 6, 'the six frames in one cut-out request');
+    const calls = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8'));
+    const anim = calls.at(-1);
+    assert.equal(anim[anim.indexOf('--prefix') + 1], 'walk_');
+    assert.ok(anim.includes('--union'), 'the frames keep their place in the cell');
+    assert.equal(anim[anim.indexOf('--fps') + 1], '3', '6 frames over 2 seconds');
+    assert.deepEqual(anim.slice(anim.indexOf('--names') + 1), ['walk-01', 'walk-02', 'walk-03', 'walk-04', 'walk-05', 'walk-06']);
+    const sheet = done.outputs.find((o) => o.animation === 'walk' && o.atlas);
+    assert.equal(sheet.file, 'walk_sheet.png');
+    assert.equal(sheet.archive, 'walk_sprites.zip');
+    assert.ok(done.outputs.some((o) => o.file === 'walk_animation.webp'));
+    assert.equal(done.outputs[0].file, 'sheet.png', 'the pose sheet stays the main output');
+    assert.equal(existsSync(join(p.setting.outputRoot, done.id, 'frames_walk')), false, 'the 33 raw frames are removed');
+  } finally {
+    await p.close();
+  }
+});
+
+test('Game assets: tiles are drawn as variants in one request and made seamless by the script', async () => {
+  const p = await createPanel();
+  try {
+    const job = p.queue.add('sprites', { prompt: 'mossy cobblestone ground', kind: 'tile', variants: 3, cell: 128, translate: false, seed: 4, poses: ['ignored: x'] });
+    assert.match(job.summary.detail, /tiles · 3 variants · 128 px/);
+    assert.deepEqual(job.input.poses, [], 'no poses for tiles');
+    const done = await p.waitUntilDone(job.id, 60000);
+    assert.equal(done.status, 'done', done.error);
+    const requests = promptList(p);
+    assert.equal(requests.length, 1, 'one request draws all variants');
+    const texts = requests[0].filter((d) => d.class_type === 'CLIPTextEncode').map((d) => d.inputs.text);
+    assert.equal(texts.length, 1, 'the same prompt: the nodes are shared');
+    assert.match(texts[0], /mossy cobblestone ground. Seamless tileable texture, flat top-down orthographic view/);
+    assert.equal(requests[0].filter((d) => d.class_type === 'KSampler').length, 3, 'three seeds');
+    const call = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8'))[0];
+    assert.equal(call[call.indexOf('--mode') + 1], 'tiles');
+    assert.deepEqual(call.slice(call.indexOf('--names') + 1), ['t1', 't2', 't3']);
+    assert.deepEqual(done.outputs.map((o) => o.file), ['sheet.png', 'tile_t1.png', 'tile_t2.png', 'tile_t3.png', 'tile-preview.png']);
+    assert.throws(() => p.queue.add('sprites', { kind: 'tile', prompt: 'x', variants: 9 }), /Tile variants can be at most 8/);
+  } finally {
     await p.close();
   }
 });

@@ -418,6 +418,7 @@
                                             <option value="character">Character</option>
                                             <option value="vehicle">Vehicle</option>
                                             <option value="object">Object</option>
+                                            <option value="tile">Tile (seamless texture)</option>
                                         </select>
                                     </div>
                                     <div class="field">
@@ -434,6 +435,12 @@
                                     <textarea class="textarea" id="g-sprite-poses" name="poses" rows="4"
                                               placeholder="walk: seen from the side, mid stride&#10;attack: a big sword slash&#10;(empty: walk, run, attack, hurt, back)"></textarea>
                                     <span class="field__hint">One per line as "name: description". Empty uses the defaults of the kind.</span>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="g-sprite-anim">Animations</label>
+                                    <textarea class="textarea" id="g-sprite-anim" name="animations" rows="2"
+                                              placeholder="walk: walking in place&#10;idle: breathing, a small movement"></textarea>
+                                    <span class="field__hint">Optional. Each is a looping animation of 12 frames with its own sheet, about a minute more per animation.</span>
                                 </div>
                                 <div class="form-actions">
                                     <button type="submit" class="btn btn--primary">Add to queue</button>

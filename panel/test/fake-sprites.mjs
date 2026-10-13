@@ -1,6 +1,7 @@
 /**
- * Fake tools\sprites.py: writes sprite_<name>.png for every cut-out, a sheet.png and an atlas.json. The options and the
- * printed tokens are checked against the real script (script-contract.mjs). FAKE_SPRITES_ERROR=1: "ERROR:" and exit 1.
+ * Fake tools\sprites.py: writes sprite_<name>.png for every cut-out (or tile_<name>.png for every source in the tiles
+ * mode), a sheet, an atlas and a zip. The options and the printed tokens are checked against the real script
+ * (script-contract.mjs). FAKE_SPRITES_ERROR=1: "ERROR:" and exit 1. Every call is appended to sprites-calls.json.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,7 +9,7 @@ import { expectArgs, expectSource } from './script-contract.mjs';
 
 const SCRIPT = 'tools/sprites.py';
 expectArgs(SCRIPT, process.argv.slice(2));
-expectSource(SCRIPT, "f'progress {", "'RESULT '", "f'ERROR: {", 'cutout_{name}.png', 'sprite_{name}.png', "'atlas.json'", "'sheet.png'");
+expectSource(SCRIPT, "f'progress {", "'RESULT '", "f'ERROR: {", 'cutout_{name}.png', 'sprite_{name}.png', 'source_{name}.png', 'tile_{name}.png', "{a.prefix}atlas.json", "{a.prefix}sheet.png", "{a.prefix}sprites.zip", "{a.prefix}animation.webp");
 const argv = process.argv.slice(2);
 const arg = (name) => {
   const i = argv.indexOf(name);
@@ -19,19 +20,27 @@ if (process.env.FAKE_SPRITES_ERROR) {
   process.exit(1);
 }
 const folder = arg('--folder');
-const names = argv.slice(argv.indexOf('--names') + 1).filter((a) => !a.startsWith('--') && !/^\d+$/.test(a) && a !== 'center' && a !== 'bottom');
+const prefix = arg('--prefix') ?? '';
+const tiles = arg('--mode') === 'tiles';
+const names = argv.slice(argv.indexOf('--names') + 1);
 const seen = [];
 for (const n of names) {
-  const cut = join(folder, `cutout_${n}.png`);
-  if (!existsSync(cut)) {
-    console.log(`ERROR: ${n}: no cut-out`);
+  const from = join(folder, tiles ? `source_${n}.png` : `cutout_${n}.png`);
+  if (!existsSync(from)) {
+    console.log(`ERROR: ${n}: no ${tiles ? 'source' : 'cut-out'}`);
     process.exit(1);
   }
-  writeFileSync(join(folder, `sprite_${n}.png`), readFileSync(cut));
+  writeFileSync(join(folder, tiles ? `tile_${n}.png` : `sprite_${n}.png`), readFileSync(from));
   seen.push(n);
 }
-writeFileSync(join(folder, 'sheet.png'), readFileSync(join(folder, `cutout_${seen[0]}.png`)));
-writeFileSync(join(folder, 'atlas.json'), JSON.stringify({ image: 'sheet.png', cell: Number(arg('--cell')), anchor: arg('--anchor'), frames: seen.map((name) => ({ name })) }));
-writeFileSync(join(folder, 'sprites-args.json'), JSON.stringify(argv));
+const first = readFileSync(join(folder, tiles ? `source_${seen[0]}.png` : `cutout_${seen[0]}.png`));
+writeFileSync(join(folder, `${prefix}sheet.png`), first);
+writeFileSync(join(folder, `${prefix}atlas.json`), JSON.stringify({ image: `${prefix}sheet.png`, cell: Number(arg('--cell')), anchor: arg('--anchor'), fps: arg('--fps') ? Number(arg('--fps')) : undefined, frames: seen.map((name) => ({ name })) }));
+writeFileSync(join(folder, `${prefix}sprites.zip`), 'zip');
+if (arg('--fps')) writeFileSync(join(folder, `${prefix}animation.webp`), first);
+if (tiles) writeFileSync(join(folder, 'tile-preview.png'), first);
+const calls = existsSync(join(folder, 'sprites-calls.json')) ? JSON.parse(readFileSync(join(folder, 'sprites-calls.json'), 'utf8')) : [];
+calls.push(argv);
+writeFileSync(join(folder, 'sprites-calls.json'), JSON.stringify(calls));
 console.log(`progress ${seen.length}/${seen.length} sheet`);
 console.log('RESULT ' + JSON.stringify({ frames: seen.length }));
