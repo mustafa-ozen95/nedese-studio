@@ -164,6 +164,21 @@ export function editJob({ pictures = [], picture, text, seed, prefix, width, hei
 }
 
 /**
+ * Background removal: the picture with a transparent background (BiRefNet, the same model the 3D hat uses). The subject
+ * mask comes out as 1 = subject and JoinImageWithAlpha wants 1 = transparent, so the mask is inverted first.
+ */
+export function cutoutJob({ picture, prefix }) {
+  return {
+    1: { class_type: 'LoadImage', inputs: { image: picture } },
+    2: { class_type: 'LoadBackgroundRemovalModel', inputs: { bg_removal_name: 'birefnet.safetensors' } },
+    3: { class_type: 'RemoveBackground', inputs: { bg_removal_model: ['2', 0], image: ['1', 0] } },
+    4: { class_type: 'InvertMask', inputs: { mask: ['3', 0] } },
+    5: { class_type: 'JoinImageWithAlpha', inputs: { image: ['1', 0], alpha: ['4', 0] } },
+    6: { class_type: 'SaveImage', inputs: { images: ['5', 0], filename_prefix: prefix } },
+  };
+}
+
+/**
  * Wan 2.2 I2V A14B, lightx2v 720p damitilmis model (260412; GGUF Q5_K_M, jayn7): yuksek + dusuk
  * gurultu uzmani, 2 + 2 adim, cfg 1. Damitma modelin icinde, LoRA yok. Olculdu 04.10.2026 (ayni
  * gorsel/istem/tohum): taban Q5 + lightx2v v1 LoRA'ya gore cilt/sakal dokusu belirgin daha dogal,

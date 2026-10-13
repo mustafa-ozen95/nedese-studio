@@ -201,6 +201,14 @@ export function loadSettings(parent = {}) {
         args: ['-s', join(aiRoot, 'tools', 'face_points.py'), ...args],
         env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
       })),
+    // Game sprites (tools\sprites.py, ComfyUI's python: Pillow + numpy): trimmed transparent sprites, a sheet and an atlas.
+    spritesCommand:
+      parent.spritesCommand ??
+      ((args) => ({
+        command: join(aiRoot, 'ComfyUI_windows_portable', 'python_embeded', 'python.exe'),
+        args: ['-s', join(aiRoot, 'tools', 'sprites.py'), ...args],
+        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
+      })),
     // Model training (training\train.py, training\.venv: torch cu128 + peft + bitsandbytes + the llama.cpp converter).
     hasTrainingEnv: parent.trainingCommand ? true : existsSync(join(aiRoot, 'training', 'train.py')) && existsSync(join(aiRoot, 'training', '.venv', 'Scripts', 'python.exe')),
     trainingCommand:

@@ -35,11 +35,13 @@ import * as audioEdit from '../lib/jobs/audio-edit.mjs';
 import * as videoEdit from '../lib/jobs/video-edit.mjs';
 import * as replace from '../lib/jobs/replace.mjs';
 import * as coverVideo from '../lib/jobs/cover-video.mjs';
+import * as sprites from '../lib/jobs/sprites.mjs';
 import { Database } from '../lib/database.mjs';
 import { startFakeComfy } from './fake-comfy.mjs';
 
 export const FAKE_VOICE = fileURLToPath(new URL('./fake-voice.mjs', import.meta.url));
 export const FAKE_UPSCALE = fileURLToPath(new URL('./fake-upscale.mjs', import.meta.url));
+export const FAKE_SPRITES = fileURLToPath(new URL('./fake-sprites.mjs', import.meta.url));
 export const FAKE_BLENDER = fileURLToPath(new URL('./fake-blender.mjs', import.meta.url));
 export const FAKE_TRAINING = fileURLToPath(new URL('./fake-training.mjs', import.meta.url));
 export const FAKE_IMAGE_TRAINING = fileURLToPath(new URL('./fake-image-training.mjs', import.meta.url));
@@ -91,6 +93,7 @@ export async function createPanel({ mode = 'normal', voiceEnv = {}, comfyClosed 
     // Video 1080p buyutme: sahte buyut.py (SAHTE_BUYUT_HATA ile hata); model dosyasi gecici kokte
     upscaleCommand: (args) => ({ command: process.execPath, args: [FAKE_UPSCALE, ...args], env: { ...process.env } }),
     upscaleModel: join(root, 'fake-upscale', 'sahte-2x.safetensors'),
+    spritesCommand: (args) => ({ command: process.execPath, args: [FAKE_SPRITES, ...args], env: { ...process.env } }),
     startComfy: () => starts.push(Date.now()),
     comfyReadyWait: 2500,
     // Veri toplama: sahte siteler 127.0.0.1'de (ozel ag reddi kapali), site basina bekleme kisa, gercek tarayici acilmasin
@@ -118,7 +121,7 @@ export async function createPanel({ mode = 'normal', voiceEnv = {}, comfyClosed 
   const comfy = new ComfyClient({ address: comfyAddress, comfyFolder: null });
   // Testler de gerçek kurulum gibi veritabanıyla çalışır (liste, sayfa, ortalamalar sorgudan).
   const db = new Database(join(setting.dataRoot, 'panel.db'));
-  const queue = new Queue({ setting, comfy, mod, db, runners: { image, video, voice, speech, clone, film, music, song, sing, model3d, training, data, describe, pageVideo, promo, beatEdit, audioEdit, videoEdit, replace, coverVideo } });
+  const queue = new Queue({ setting, comfy, mod, db, runners: { image, video, voice, speech, clone, film, music, song, sing, model3d, training, data, describe, pageVideo, promo, beatEdit, audioEdit, videoEdit, replace, coverVideo, sprites } });
   queue.load();
   queue.start();
   const downloader = new Downloader({ modelRoot: setting.modelRoot, protectedRoots: [setting.aiRoot], recordPath: join(setting.dataRoot, DATA_FILES.downloads), changed: () => queue.changed() });

@@ -72,7 +72,7 @@
         return `${iki(t.getDate())}.${iki(t.getMonth() + 1)} ${iki(t.getHours())}:${iki(t.getMinutes())}`;
     }
 
-    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', beatEdit: 'Beat cut', replace: 'Replace a person', coverVideo: 'Song with a cover', promo: 'Promo video', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
+    const TYPE_NAME = { image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', clone: 'My voice', edit: 'Edit image', song: 'Edit song', sing: 'Sing in a voice', audioEdit: 'Edit audio', videoEdit: 'Edit video', beatEdit: 'Beat cut', replace: 'Replace a person', coverVideo: 'Song with a cover', promo: 'Promo video', sprites: 'Game assets', model3d: '3D model', training: 'Model training', data: 'Data collection', describe: 'Image description' };
     // Is turu adi: once arayuzun bildigi (cevrilebilir), yoksa sunucunun gonderdigi, o da yoksa "İş".
     const typeName = (job) => TYPE_NAME[job?.type] ?? job?.typeName ?? 'Job';
     const STATUS_NAME = {
@@ -3642,6 +3642,7 @@
      */
     function cleanForm(type) {
         if (type === 'image') imageForm.prompt.value = '';
+        if (type === 'sprites') $('[data-job-form="sprites"]').prompt.value = '';
         if (type === 'edit') editForm.prompt.value = '';
         if (type === 'audioEdit') voiceEditForm.instruction.value = '';
         if (type === 'videoEdit') videoEditForm.instruction.value = '';

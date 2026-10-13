@@ -185,6 +185,22 @@ export const JOB_TYPES = {
     ],
     example: { type: 'replace', source: 'job/20261010-183657-film-23b4/scene01.mp4', people: [{ picture: 'job/20261010-115445-image-9b9d/image_1.png', prompt: 'an old fisherman in a red hat smiling at a little girl in a hot air balloon' }] },
   },
+  sprites: {
+    name: 'Game assets',
+    description: 'Game-ready 2D assets of a character, vehicle or object: the first picture is drawn from the description (or the given source picture is used), the same design is then shown in more poses or views (Qwen-Image-Edit), every picture is cut out of its background (BiRefNet) and trimmed into a transparent PNG sprite; one sprite sheet (sheet.png, all sprites at one scale in square cells, bottom-centre pivot for characters and vehicles) and its atlas.json (frames, pivots, scale) are made. Outputs: sheet.png (main), sprite_base.png and one sprite per pose.',
+    fields: [
+      { name: 'prompt', type: 'string', required: false, description: 'What to draw, with the art style (English works best; Turkish is translated). Required unless source is given.' },
+      { name: 'source', type: 'string', required: false, description: 'A picture to start from instead of drawing one ("upload/…" or "job/<id>/<file>").' },
+      { name: 'kind', type: 'string', required: false, defaultValue: 'character', options: ['character', 'vehicle', 'object'], description: 'Picks the default poses/views and the pivot (object: centre).' },
+      { name: 'poses', type: 'array', required: false, description: 'Poses or views as "name: description" (at most 12; a text with one per line also works). Default for a character: walk, run, attack, hurt, back; vehicle: side, front, back, top, damaged; object: side, back, top.' },
+      { name: 'imageModel', type: 'string', required: false, defaultValue: 'qwen', options: ['qwen', 'flux'], description: 'Model of the first picture.' },
+      { name: 'ratio', type: 'string', required: false, defaultValue: '1:1', description: 'Aspect ratio of the first picture.' },
+      { name: 'cell', type: 'integer', required: false, defaultValue: 512, description: 'Sprite sheet cell size in pixels (128-1024).' },
+      { name: 'title', type: 'string', required: false, description: 'Title.' },
+      { name: 'seed', type: 'integer', required: false, description: 'Seed.' },
+    ],
+    example: { type: 'sprites', kind: 'character', prompt: 'Chibi fantasy knight with a big blue sword, dark spiky hair, red and black armor, cartoon 2D game art with thick clean outlines', poses: ['walk: seen from the side facing right, mid stride', 'attack: a big sword slash'] },
+  },
   model3d: {
     name: '3D model',
     description: 'A textured 3D model (Pixal3D / TRELLIS.2, GLB, PBR textures) from one input: an image, a 3D model file or only a description (prompt). An image is modeled as it shows (a chest-up portrait becomes a bust); with a prompt Qwen-Image-Edit first changes the image as described. A 3D model file (GLB, FBX, OBJ, STL, PLY; needs Blender) without a prompt is converted (GLB + exports); with a prompt the prompt is an edit of the model: its front view is changed as described and the model is made again. A prompt alone: the subject is drawn whole on a plain background first. With complete=true (images), Qwen-Image-Edit first draws the person or object full body with the same look. If Blender is installed, FBX / OBJ (ZIP) / STL are also produced (a turntable video (MP4) only with intro=true); the STL is a solid, watertight print copy cut flat at the bottom, printHeight millimetres tall.',

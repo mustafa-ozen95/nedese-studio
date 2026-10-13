@@ -397,6 +397,49 @@
                                 </div>
                             </div>
                         </form>
+                        <form class="panel" data-job-form="sprites" novalidate autocomplete="off">
+                            <header class="panel__head">
+                                <div>
+                                    <h2 class="panel__title">Game assets</h2>
+                                    <p class="text-sm text-muted">A character, vehicle or object in several poses or views: transparent PNG sprites, a sprite sheet and its atlas.</p>
+                                </div>
+                            </header>
+                            <div class="panel__body">
+                                <div class="field">
+                                    <label class="field__label" for="g-sprite-prompt">What to draw <span class="required tag-note">required</span></label>
+                                    <textarea class="textarea" id="g-sprite-prompt" name="prompt" rows="4" required
+                                              placeholder="e.g. Chibi fantasy knight with a big blue sword, dark spiky hair, red and black armor, cartoon 2D game art with thick clean outlines"></textarea>
+                                    <span class="field__hint">Put the art style in the description; every pose keeps the same design.</span>
+                                </div>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label class="field__label" for="g-sprite-kind">Kind</label>
+                                        <select class="select" id="g-sprite-kind" name="kind">
+                                            <option value="character">Character</option>
+                                            <option value="vehicle">Vehicle</option>
+                                            <option value="object">Object</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="g-sprite-cell">Sprite sheet cell</label>
+                                        <select class="select" id="g-sprite-cell" name="cell">
+                                            <option value="256">256 px</option>
+                                            <option value="512" selected>512 px</option>
+                                            <option value="1024">1024 px</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="g-sprite-poses">Poses or views</label>
+                                    <textarea class="textarea" id="g-sprite-poses" name="poses" rows="4"
+                                              placeholder="walk: seen from the side, mid stride&#10;attack: a big sword slash&#10;(empty: walk, run, attack, hurt, back)"></textarea>
+                                    <span class="field__hint">One per line as "name: description". Empty uses the defaults of the kind.</span>
+                                </div>
+                                <div class="form-actions">
+                                    <button type="submit" class="btn btn--primary">Add to queue</button>
+                                </div>
+                            </div>
+                        </form>
                     </div>
                     <aside class="split__side" data-side="image"></aside>
                 </div>

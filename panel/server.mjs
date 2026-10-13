@@ -48,6 +48,7 @@ import * as pageVideo from './lib/jobs/page-video.mjs';
 import * as promo from './lib/jobs/promo.mjs';
 import * as beatEdit from './lib/jobs/beat-edit.mjs';
 import * as replace from './lib/jobs/replace.mjs';
+import * as sprites from './lib/jobs/sprites.mjs';
 import * as coverVideo from './lib/jobs/cover-video.mjs';
 
 const args = process.argv.slice(2);
@@ -83,7 +84,7 @@ if (await isAlreadyOpen()) {
 // Eski Turkce klasor adlari (ciktilar, panel-veri) yenilerine bir kez tasinir.
 migrateOldFolders(setting, (m) => console.log(m));
 // Data written by the Turkish-named versions (ayar.json keys, panel.db columns, is.json): renamed once (lib/migrate.mjs).
-const runners = { image, video, voice, speech, film, music, clone, edit, song, sing, audioEdit, videoEdit, model3d, training, data, describe, pageVideo, promo, beatEdit, replace, coverVideo };
+const runners = { image, video, voice, speech, film, music, clone, edit, song, sing, audioEdit, videoEdit, model3d, training, data, describe, pageVideo, promo, beatEdit, replace, coverVideo, sprites };
 migrateLegacyData({ dataRoot: setting.dataRoot, outputRoot: setting.outputRoot, aiRoot: setting.aiRoot, modelRoot: setting.modelRoot, summaries: Object.fromEntries(Object.entries(runners).map(([k, m]) => [k, m.summary])), log: (m) => console.log(`[migration] ${m}`) });
 const settingFile = new SettingsFile(join(setting.dataRoot, DATA_FILES.settings));
 // Ayarlar > "İstemleri İngilizceye çevir" (kapaliysa istemler modele yazildigi gibi gider)
