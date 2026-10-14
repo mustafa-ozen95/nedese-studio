@@ -165,3 +165,36 @@ test('Game assets: tiles are drawn as variants in one request and made seamless 
     await p.close();
   }
 });
+
+test('tiles: the real script makes a pattern that wraps (the difference across the border is that of the texture) and keeps its detail', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'tiles-'));
+  // a brick-like pattern with a gradient: not periodic in the picture size, so only the script can make it wrap
+  const make = `
+import numpy as np, sys
+from PIL import Image
+y, x = np.mgrid[0:256, 0:256]
+v = 90 + 60 * ((x // 20 + (y // 20) % 2 * 10) % 2) + x * 0.4
+Image.fromarray(np.stack([v, v * 0.8, v * 0.6], -1).clip(0, 255).astype('uint8')).save(sys.argv[1])
+check = None
+`;
+  writeFileSync(join(folder, 'make.py'), make);
+  execFileSync(python, [join(folder, 'make.py'), join(folder, 'source_a.png')]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', '--cell', '256', '--mode', 'tiles']);
+  const measure = `
+import numpy as np, sys
+from PIL import Image
+t = np.asarray(Image.open(sys.argv[1])).astype(float)
+wrap = (abs(t[:, 0] - t[:, -1]).mean() + abs(t[0] - t[-1]).mean()) / 2
+inner = (abs(np.diff(t, axis=1)).mean() + abs(np.diff(t, axis=0)).mean()) / 2
+print(wrap / inner)
+`;
+  writeFileSync(join(folder, 'measure.py'), measure);
+  const ratio = Number(execFileSync(python, [join(folder, 'measure.py'), join(folder, 'tile_a.png')], { encoding: 'utf8' }));
+  const raw = Number(execFileSync(python, [join(folder, 'measure.py'), join(folder, 'source_a.png')], { encoding: 'utf8' }));
+  assert.ok(ratio < 3, `the border difference is ${ratio.toFixed(1)}× the usual one`);
+  assert.ok(ratio < raw, `the source's border difference was ${raw.toFixed(1)}×`);
+});

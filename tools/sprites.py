@@ -26,6 +26,7 @@ import os
 import sys
 import zipfile
 
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -80,16 +81,38 @@ def clean_edge(image):
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), 'RGBA')
 
 
+def blend(under, over, mask, levels=5):
+    """Laplacian-pyramid blend (result = over where the mask is 1, under where it is 0): the fine detail changes over a narrow
+    band, the broad shading over a wide one, so a seam leaves no ghost of the other picture."""
+    gu, go, gm = [under], [over], [mask]
+    for _ in range(levels):
+        gu.append(cv2.pyrDown(gu[-1]))
+        go.append(cv2.pyrDown(go[-1]))
+        gm.append(cv2.pyrDown(gm[-1]))
+    out = None
+    for i in range(levels, -1, -1):
+        if i == levels:
+            lu, lo = gu[i], go[i]
+        else:
+            size = (gu[i].shape[1], gu[i].shape[0])
+            lu = gu[i] - cv2.pyrUp(gu[i + 1], dstsize=size)
+            lo = go[i] - cv2.pyrUp(go[i + 1], dstsize=size)
+        m = gm[i][..., None]
+        level = lu * (1 - m) + lo * m
+        out = level if out is None else cv2.pyrUp(out, dstsize=(level.shape[1], level.shape[0])) + level
+    return out
+
+
 def seamless(image):
-    """The picture cross-faded with its half-shifted copy, first across x then across y: the weight is 0 on the picture's own
-    edges (where it would not wrap) and 1 in the middle (where the shifted copy has its seam)."""
+    """Made tileable: the picture rolled by half its size wraps without a seam on its edges, but has one in the middle; the middle
+    box of the original picture (which has no seam there) is blended over it."""
     a = np.asarray(image.convert('RGB')).astype(np.float32)
     h, w = a.shape[:2]
-    wx = (1 - np.abs(np.linspace(-1, 1, w, endpoint=False) + 1 / w))[None, :, None]
-    a = a * wx + np.roll(a, w // 2, 1) * (1 - wx)
-    wy = (1 - np.abs(np.linspace(-1, 1, h, endpoint=False) + 1 / h))[:, None, None]
-    a = a * wy + np.roll(a, h // 2, 0) * (1 - wy)
-    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), 'RGB')
+    rolled = np.roll(np.roll(a, w // 2, 1), h // 2, 0)
+    mask = np.zeros((h, w), np.float32)
+    mask[h // 4:3 * h // 4, w // 4:3 * w // 4] = 1
+    mask = cv2.GaussianBlur(mask, (0, 0), min(h, w) / 16)
+    return Image.fromarray(np.clip(blend(rolled, a, mask), 0, 255).astype(np.uint8), 'RGB')
 
 
 def tiles(a):
@@ -201,4 +224,5 @@ def main():
     print('RESULT ' + json.dumps({'sheet': [sheet.width, sheet.height], 'scale': round(k, 4), 'frames': len(frames)}))
 
 
-main()
+if __name__ == '__main__':
+    main()
