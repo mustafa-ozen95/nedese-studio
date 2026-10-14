@@ -8,7 +8,7 @@
  * run(input, b) -> string | { text, extra } }. A tool's output reaches the model truncated (the context is small).
  */
 import { spawn } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, createReadStream } from 'node:fs';
+import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync, createReadStream } from 'node:fs';
 import { basename, delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -739,12 +739,40 @@ async function frontPlanCommand(b, record, durationSec) {
 
 /* ── Gorsel -> data URL ───────────────────────────────────────────────── */
 
+/** Whether a PNG or WebP file has an alpha channel (PNG colour type 4/6 or a tRNS chunk, WebP VP8X alpha flag or VP8L). */
+export function hasAlpha(path) {
+  let head;
+  try {
+    const fd = openSync(path, 'r');
+    head = Buffer.alloc(4096);
+    readSync(fd, head, 0, head.length, 0);
+    closeSync(fd);
+  } catch {
+    return false;
+  }
+  if (head.toString('latin1', 1, 4) === 'PNG') return head[25] === 4 || head[25] === 6 || head.includes('tRNS', 0, 'latin1');
+  if (head.toString('latin1', 0, 4) === 'RIFF' && head.toString('latin1', 8, 12) === 'WEBP') {
+    const chunk = head.toString('latin1', 12, 16);
+    return chunk === 'VP8L' || (chunk === 'VP8X' && (head[20] & 0x10) !== 0);
+  }
+  return false;
+}
+
+/** Said with a question about a picture with transparent parts (they are drawn as a checkerboard, not as black). */
+export const ALPHA_NOTE = 'The picture has transparent parts; they are shown here as a light grey and white checkerboard, which is not part of the picture itself.';
+
 async function imageData(b, path, timeSec = null) {
   const jpg = join(tmpdir(), `agent-look-${process.pid}-${Date.now()}.jpg`);
   try {
     if (!b.setting.ffmpeg) throw new Error('ffmpeg is missing; the image cannot be downscaled.');
     const video = /\.(mp4|mov|mkv|webm|avi|gif)$/i.test(path);
-    await runFfmpeg(b.setting.ffmpeg, ['-y', ...(video && timeSec !== null ? ['-ss', String(timeSec)] : []), '-i', path, '-vf', "scale='min(1024,iw)':-2", '-frames:v', '1', '-q:v', '3', jpg], { signal: b.signal });
+    // a JPEG has no transparency: transparent parts came out black or grey and a cut-out sprite was described as "on a solid
+    // black background" (14.10.2026); they are laid over a checkerboard instead
+    const scale = "scale='min(1024,iw)':-2";
+    const filter = !video && hasAlpha(path)
+      ? ['-filter_complex', `[0:v]${scale},format=rgba,split[f][g];[g]geq=r='if(mod(floor(X/16)+floor(Y/16),2),200,245)':g='if(mod(floor(X/16)+floor(Y/16),2),200,245)':b='if(mod(floor(X/16)+floor(Y/16),2),200,245)':a=255[bg];[bg][f]overlay=format=auto`]
+      : ['-vf', scale];
+    await runFfmpeg(b.setting.ffmpeg, ['-y', ...(video && timeSec !== null ? ['-ss', String(timeSec)] : []), '-i', path, ...filter, '-frames:v', '1', '-q:v', '3', jpg], { signal: b.signal });
     return `data:image/jpeg;base64,${readFileSync(jpg).toString('base64')}`;
   } finally {
     rmSync(jpg, { force: true });
@@ -865,7 +893,8 @@ export const TOOLS = [
         path = parsePath(b, g.source);
       }
       if (!existsSync(path)) throw new Error(`File not found: ${g.source}`);
-      return b.askImage(await imageData(b, path, g.time_sec ?? 0), String(g.question));
+      const question = hasAlpha(path) ? `${String(g.question)}\n(${ALPHA_NOTE})` : String(g.question);
+      return b.askImage(await imageData(b, path, g.time_sec ?? 0), question);
     },
   },
   {

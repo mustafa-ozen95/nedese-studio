@@ -236,6 +236,39 @@ async function runTiles(ctx) {
   ctx.addOutputs(outputs);
 }
 
+/**
+ * The view an animation's (English) description asks for: 'right', 'left' or 'back', or null (the base picture's own view).
+ * Wan keeps the view of its start picture: "walking from the side" from a front-facing wizard walked towards the camera
+ * (14.10.2026).
+ */
+export function animationView(text) {
+  const t = String(text ?? '').toLowerCase();
+  if (/\b(from behind|from the back|back view|rear view|facing away|(?:its|his|her) back to (?:us|the camera|the viewer))\b/.test(t)) return 'back';
+  if (/\bfacing (?:to the )?left\b|\bleft side view\b|\bfrom the left\b/.test(t)) return 'left';
+  if (/\b(from the side|side view|side-view|sideways|in profile|profile view|facing (?:to the )?right|from the right|side-on|side on)\b/.test(t)) return 'right';
+  return null;
+}
+
+const VIEWS = {
+  right: 'seen exactly from the side, in profile, facing right',
+  left: 'seen exactly from the side, in profile, facing left',
+  back: 'seen from behind, its back to the viewer',
+};
+
+/** The base picture turned to a view, standing still (one per view, shared by the animations asking for it). */
+async function viewPicture(ctx, view, baseFile, range) {
+  const g = ctx.job.input;
+  const target = join(ctx.folder, `view_${view}.png`);
+  if (existsSync(target)) return target;
+  const picture = await ctx.comfy.load(baseFile, `panel_${ctx.job.id}_base${extname(baseFile).toLowerCase()}`);
+  // still and holding what it holds: "standing in a relaxed neutral pose" dropped the axe and left the staff floating (14.10.2026)
+  const prompt = `Turn the ${g.kind} in image 1 so that it is ${VIEWS[view]}. It stands still and keeps holding everything it holds in image 1, in the same hands. Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. The ${g.kind} floats on a plain, even, solid light grey background, nothing else in the picture.`;
+  const graph = ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + 200, prefix: `panel/${ctx.job.id}/view_${view}` });
+  const outputs = await ctx.runComfy(graph, { stage: `Animation: turning to the ${view === 'back' ? 'back' : 'side'}`, range });
+  await saveFirst(ctx, images(outputs, nodes(graph, 'SaveImage')[0]), target, `the view ${view}`);
+  return target;
+}
+
 /** Pixel art is packed as real pixels: 64 pixels across a cell. */
 const pixelArgs = (g) => (g.style === 'pixel' ? ['--pixel', '64'] : []);
 
@@ -244,7 +277,7 @@ const pixelArgs = (g) => (g.style === 'pixel' ? ['--pixel', '64'] : []);
  * from the base picture itself (14.10.2026): a starting picture drawn "in the middle of the motion" by the edit model came with
  * swoosh arcs around the swing in 8 of 8 tries whatever the wording, and Wan carried them through the clip; from the plain base
  * picture (no last frame) the orc swung its axe in full and came back to its stance, with no arcs in one seed and faint smears
- * in three frames of the other.
+ * in three frames of the other. An animation seen from another side starts from the base picture turned to it (still).
  */
 async function runAnimation(ctx, animation, baseFile, index) {
   const g = ctx.job.input;
@@ -259,18 +292,21 @@ async function runAnimation(ctx, animation, baseFile, index) {
   let loop = existsSync(loopFile) ? JSON.parse(readFileSync(loopFile, 'utf8')) : null;
   if (!names.every((n) => existsSync(join(folder, `cutout_${n}.png`)))) {
     if (!loop) {
-      const start = baseFile;
+      const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
+      // a vehicle is drawn from the side facing right already
+      const view = animationView(instruction);
+      const turn = view && !(g.kind === 'vehicle' && view === 'right');
+      const start = turn ? await viewPicture(ctx, view, baseFile, part(0, 0.1)) : baseFile;
       const size = imageSize(start) ?? { width: 1, height: 1 };
       const [width, height] = animationSize(size.width, size.height);
       if (!existsSync(frameDir) || readdirSync(frameDir).length < ANIMATION.frame) {
         rmSync(frameDir, { recursive: true, force: true });
-        const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
         // "The character in the picture: ...": the translated description is often a sentence of its own ("The character The
         // person swings an axe" was sent, 14.10.2026)
         const prompt = `The ${g.kind} in the picture: ${instruction.replace(/[.\s]+$/, '')}${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails, a steady repeating motion.`;
         await runWan(ctx, {
           model: 'wan14', source: start, prompt, seed: g.seed + index, width, height, frame: ANIMATION.frame, smooth: 1,
-          target: frameDir, stage: `Animation: ${animation.name}`, range: part(0, 0.55), prefixExtra: `anim_${animation.name}`,
+          target: frameDir, stage: `Animation: ${animation.name}`, range: part(turn ? 0.1 : 0, 0.55), prefixExtra: `anim_${animation.name}`,
         });
       }
       // back frames of a run that stopped before the loop was written are made again

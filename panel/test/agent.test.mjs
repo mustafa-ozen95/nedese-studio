@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLlm } from '../lib/llm.mjs';
 import { toolBlocks, splitThinking, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, uninstalledTools, cleanSources, followUpList } from '../lib/agent/agent.mjs';
-import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, messageLanguage, sourceTrust, mcpCommand, localPaths, terminalText, artifactOf, TOOLS } from '../lib/agent/tools.mjs';
+import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, messageLanguage, sourceTrust, mcpCommand, localPaths, terminalText, artifactOf, hasAlpha, TOOLS } from '../lib/agent/tools.mjs';
 import { McpClient, McpManager, expandVariables, functionSchema, mcpFunctionName, mcpServers, nativeMcpTools, progressText } from '../lib/agent/mcp.mjs';
 import { startFakeMcpHttp } from './fake-mcp-http.mjs';
 import { startFakeRemote } from './fake-remote-llm.mjs';
@@ -24,6 +24,7 @@ import { unifiedDiff } from '../lib/agent/diff.mjs';
 import { findSkills, frontMatter, githubSource } from '../lib/agent/skills.mjs';
 import { githubRepo } from '../lib/agent/plugins.mjs';
 import { makePng } from '../lib/media.mjs';
+import { crc32, deflateSync } from 'node:zlib';
 import { loadSettings } from '../lib/settings.mjs';
 import { createPanel } from './env.mjs';
 import { translate } from '../lib/language.mjs';
@@ -102,6 +103,49 @@ async function agentEnv(options = {}) {
   };
   return { p, home, llm, call, events, chat, send, agent: p.http.agent, async close() { await llm.close(); await p.close(); } };
 }
+
+/** A PNG with an alpha channel (colour type 6): a red square in the middle, transparent around it. */
+function rgbaPng(width, height) {
+  const rows = [];
+  for (let y = 0; y < height; y++) {
+    const line = Buffer.alloc(1 + width * 4);
+    for (let x = 0; x < width; x++) {
+      const inside = x > width / 4 && x < (3 * width) / 4 && y > height / 4 && y < (3 * height) / 4;
+      line.set(inside ? [220, 30, 30, 255] : [0, 0, 0, 0], 1 + x * 4);
+    }
+    rows.push(line);
+  }
+  const part = (type, data) => {
+    const typed = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const head = Buffer.alloc(4);
+    head.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(typed) >>> 0);
+    return Buffer.concat([head, typed, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), part('IHDR', ihdr), part('IDAT', deflateSync(Buffer.concat(rows))), part('IEND', Buffer.alloc(0))]);
+}
+
+test('hasAlpha: PNG colour type 6 or 4, a tRNS chunk, WebP VP8X with the alpha flag or VP8L; not an RGB PNG or a JPEG', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alpha-'));
+  const write = (name, data) => {
+    writeFileSync(join(dir, name), data);
+    return join(dir, name);
+  };
+  assert.equal(hasAlpha(write('a.png', rgbaPng(8, 8))), true);
+  assert.equal(hasAlpha(write('b.png', makePng(8, 8))), false);
+  const webp = (chunk, flags) => Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP'), Buffer.from(chunk), Buffer.alloc(4), Buffer.from([flags]), Buffer.alloc(20)]);
+  assert.equal(hasAlpha(write('c.webp', webp('VP8X', 0x10))), true);
+  assert.equal(hasAlpha(write('d.webp', webp('VP8X', 0))), false);
+  assert.equal(hasAlpha(write('e.webp', webp('VP8L', 0))), true);
+  assert.equal(hasAlpha(write('f.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16]))), false);
+  assert.equal(hasAlpha(join(dir, 'missing.png')), false);
+});
 
 test('agent units: tool block parser, truncation, destructive command/API, HTML text, skill front matter', () => {
   assert.deepEqual(toolBlocks('First this.\n<tool>{"name":"read_file","input":{"path":"a.txt"}}</tool>\nthen'), { calls: [{ name: 'read_file', input: { path: 'a.txt' } }], text: 'First this.\n\nthen' });
@@ -780,6 +824,12 @@ test('agent resources: MCP server, skill, memory, scheduling, sub-agent, image v
     const y = await o.call('/api/v1/uploads/image?name=bak.png', { method: 'POST', raw: png, type: 'image/png' });
     const rg = await o.send(s.id, `look ${y.json.image.source}`);
     assert.match(rg.response, /Result \(look_image\): Fake image answer: \d+ bytes, question: What is there\?/);
+    assert.doesNotMatch(rg.response, /checkerboard/, 'an opaque picture has no note');
+    // a cut-out sprite (transparent around it) is shown over a checkerboard and the question says so: it was described as
+    // "on a solid black background" (14.10.2026)
+    const sprite = await o.call('/api/v1/uploads/image?name=sprite.png', { method: 'POST', raw: rgbaPng(32, 32), type: 'image/png' });
+    const rt = await o.send(s.id, `look ${sprite.json.image.source}`);
+    assert.match(rt.response, /question: What is there\?\n\(The picture has transparent parts; they are shown here as a light grey and white checkerboard/);
     // OpenAI uyumlu: model nedese-agent, gecici oturum silinir
     const once = o.agent.list().total;
     const r = await fetch(`${o.p.address}/llm/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${o.p.settingFile.apiKey}` }, body: JSON.stringify({ model: 'nedese-agent', messages: [{ role: 'system', content: 'x' }, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'EN: hi' }, { role: 'user', content: 'run command' }] }) });

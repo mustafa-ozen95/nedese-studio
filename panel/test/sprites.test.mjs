@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
-import { animationSize, parseAnimations, parsePoses, pickFrames } from '../lib/jobs/sprites.mjs';
+import { animationSize, animationView, parseAnimations, parsePoses, pickFrames } from '../lib/jobs/sprites.mjs';
 import * as comfy from '../../tools/comfy.mjs';
 
 const promptList = (p) => p.fake.status.records.filter((x) => x.path === '/prompt').map((x) => Object.values(JSON.parse(x.prompt).prompt));
@@ -114,10 +114,14 @@ test('Game assets: an animation starts from the base picture, Wan plays it, the 
     const done = await p.waitUntilDone(job.id, 90000);
     assert.equal(done.status, 'done', done.error);
     const requests = promptList(p);
-    // draw, poses, cut-outs, the clip, the frame cut-outs: no edit drawing the motion first (it came with swoosh arcs)
+    // draw, poses, cut-outs, the turn to the side, the clip, the frame cut-outs: no edit drawing the motion (it came with
+    // swoosh arcs), only the base picture turned to the side the animation asks for, standing still
     const edits = requests.filter((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus'));
-    assert.equal(edits.length, 1, 'only the pose request is an edit');
-    assert.equal(edits[0].some((d) => /walking in place/.test(d.inputs?.prompt ?? '')), false);
+    assert.equal(edits.length, 2, 'the poses and the turn');
+    assert.ok(edits.every((e) => !e.some((d) => /walking in place/.test(d.inputs?.prompt ?? ''))));
+    const turn = edits[1].find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt;
+    assert.match(turn, /^Turn the character in image 1 so that it is seen exactly from the side, in profile, facing right\. It stands still and keeps holding everything it holds in image 1, in the same hands\./);
+    assert.ok(existsSync(join(p.setting.outputRoot, done.id, 'view_right.png')), 'kept: a retried job does not turn it again');
     const wan = requests.find((r) => r.some((d) => d.class_type === 'WanImageToVideo'));
     assert.ok(wan, 'one start picture, no last frame: a first = last frame clip hardly moved on the real machine');
     assert.equal(wan.some((d) => d.class_type === 'WanFirstLastFrameToVideo'), false);
@@ -142,6 +146,31 @@ test('Game assets: an animation starts from the base picture, Wan plays it, the 
     assert.equal(done.outputs[0].file, 'sheet.png', 'the pose sheet stays the main output');
     assert.equal(existsSync(join(p.setting.outputRoot, done.id, 'frames_walk')), false, 'the raw frames are removed');
     assert.ok(existsSync(join(p.setting.outputRoot, done.id, 'loop_walk.json')), 'the loop is kept: a retried job does not play the clip again');
+  } finally {
+    await p.close();
+  }
+});
+
+test('Game assets: the view an animation asks for: from the side (right unless left is said), from behind, or the base picture\'s own', () => {
+  assert.equal(animationView('walking in place seen from the side'), 'right');
+  assert.equal(animationView('walking from the side, mid stride loop'), 'right');
+  assert.equal(animationView('A side view of the knight running'), 'right');
+  assert.equal(animationView('runs to the left, facing left'), 'left');
+  assert.equal(animationView('walking away, seen from behind'), 'back');
+  assert.equal(animationView('The person swings an axe in a looping attack motion'), null);
+  assert.equal(animationView('breathing idle, steps aside'), null, '"aside" is not a side view');
+});
+
+test('Game assets: an animation in the view of the base picture starts from it; a vehicle is drawn from the side already', async () => {
+  const p = await createPanel();
+  try {
+    for (const [input, edits] of [[{ prompt: 'an orc', kind: 'character', animations: ['attack: swinging an axe'] }, 0], [{ prompt: 'a red car', kind: 'vehicle', animations: ['drive: driving, seen from the side'] }, 0]]) {
+      const before = promptList(p).length;
+      const job = p.queue.add('sprites', { ...input, poses: [], frames: 6, cell: 128, translate: false, seed: 3 });
+      const done = await p.waitUntilDone(job.id, 90000);
+      assert.equal(done.status, 'done', done.error);
+      assert.equal(promptList(p).slice(before).filter((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus')).length, edits, input.prompt);
+    }
   } finally {
     await p.close();
   }
