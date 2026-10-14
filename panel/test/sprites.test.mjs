@@ -4,7 +4,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { makePng } from '../lib/media.mjs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
 import { animationSize, animationView, parseAnimations, parsePoses, pickFrames } from '../lib/jobs/sprites.mjs';
@@ -114,14 +115,13 @@ test('Game assets: an animation starts from the base picture, Wan plays it, the 
     const done = await p.waitUntilDone(job.id, 90000);
     assert.equal(done.status, 'done', done.error);
     const requests = promptList(p);
-    // draw, poses, cut-outs, the turn to the side, the clip, the frame cut-outs: no edit drawing the motion (it came with
-    // swoosh arcs), only the base picture turned to the side the animation asks for, standing still
+    // draw (in profile: the walk is seen from the side), poses, cut-outs, the clip, the frame cut-outs: no edit drawing the
+    // motion (it came with swoosh arcs), no turn (the base is in profile already)
+    assert.match(requests[0].find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^a robot\. One single character shown complete and whole, full body from head to toe, seen exactly from the side in profile, facing right, standing still, centered with empty space around it\. The character floats on a plain, even, solid light grey background, no text\.$/);
     const edits = requests.filter((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus'));
-    assert.equal(edits.length, 2, 'the poses and the turn');
+    assert.equal(edits.length, 1, 'the poses only');
     assert.ok(edits.every((e) => !e.some((d) => /walking in place/.test(d.inputs?.prompt ?? ''))));
-    const turn = edits[1].find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt;
-    assert.match(turn, /^Turn the character in image 1 so that it is seen exactly from the side, in profile, facing right\. It stands still and keeps holding everything it holds in image 1, in the same hands\./);
-    assert.ok(existsSync(join(p.setting.outputRoot, done.id, 'view_right.png')), 'kept: a retried job does not turn it again');
+    assert.equal(existsSync(join(p.setting.outputRoot, done.id, 'view_right.png')), false);
     const wan = requests.find((r) => r.some((d) => d.class_type === 'WanImageToVideo'));
     assert.ok(wan, 'one start picture, no last frame: a first = last frame clip hardly moved on the real machine');
     assert.equal(wan.some((d) => d.class_type === 'WanFirstLastFrameToVideo'), false);
@@ -161,10 +161,12 @@ test('Game assets: the view an animation asks for: from the side (right unless l
   assert.equal(animationView('breathing idle, steps aside'), null, '"aside" is not a side view');
 });
 
-test('Game assets: an animation in the view of the base picture starts from it; a vehicle is drawn from the side already, a character described "side view" is turned all the same', async () => {
+test('Game assets: a side animation of a drawn character or a vehicle starts from its base (drawn so); a back view, or a given picture, is turned first', async () => {
   const p = await createPanel();
   try {
-    for (const [input, edits] of [[{ prompt: 'an orc', kind: 'character', animations: ['attack: swinging an axe'] }, 0], [{ prompt: 'a red car', kind: 'vehicle', animations: ['drive: driving, seen from the side'] }, 0], [{ prompt: 'a pixel wizard, side view', kind: 'character', animations: ['walk: walking seen from the side'] }, 1]]) {
+    mkdirSync(join(p.setting.outputRoot, 'uploads'), { recursive: true });
+    writeFileSync(join(p.setting.outputRoot, 'uploads', 'front.png'), makePng(64, 96));
+    for (const [input, edits] of [[{ prompt: 'an orc', kind: 'character', animations: ['attack: swinging an axe'] }, 0], [{ prompt: 'a red car', kind: 'vehicle', animations: ['drive: driving, seen from the side'] }, 0], [{ prompt: 'a pixel wizard', kind: 'character', animations: ['walk: walking seen from the side'] }, 0], [{ prompt: 'a pixel wizard', kind: 'character', animations: ['walk: walking away, seen from behind'] }, 1], [{ prompt: 'x', source: 'upload/front.png', kind: 'character', animations: ['walk: walking seen from the side'] }, 1]]) {
       const before = promptList(p).length;
       const job = p.queue.add('sprites', { ...input, poses: [], frames: 6, cell: 128, translate: false, seed: 3 });
       const done = await p.waitUntilDone(job.id, 90000);

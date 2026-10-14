@@ -69,6 +69,13 @@ const BASE_SUFFIX = {
   object: 'One single object shown complete and whole, centered with empty space around it, on a plain solid light grey background, no ground, no cast shadow, no text.',
 };
 
+/**
+ * A character whose animation is seen from the side is drawn in profile in the first place: the edit model turned a
+ * front-facing wizard only three-quarter (8 of 8 tries, two wordings, a second pass too), drawn so it stood in profile in 4 of
+ * 4 (an orc 2 clear, 2 nearly; 14.10.2026). The background is said positively (cfg 1: a named "no shadow" is drawn).
+ */
+const SIDE_SUFFIX = (facing) => `One single character shown complete and whole, full body from head to toe, seen exactly from the side in profile, facing ${facing}, standing still, centered with empty space around it. The character floats on a plain, even, solid light grey background, no text.`;
+
 /** "name: description" lines (or a plain description); a list or a text split at line breaks and semicolons. */
 function parseList(value, defaults, max, label) {
   let list = Array.isArray(value) ? value : typeof value === 'string' && value.trim() ? value.split(/[\r\n;]+/) : null;
@@ -293,10 +300,11 @@ async function runAnimation(ctx, animation, baseFile, index) {
   if (!names.every((n) => existsSync(join(folder, `cutout_${n}.png`)))) {
     if (!loop) {
       const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
-      // a vehicle is drawn from the side facing right already; a character described "side view" is not (one run drew it in
-      // profile, the next three-quarter facing left and it walked so, 14.10.2026): it is turned
+      // a vehicle is drawn from the side facing right already, a character drawn for a side animation is in profile; a
+      // character described "side view" by the user is not reliably (one run drew it in profile, the next three-quarter facing
+      // left and it walked so, 14.10.2026): it is turned
       const view = animationView(instruction);
-      const turn = view && !(g.kind === 'vehicle' && view === 'right');
+      const turn = view && !(g.kind === 'vehicle' && view === 'right') && ctx.job.baseView !== view;
       const start = turn ? await viewPicture(ctx, view, baseFile, part(0, 0.1)) : baseFile;
       const size = imageSize(start) ?? { width: 1, height: 1 };
       const [width, height] = animationSize(size.width, size.height);
@@ -365,7 +373,20 @@ export async function run(ctx) {
       const from = sourcePath(ctx.setting.outputRoot, g.source);
       copyFileSync(from, extname(from).toLowerCase() === '.png' ? base : join(folder, `base${extname(from).toLowerCase()}`));
     } else {
-      await draw(ctx, { count: 1, prefix: 'base', suffix: BASE_SUFFIX[g.kind], stage: 'Drawing the first picture', range: range(0, 15, 25), files: [base] });
+      // drawn in profile when an animation is seen from the side (the first one naming a side)
+      let side = null;
+      if (g.kind === 'character') {
+        for (const a of g.animations) {
+          const view = animationView(await jobPrompt(ctx, a.description, 'video', { field: `animation_${a.name}`, translate: g.translate !== false }));
+          if (view === 'right' || view === 'left') {
+            side = view;
+            break;
+          }
+        }
+      }
+      ctx.job.baseView = side;
+      ctx.save();
+      await draw(ctx, { count: 1, prefix: 'base', suffix: side ? SIDE_SUFFIX(side) : BASE_SUFFIX[g.kind], stage: 'Drawing the first picture', range: range(0, 15, 25), files: [base] });
     }
   }
   const baseFile = existsSync(base) ? base : ['.jpg', '.jpeg', '.webp'].map((e) => join(folder, `base${e}`)).find(existsSync);
