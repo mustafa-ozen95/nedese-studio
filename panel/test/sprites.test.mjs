@@ -106,7 +106,7 @@ test('animation helpers: a loop leaves out its last frame, the size fits Wan, th
   assert.throws(() => parseAnimations(Array.from({ length: 5 }, (_, i) => `a${i}: x`)), /At most 4 animations/);
 });
 
-test('Game assets: an animation starts from a picture of the motion, Wan plays it, the loop is closed, its frames are cut out and packed on their own', async () => {
+test('Game assets: an animation starts from the base picture, Wan plays it, the loop is closed, its frames are cut out and packed on their own', async () => {
   const p = await createPanel();
   try {
     const job = p.queue.add('sprites', { prompt: 'a robot', kind: 'character', poses: ['side: from the side'], animations: ['walk: walking in place seen from the side'], frames: 6, cell: 256, translate: false, seed: 2 });
@@ -114,16 +114,15 @@ test('Game assets: an animation starts from a picture of the motion, Wan plays i
     const done = await p.waitUntilDone(job.id, 90000);
     assert.equal(done.status, 'done', done.error);
     const requests = promptList(p);
-    // draw, poses, cut-outs, the starting picture (an edit), the clip, the frame cut-outs
-    const start = requests.find((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && /shown in the middle of that motion/.test(d.inputs.prompt ?? '')));
-    assert.ok(start, 'the starting picture is the base picture changed as the animation describes');
-    assert.match(start.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt, /^The same character as in image 1, walking in place seen from the side, shown in the middle of that motion. Only this one character is in the picture, alone, with no other character, opponent, target or object\./);
-  assert.match(start.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt, /no motion lines or speed trails/, 'no speed lines to cut out later');
+    // draw, poses, cut-outs, the clip, the frame cut-outs: no edit drawing the motion first (it came with swoosh arcs)
+    const edits = requests.filter((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus'));
+    assert.equal(edits.length, 1, 'only the pose request is an edit');
+    assert.equal(edits[0].some((d) => /walking in place/.test(d.inputs?.prompt ?? '')), false);
     const wan = requests.find((r) => r.some((d) => d.class_type === 'WanImageToVideo'));
     assert.ok(wan, 'one start picture, no last frame: a first = last frame clip hardly moved on the real machine');
     assert.equal(wan.some((d) => d.class_type === 'WanFirstLastFrameToVideo'), false);
     assert.equal(wan.find((d) => d.class_type === 'WanImageToVideo').inputs.length, 49);
-    assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character walking in place seen from the side. Only this one character is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera/);
+    assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character in the picture: walking in place seen from the side. Only this one character is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera/);
   assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /no motion lines or speed trails/);
   assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /keeps facing the same way, its face, clothes and colours unchanged from start to end/, 'no turning to the camera, no drifting look');
     const cuts = requests.at(-1).filter((d) => d.class_type === 'RemoveBackground');

@@ -236,24 +236,16 @@ async function runTiles(ctx) {
   ctx.addOutputs(outputs);
 }
 
-/** The picture an animation starts from: the base picture changed as the animation describes (written once). */
-async function animationPicture(ctx, animation, baseFile, range) {
-  const g = ctx.job.input;
-  const target = join(ctx.folder, `animpose_${animation.name}.png`);
-  if (existsSync(target)) return target;
-  const picture = await ctx.comfy.load(baseFile, `panel_${ctx.job.id}_base${extname(baseFile).toLowerCase()}`);
-  const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
-  const prompt = `The same ${g.kind} as in image 1, ${instruction}, shown in the middle of that motion. Only this one ${g.kind} is in the picture, alone, with no other character, opponent, target or object. Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
-  const graph = ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + 100, prefix: `panel/${ctx.job.id}/animpose_${animation.name}` });
-  const outputs = await ctx.runComfy(graph, { stage: `Animation: the starting picture (${animation.name})`, range });
-  await saveFirst(ctx, images(outputs, nodes(graph, 'SaveImage')[0]), target, `the starting picture of ${animation.name}`);
-  return target;
-}
-
 /** Pixel art is packed as real pixels: 64 pixels across a cell. */
 const pixelArgs = (g) => (g.style === 'pixel' ? ['--pixel', '64'] : []);
 
-/** One animation: a picture of the motion moved by Wan, the loop closed, its frames cut out and packed as <name>_sheet.png. */
+/**
+ * One animation: the base picture moved by Wan, the loop closed, its frames cut out and packed as <name>_sheet.png. Wan starts
+ * from the base picture itself (14.10.2026): a starting picture drawn "in the middle of the motion" by the edit model came with
+ * swoosh arcs around the swing in 8 of 8 tries whatever the wording, and Wan carried them through the clip; from the plain base
+ * picture (no last frame) the orc swung its axe in full and came back to its stance, with no arcs in one seed and faint smears
+ * in three frames of the other.
+ */
 async function runAnimation(ctx, animation, baseFile, index) {
   const g = ctx.job.input;
   const folder = ctx.folder;
@@ -267,16 +259,18 @@ async function runAnimation(ctx, animation, baseFile, index) {
   let loop = existsSync(loopFile) ? JSON.parse(readFileSync(loopFile, 'utf8')) : null;
   if (!names.every((n) => existsSync(join(folder, `cutout_${n}.png`)))) {
     if (!loop) {
-      const start = await animationPicture(ctx, animation, baseFile, part(0, 0.1));
+      const start = baseFile;
       const size = imageSize(start) ?? { width: 1, height: 1 };
       const [width, height] = animationSize(size.width, size.height);
       if (!existsSync(frameDir) || readdirSync(frameDir).length < ANIMATION.frame) {
         rmSync(frameDir, { recursive: true, force: true });
         const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
-        const prompt = `The ${g.kind} ${instruction}${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails, a steady repeating motion.`;
+        // "The character in the picture: ...": the translated description is often a sentence of its own ("The character The
+        // person swings an axe" was sent, 14.10.2026)
+        const prompt = `The ${g.kind} in the picture: ${instruction.replace(/[.\s]+$/, '')}${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails, a steady repeating motion.`;
         await runWan(ctx, {
           model: 'wan14', source: start, prompt, seed: g.seed + index, width, height, frame: ANIMATION.frame, smooth: 1,
-          target: frameDir, stage: `Animation: ${animation.name}`, range: part(0.1, 0.55), prefixExtra: `anim_${animation.name}`,
+          target: frameDir, stage: `Animation: ${animation.name}`, range: part(0, 0.55), prefixExtra: `anim_${animation.name}`,
         });
       }
       // back frames of a run that stopped before the loop was written are made again
