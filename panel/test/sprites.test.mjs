@@ -281,3 +281,11 @@ for name, im in zip('abc', (a, b, c)):
   const sizes = ['a', 'b', 'c'].map((n) => execFileSync(python, ['-c', 'from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)', join(folder, `sprite_${n}.png`)], { encoding: 'utf8' }).trim());
   assert.deepEqual(sizes, ['100 220', '100 220', '150 220'], 'floor bit gone, streak gone, the drop stays');
 });
+
+test('Game assets: the first sentence of the job description (all the chat agent sees, 140 characters) names game characters and single poses', () => {
+  const source = readFileSync(new URL('../lib/api.mjs', import.meta.url), 'utf8');
+  const description = source.match(/name: 'Game assets',\s+description: '([^\r\n]*?)\. /)[1];
+  assert.ok(description.length <= 140, `${description.length} characters`);
+  assert.match(description, /any game character/);
+  assert.match(description, /even one pose/);
+});
