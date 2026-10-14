@@ -972,3 +972,11 @@ test('recent jobs: the newest ones and the last 4 of every type besides (a secti
   assert.deepEqual(lastJobs(jobs, 3, 4).map((job) => job.id), ['i0', 'i1', 'i2', 'i3', 'm0', 'm1', 'm2', 'm3']);
   assert.deepEqual(lastJobs(jobs, 7, 4).map((job) => job.id), ['i0', 'i1', 'i2', 'i3', 'i4', 'i5', 'm0', 'm1', 'm2', 'm3'], 'the newest ones whatever their type');
 });
+
+test('prompt translation: Turkish "-lı/-li" words (what it has, holds or wears) are named in the image, edit and video instructions', async () => {
+  // "asalı yaşlı bir büyücü" became "an old wizard" (14.10.2026)
+  const { HAS_WORDS, SYSTEMS } = await import('../lib/prompt-translate.mjs');
+  assert.match(HAS_WORDS, /-lı, -li, -lu or -lü names something the subject has, holds or wears \("asalı" = with a staff/);
+  for (const type of ['image', 'edit', 'video']) assert.ok(SYSTEMS[type].includes(HAS_WORDS), type);
+  for (const type of ['voice', 'music']) assert.ok(!SYSTEMS[type].includes(HAS_WORDS), `${type}: no objects to keep`);
+});

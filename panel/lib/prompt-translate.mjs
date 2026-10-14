@@ -15,12 +15,20 @@ export function setPromptTranslation(isOpen) {
 }
 export const promptTranslationOpen = () => translateOpen() !== false;
 
+/**
+ * Turkish "-lı/-li/-lu/-lü" words (what the subject has, holds or wears) were left out or mistranslated: "asalı yaşlı bir
+ * büyücü" became "an old wizard"; of 12 such words not named here 5 went wrong without this sentence, 1-2 with it
+ * ("tırpanlı" a tarp, "sopalı" a pot, "kaskli" dropped; 14.10.2026, Bonsai 27B).
+ */
+export const HAS_WORDS = 'Every Turkish word ending in -lı, -li, -lu or -lü names something the subject has, holds or wears ("asalı" = with a staff, "kollu" = with arms, "şapkalı" = wearing a hat): translate each of them.';
+
 const SYSTEM = [
   'You translate prompts for an image-to-video model (Wan 2.2) into English.',
   'Return ONLY the English prompt text: no quotes, no explanation, no markdown.',
   'If the input is already English, return it unchanged.',
   'Keep the meaning. Phrase it as what happens in the video, present tense, with the subject doing the action',
   '("Gözlüğü çıkartsın" -> "The person takes off their glasses."). Be clear and concise; do not add new subjects, objects or events.',
+  HAS_WORDS,
 ].join('\n');
 
 /** Already English (roughly): ASCII only, with common English words. */
@@ -40,10 +48,10 @@ export const SYSTEMS = {
     'Keep it an imperative instruction with the same meaning; keep references like "image 1", "the second image".',
     // In 4 steps Qwen-Edit shifted the face (the nose grew when the glasses came off): name what must not change.
     'Then append one sentence telling the model to keep everything else unchanged; if a person is in the image, explicitly keep their face, facial features (nose, eyes, mouth), skin and identity exactly the same.',
-    'Text that should appear in the image (usually in quotes) stays exactly as written, untranslated.'].join('\n'),
+    'Text that should appear in the image (usually in quotes) stays exactly as written, untranslated.', HAS_WORDS].join('\n'),
   image: ['You translate text-to-image prompts into English.', COMMON,
     'Keep every detail, style and composition word; do not add or remove content.',
-    'Text that should appear in the image (usually in quotes) stays exactly as written, untranslated.'].join('\n'),
+    'Text that should appear in the image (usually in quotes) stays exactly as written, untranslated.', HAS_WORDS].join('\n'),
   voice: ['You translate voice descriptions for a voice-design model (Qwen3-TTS VoiceDesign, VoxCPM2) into English.', COMMON,
     'Keep every trait: gender, age, pitch, timbre, pace, emotion, accent and speaking style; do not add new ones.'].join('\n'),
   music: ['You translate music style descriptions for the ACE-Step music model into English style tags.', COMMON,
