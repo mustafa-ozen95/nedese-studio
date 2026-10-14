@@ -401,3 +401,35 @@ test('sprites: the loop\'s frames catch the far poses of a motion (a short blow 
     assert.ok(gap >= 4 && gap <= 16, `gap ${gap} in ${index}`);
   }
 });
+
+test('sprites: background left inside a swoosh is taken out of the frames, unless the first picture has the background\'s colour itself', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const make = (baseGrey) => {
+    const folder = mkdtempSync(join(tmpdir(), 'swoosh-'));
+    writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys
+from PIL import Image
+GREY = (165, 178, 178)
+def picture(swoosh, grey_body):
+    a = np.zeros((300, 300, 4), np.uint8)
+    a[..., :3] = GREY                                   # the background, cleared (alpha 0) but its colour kept
+    a[60:280, 120:180] = (60, 140, 40, 255)             # the figure
+    if grey_body:
+        a[60:120, 120:180] = GREY + (255,)              # a helmet of the background's grey
+    if swoosh:
+        a[20:120, 180:280] = GREY + (255,)              # the background inside a swoosh, kept
+        a[20:120, 178:180] = (20, 20, 20, 255)          # its line
+    return a
+Image.fromarray(picture(False, sys.argv[2] == '1'), 'RGBA').save(sys.argv[1] + '/cutout_base.png')
+Image.fromarray(picture(True, sys.argv[2] == '1'), 'RGBA').save(sys.argv[1] + '/cutout_a-01.png')
+`);
+    execFileSync(python, [join(folder, 'make.py'), folder, baseGrey ? '1' : '0']);
+    execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a-01', '--cell', '256', '--union', '--prefix', 'a_']);
+    return execFileSync(python, ['-c', 'from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)', join(folder, 'sprite_a-01.png')], { encoding: 'utf8' }).trim();
+  };
+  assert.equal(make(false), '60 260', 'the grey patch is gone, the figure and the swoosh line stay');
+  assert.equal(make(true), '160 260', 'a figure with the background\'s grey: nothing taken');
+});

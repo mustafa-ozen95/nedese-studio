@@ -110,6 +110,40 @@ def drop_floor(image):
     return image
 
 
+def background_left(image):
+    """Opaque pixels of the background's own colour in large pieces: the background inside a swoosh or speed trail that the
+    cut-out kept with the figure (an orc's axe attack had grey patches over 27% of a frame, 14.10.2026). The background's colour
+    at every pixel comes from the cleared pixels around it (the cut-out keeps their colour under alpha 0); a piece counts from
+    0.4% of the figure's area, smaller ones (highlights, an edge) stay."""
+    a = np.asarray(image)
+    alpha = a[..., 3]
+    rgb = a[..., :3].astype(np.float32)
+    clear = (alpha == 0).astype(np.float32)
+    if clear.sum() < 100:
+        return np.zeros(alpha.shape, bool)
+    sigma = max(a.shape[:2]) / 8
+    weight = cv2.GaussianBlur(clear, (0, 0), sigma)
+    field = cv2.GaussianBlur(rgb * clear[..., None], (0, 0), sigma) / np.maximum(weight, 1e-4)[..., None]
+    near = (np.abs(rgb - field).max(axis=2) <= 20) & (alpha > 0) & (weight > 0.001)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(near.astype(np.uint8), connectivity=8)
+    big = np.zeros(count, bool)
+    big[1:] = stats[1:, cv2.CC_STAT_AREA] >= 0.004 * max(1, int((alpha > 0).sum()))
+    return big[labels]
+
+
+def figure_share(image, mask):
+    return mask.sum() / max(1, int((np.asarray(image.getchannel('A')) > 0).sum()))
+
+
+def drop_background(image):
+    mask = background_left(image)
+    if not mask.any():
+        return image
+    image = image.copy()
+    image.putalpha(Image.fromarray(np.where(mask, 0, np.asarray(image.getchannel('A'))).astype(np.uint8), 'L'))
+    return image
+
+
 def drop_specks(image):
     """Pieces cut out together with the figure at its feet (a bit of the floor, a shadow) are removed: a separate piece smaller
     than 10% of the largest part's area that lies in the lowest 12% of the figure. Effects around the body (sweat drops, sparks)
@@ -298,9 +332,16 @@ def main():
         sys.exit(1)
     if a.mode == 'tiles':
         return tiles(a)
+    # background patches are taken out of the poses and frames only when the first picture has none: a white knight or a
+    # grey robot is itself the background's colour
+    base = os.path.join(a.folder, 'cutout_base.png')
+    plain = os.path.exists(base) and figure_share(*(lambda im: (im, background_left(im)))(Image.open(base).convert('RGBA'))) < 0.005
     loaded = []
     for name in a.names:
-        image = drop_floor(drop_specks(Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA')))
+        image = Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA')
+        if plain and name != 'base':
+            image = drop_background(image)
+        image = drop_floor(drop_specks(image))
         box = image.getchannel('A').point(lambda v: 255 if v > ALPHA_CUT else 0).getbbox()
         if box is None:
             print(f'ERROR: {name}: nothing is left after the background removal', flush=True)
