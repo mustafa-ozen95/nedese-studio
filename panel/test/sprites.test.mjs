@@ -118,11 +118,13 @@ test('Game assets: an animation starts from a picture of the motion, Wan plays i
     const start = requests.find((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && /shown in the middle of that motion/.test(d.inputs.prompt ?? '')));
     assert.ok(start, 'the starting picture is the base picture changed as the animation describes');
     assert.match(start.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt, /^The same character as in image 1, walking in place seen from the side, shown in the middle of that motion. Only this one character is in the picture, alone, with no other character, opponent, target or object\./);
+  assert.match(start.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt, /no motion lines or speed trails/, 'no speed lines to cut out later');
     const wan = requests.find((r) => r.some((d) => d.class_type === 'WanImageToVideo'));
     assert.ok(wan, 'one start picture, no last frame: a first = last frame clip hardly moved on the real machine');
     assert.equal(wan.some((d) => d.class_type === 'WanFirstLastFrameToVideo'), false);
     assert.equal(wan.find((d) => d.class_type === 'WanImageToVideo').inputs.length, 49);
     assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character walking in place seen from the side. Only this one character is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera/);
+  assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /no motion lines or speed trails/);
     const cuts = requests.at(-1).filter((d) => d.class_type === 'RemoveBackground');
     assert.equal(cuts.length, 6, 'the six frames in one cut-out request');
     const calls = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8'));
@@ -432,4 +434,57 @@ Image.fromarray(picture(True, sys.argv[2] == '1'), 'RGBA').save(sys.argv[1] + '/
   };
   assert.equal(make(false), '60 260', 'the grey patch is gone, the figure and the swoosh line stay');
   assert.equal(make(true), '160 260', 'a figure with the background\'s grey: nothing taken');
+});
+
+test('tiles: a texture drawn with dark edges and a lit middle gives an evenly lit tile (no dark cross repeated on the floor), its detail kept', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'vignette-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys
+from PIL import Image
+n = 512
+y, x = np.mgrid[0:n, 0:n] / n
+vignette = 1 - 0.6 * (((x - 0.5) ** 2 + (y - 0.5) ** 2) * 4)                       # 1 in the middle, 0.4 in the corners
+stones = 0.75 + 0.25 * ((np.floor(x * 16) + np.floor(y * 16)) % 2)                    # a fine checker of stones
+a = (np.stack([200 * stones, 180 * stones, 140 * stones], -1) * vignette[..., None]).clip(0, 255).astype(np.uint8)
+Image.fromarray(a, 'RGB').save(sys.argv[1] + '/source_t1.png')
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'tiles', '--folder', folder, '--names', 't1', '--cell', '256']);
+  const measure = (file) => execFileSync(python, ['-c', [
+    'import sys, numpy as np, cv2',
+    'from PIL import Image',
+    'g = np.asarray(Image.open(sys.argv[1]).convert("L")).astype(np.float32)',
+    'b = cv2.GaussianBlur(g, (0, 0), g.shape[0] / 8, borderType=cv2.BORDER_REFLECT)',
+    'print(round(float(b.max() - b.min()), 1), round(float(np.abs(g - cv2.GaussianBlur(g, (0, 0), 2)).mean()), 1))',
+  ].join('\n'), file], { encoding: 'utf8' }).trim().split(' ').map(Number);
+  const [sourceRange] = measure(join(folder, 'source_t1.png'));
+  const [tileRange, detail] = measure(join(folder, 'tile_t1.png'));
+  assert.ok(sourceRange > 60, `the source is unevenly lit: ${sourceRange}`);
+  assert.ok(tileRange < sourceRange / 4, `the tile's broad light varies ${tileRange} (source ${sourceRange})`);
+  assert.ok(detail > 3, `the stones are still there: ${detail}`);
+});
+
+test('sprites: thin floating speed lines go, a thick drop beside the figure stays', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'lines-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys, cv2
+from PIL import Image
+a = np.zeros((400, 400, 4), np.uint8)
+a[60:340, 150:250] = (60, 140, 40, 255)                                              # the figure, 280 tall
+cv2.ellipse(a, (200, 200), (150, 150), 0, 150, 210, (20, 20, 20, 255), 2)            # a speed line, 2 px, left of it
+a[100:116, 268:284] = (60, 160, 220, 255)                                             # a 16 px drop on the right
+Image.fromarray(a, 'RGBA').save(sys.argv[1] + '/cutout_a.png')
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', '--cell', '512']);
+  const size = execFileSync(python, ['-c', 'from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)', join(folder, 'sprite_a.png')], { encoding: 'utf8' }).trim();
+  assert.equal(size, '134 280', 'the line on the left is gone, the drop on the right stays');
 });

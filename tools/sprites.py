@@ -144,6 +144,32 @@ def drop_background(image):
     return image
 
 
+def drop_lines(image):
+    """Thin separate pieces go: speed lines and swoosh strokes the model drew around a blow, left floating once the background
+    inside them is gone (14.10.2026). A piece counts as thin when no point of it is further than 0.8% of the figure's height from
+    its edge; pieces from 5% of the largest part's area stay, and so do thick ones (a sweat drop, a spark)."""
+    alpha = np.asarray(image.getchannel('A'))
+    mask = (alpha > ALPHA_CUT).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    if count <= 2:
+        return image
+    rows = np.nonzero(mask.any(1))[0]
+    reach = max(1.5, 0.008 * (rows[-1] - rows[0] + 1))
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    depth = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+    drop = np.zeros(mask.shape, bool)
+    for i in range(1, count):
+        if areas[i - 1] < 0.05 * areas.max():
+            piece = labels == i
+            if depth[piece].max() <= reach:
+                drop |= piece
+    if not drop.any():
+        return image
+    image = image.copy()
+    image.putalpha(Image.fromarray(np.where(drop, 0, alpha).astype(np.uint8), 'L'))
+    return image
+
+
 def drop_specks(image):
     """Pieces cut out together with the figure at its feet (a bit of the floor, a shadow) are removed: a separate piece smaller
     than 10% of the largest part's area that lies in the lowest 12% of the figure. Effects around the body (sweat drops, sparks)
@@ -217,6 +243,25 @@ def blend(under, over, mask, levels=5):
     return out
 
 
+def even_light(image):
+    """The broad light and colour of a texture made even (detail kept): the model draws a vignette (dark edges, a lit middle) even
+    when asked not to, and the half-shift of seamless() puts the dark edges in the middle, a dark cross repeated on every tile of
+    a floor (14.10.2026). The lightness is scaled, the colour shifted, to their level in the lit quarter of the picture."""
+    lab = cv2.cvtColor(np.asarray(image.convert('RGB')), cv2.COLOR_RGB2LAB).astype(np.float32)
+    h, w = lab.shape[:2]
+
+    def broad(channel):
+        return cv2.GaussianBlur(channel, (0, 0), min(h, w) / 12, borderType=cv2.BORDER_REFLECT)
+
+    light = broad(lab[..., 0])
+    lit = light >= np.percentile(light, 75)
+    lab[..., 0] = np.clip(lab[..., 0] * np.clip(light[lit].mean() / np.maximum(light, 1), 0.5, 2.5), 0, 255)
+    for c in (1, 2):
+        colour = broad(lab[..., c])
+        lab[..., c] = np.clip(lab[..., c] - colour + colour[lit].mean(), 0, 255)
+    return Image.fromarray(cv2.cvtColor(lab.astype(np.uint8), cv2.COLOR_LAB2RGB), 'RGB')
+
+
 def seamless(image):
     """Made tileable: the picture rolled by half its size wraps without a seam on its edges, but has one in the middle; the middle
     box of the original picture (which has no seam there) is blended over it."""
@@ -233,7 +278,7 @@ def tiles(a):
     done = []
     for i, name in enumerate(a.names):
         image = Image.open(os.path.join(a.folder, f'source_{name}.png')).convert('RGB')
-        tile = seamless(image).resize((a.cell, a.cell), Image.LANCZOS)
+        tile = seamless(even_light(image)).resize((a.cell, a.cell), Image.LANCZOS)
         tile.save(os.path.join(a.folder, f'tile_{name}.png'))
         done.append((name, tile))
         print(f'progress {i + 1}/{len(a.names) + 1} {name}', flush=True)
@@ -341,7 +386,7 @@ def main():
         image = Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA')
         if plain and name != 'base':
             image = drop_background(image)
-        image = drop_floor(drop_specks(image))
+        image = drop_floor(drop_specks(drop_lines(image)))
         box = image.getchannel('A').point(lambda v: 255 if v > ALPHA_CUT else 0).getbbox()
         if box is None:
             print(f'ERROR: {name}: nothing is left after the background removal', flush=True)
