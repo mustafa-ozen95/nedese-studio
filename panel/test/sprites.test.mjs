@@ -161,10 +161,10 @@ test('Game assets: the view an animation asks for: from the side (right unless l
   assert.equal(animationView('breathing idle, steps aside'), null, '"aside" is not a side view');
 });
 
-test('Game assets: an animation in the view of the base picture starts from it; a vehicle, or a base described from the side, is drawn from the side already', async () => {
+test('Game assets: an animation in the view of the base picture starts from it; a vehicle is drawn from the side already, a character described "side view" is turned all the same', async () => {
   const p = await createPanel();
   try {
-    for (const [input, edits] of [[{ prompt: 'an orc', kind: 'character', animations: ['attack: swinging an axe'] }, 0], [{ prompt: 'a red car', kind: 'vehicle', animations: ['drive: driving, seen from the side'] }, 0], [{ prompt: 'a pixel wizard, side view', kind: 'character', animations: ['walk: walking seen from the side'] }, 0]]) {
+    for (const [input, edits] of [[{ prompt: 'an orc', kind: 'character', animations: ['attack: swinging an axe'] }, 0], [{ prompt: 'a red car', kind: 'vehicle', animations: ['drive: driving, seen from the side'] }, 0], [{ prompt: 'a pixel wizard, side view', kind: 'character', animations: ['walk: walking seen from the side'] }, 1]]) {
       const before = promptList(p).length;
       const job = p.queue.add('sprites', { ...input, poses: [], frames: 6, cell: 128, translate: false, seed: 3 });
       const done = await p.waitUntilDone(job.id, 90000);

@@ -293,10 +293,10 @@ async function runAnimation(ctx, animation, baseFile, index) {
   if (!names.every((n) => existsSync(join(folder, `cutout_${n}.png`)))) {
     if (!loop) {
       const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
-      // a vehicle is drawn from the side facing right already, and a base drawn from a description naming the view is in it
-      // (a wizard drawn "side view" was turned to the side again, 14.10.2026)
+      // a vehicle is drawn from the side facing right already; a character described "side view" is not (one run drew it in
+      // profile, the next three-quarter facing left and it walked so, 14.10.2026): it is turned
       const view = animationView(instruction);
-      const turn = view && !(g.kind === 'vehicle' && view === 'right') && !(!g.source && animationView(ctx.job.promptEnglish ?? g.prompt) === view);
+      const turn = view && !(g.kind === 'vehicle' && view === 'right');
       const start = turn ? await viewPicture(ctx, view, baseFile, part(0, 0.1)) : baseFile;
       const size = imageSize(start) ?? { width: 1, height: 1 };
       const [width, height] = animationSize(size.width, size.height);
