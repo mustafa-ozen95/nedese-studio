@@ -82,6 +82,22 @@ def one_palette(images, colours=32):
     return done
 
 
+def drop_specks(image):
+    """Pieces cut out together with the figure (a bit of the floor, a shadow line) are removed: only the parts that are at
+    least 10% of the largest part's area stay."""
+    alpha = np.asarray(image.getchannel('A'))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats((alpha > ALPHA_CUT).astype(np.uint8), connectivity=8)
+    if count <= 2:
+        return image
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    keep = np.zeros(count, bool)
+    keep[1:] = areas >= areas.max() * 0.1
+    cleaned = np.where(keep[labels], alpha, 0).astype(np.uint8)
+    image = image.copy()
+    image.putalpha(Image.fromarray(cleaned, 'L'))
+    return image
+
+
 def clean_edge(image):
     """Texels that are nearly transparent take the colour of the nearest opaque ones (no dark/grey fringe when scaled)."""
     a = np.asarray(image).astype(np.float32)
@@ -206,7 +222,7 @@ def main():
         return tiles(a)
     loaded = []
     for name in a.names:
-        image = Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA')
+        image = drop_specks(Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA'))
         box = image.getchannel('A').point(lambda v: 255 if v > ALPHA_CUT else 0).getbbox()
         if box is None:
             print(f'ERROR: {name}: nothing is left after the background removal', flush=True)

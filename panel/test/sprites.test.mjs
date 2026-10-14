@@ -253,3 +253,23 @@ print(sorted(alphas), len(np.unique(t[t[..., 3] == 255][:, :3], axis=0)), bad)
   assert.equal(alphas, '[0, 255]', 'only fully opaque or empty pixels');
   assert.ok(bad <= 4, `${bad} blocks are not one colour (the block grid may be offset by the crop)`);
 });
+
+test('sprites: a small piece cut out together with the figure (a bit of floor) is removed and does not stretch the sprite box', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'specks-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys
+from PIL import Image
+a = np.zeros((300, 400, 4), np.uint8)
+a[40:260, 150:250] = (200, 40, 40, 255)
+a[270:280, 20:80] = (120, 120, 120, 255)
+Image.fromarray(a, 'RGBA').save(sys.argv[1])
+`);
+  execFileSync(python, [join(folder, 'make.py'), join(folder, 'cutout_a.png')]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', '--cell', '256']);
+  const size = execFileSync(python, ['-c', `from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)`, join(folder, 'sprite_a.png')], { encoding: 'utf8' }).trim();
+  assert.equal(size, '100 220', 'the sprite is the figure alone');
+});
