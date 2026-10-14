@@ -198,3 +198,19 @@ print(wrap / inner)
   assert.ok(ratio < 3, `the border difference is ${ratio.toFixed(1)}× the usual one`);
   assert.ok(ratio < raw, `the source's border difference was ${raw.toFixed(1)}×`);
 });
+
+test('Game assets: the art style is written into the first picture and every pose, and an unknown style is refused', async () => {
+  const p = await createPanel();
+  try {
+    assert.throws(() => p.queue.add('sprites', { prompt: 'a knight', style: 'oil' }), /Style is invalid/);
+    const job = p.queue.add('sprites', { prompt: 'orc with a club', style: 'pixel', poses: ['walk: seen from the side'], cell: 128, translate: false, seed: 3 });
+    const done = await p.waitUntilDone(job.id, 60000);
+    assert.equal(done.status, 'done', done.error);
+    const [draw, edits] = promptList(p);
+    assert.match(draw.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /orc with a club\. pixel art, limited colour palette.*One single character/);
+    const pose = edits.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt;
+    assert.match(pose, /same art style \(pixel art, limited colour palette/);
+  } finally {
+    await p.close();
+  }
+});

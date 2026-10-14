@@ -24,6 +24,14 @@ import { IMAGE_MODELS, RATIOS, text, number, choice, seed, yes, sourcePath, gene
 export const name = 'Game assets';
 
 const KINDS = ['character', 'vehicle', 'object', 'tile'];
+// The art style (written into the description of the first picture and of every pose and animation: the models drift to realism otherwise)
+export const STYLES = {
+  cartoon: '2D cartoon mobile game art, bold clean outlines, flat vibrant colours, simple cel shading, stylised proportions',
+  pixel: 'pixel art, limited colour palette, crisp hard pixels, no anti-aliasing, retro game sprite',
+  flat: 'flat vector illustration, simple geometric shapes, solid colours, no gradients, no outlines',
+  painted: 'hand-painted 2D game art, soft brush strokes, rich colours, painterly shading',
+  realistic: 'realistic detailed render, natural lighting and materials',
+};
 const MAX_POSES = 12;
 const MAX_ANIMATIONS = 4;
 const ANIMATION = { frame: 49, fps: 16, size: 640 };
@@ -123,6 +131,7 @@ export function validate(g, { mod, setting }) {
   const [width, height] = RATIOS[ratio][model];
   return {
     kind,
+    style: g.style ? choice(g.style, 'Style', Object.keys(STYLES), '') : '',
     prompt: text(g.prompt, 'Description', { required: !source }),
     source,
     title: text(g.title, 'Title', { required: false, max: 120 }) || null,
@@ -180,7 +189,7 @@ async function draw(ctx, { count, prefix, suffix, stage, range, files }) {
   const generator = ctx.mod[IMAGE_MODELS[g.imageModel].generator];
   const written = g.lora?.trigger && !prompt.toLowerCase().includes(g.lora.trigger.toLowerCase()) ? `${g.lora.trigger}, ${prompt}` : prompt;
   const graphs = Array.from({ length: count }, (_, i) => {
-    const graph = generator({ text: `${written}. ${suffix}`, seed: g.seed + i, width: g.width, height: g.height, prefix: `panel/${ctx.job.id}/${prefix}${i + 1}` });
+    const graph = generator({ text: `${written}. ${g.style ? `${STYLES[g.style]}. ` : ''}${suffix}`, seed: g.seed + i, width: g.width, height: g.height, prefix: `panel/${ctx.job.id}/${prefix}${i + 1}` });
     if (g.lora) addLora(graph, g.lora.file, g.lora.strength);
     return graph;
   });
@@ -213,7 +222,7 @@ async function animationPicture(ctx, animation, baseFile, range) {
   if (existsSync(target)) return target;
   const picture = await ctx.comfy.load(baseFile, `panel_${ctx.job.id}_base${extname(baseFile).toLowerCase()}`);
   const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
-  const prompt = `The same ${g.kind} as in image 1, ${instruction}, shown in the middle of that motion. Keep exactly the same design, colours, clothing or parts and art style. Plain solid light grey background, no ground, no cast shadow, nothing else in the picture.`;
+  const prompt = `The same ${g.kind} as in image 1, ${instruction}, shown in the middle of that motion. Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, nothing else in the picture.`;
   const graph = ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + 100, prefix: `panel/${ctx.job.id}/animpose_${animation.name}` });
   const outputs = await ctx.runComfy(graph, { stage: `Animation: the starting picture (${animation.name})`, range });
   await saveFirst(ctx, images(outputs, nodes(graph, 'SaveImage')[0]), target, `the starting picture of ${animation.name}`);
@@ -240,7 +249,7 @@ async function runAnimation(ctx, animation, baseFile, index) {
       if (!existsSync(frameDir) || readdirSync(frameDir).length < ANIMATION.frame) {
         rmSync(frameDir, { recursive: true, force: true });
         const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
-        const prompt = `The ${g.kind} ${instruction}. It stays in the same place with a static camera, on the same plain light grey background, no ground, no cast shadow, a steady repeating motion.`;
+        const prompt = `The ${g.kind} ${instruction}${g.style ? `, ${STYLES[g.style]}` : ''}. It stays in the same place with a static camera, on the same plain light grey background, no ground, no cast shadow, a steady repeating motion.`;
         await runWan(ctx, {
           model: 'wan14', source: start, prompt, seed: g.seed + index, width, height, frame: ANIMATION.frame, smooth: 1,
           target: frameDir, stage: `Animation: ${animation.name}`, range: part(0.1, 0.7), prefixExtra: `anim_${animation.name}`,
@@ -302,7 +311,7 @@ export async function run(ctx) {
     const graphs = [];
     for (const [i, p] of todo.entries()) {
       const instruction = await jobPrompt(ctx, p.description, 'edit', { field: `pose_${p.name}`, translate: g.translate !== false });
-      const prompt = `The same ${g.kind} as in image 1, ${instruction}. Keep exactly the same design, colours, clothing or parts and art style. Plain solid light grey background, no ground, no cast shadow, nothing else in the picture.`;
+      const prompt = `The same ${g.kind} as in image 1, ${instruction}. Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, nothing else in the picture.`;
       graphs.push(ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + i, prefix: `panel/${ctx.job.id}/pose_${p.name}` }));
     }
     ctx.job.modelFiles = modelFiles(graphs[0]);
