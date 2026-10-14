@@ -254,7 +254,7 @@ print(sorted(alphas), len(np.unique(t[t[..., 3] == 255][:, :3], axis=0)), bad)
   assert.ok(bad <= 4, `${bad} blocks are not one colour (the block grid may be offset by the crop)`);
 });
 
-test('sprites: a small piece cut out together with the figure (a bit of floor) is removed and does not stretch the sprite box', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+test('sprites: floor bits and a streak stuck to the feet are removed, effects around the body stay', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { execFileSync } = await import('node:child_process');
@@ -263,13 +263,21 @@ test('sprites: a small piece cut out together with the figure (a bit of floor) i
   writeFileSync(join(folder, 'make.py'), `
 import numpy as np, sys
 from PIL import Image
-a = np.zeros((300, 400, 4), np.uint8)
-a[40:260, 150:250] = (200, 40, 40, 255)
-a[270:280, 20:80] = (120, 120, 120, 255)
-Image.fromarray(a, 'RGBA').save(sys.argv[1])
+def figure():
+    a = np.zeros((300, 400, 4), np.uint8)
+    a[40:260, 150:250] = (200, 40, 40, 255)
+    return a
+a = figure()
+a[270:280, 20:80] = (120, 120, 120, 255)      # a separate bit of floor
+b = figure()
+b[248:258, 40:150] = (120, 120, 120, 255)     # a streak touching the feet
+c = figure()
+c[60:68, 100:108] = (60, 160, 220, 255)       # a sweat drop beside the head
+for name, im in zip('abc', (a, b, c)):
+    Image.fromarray(im, 'RGBA').save(sys.argv[1] + '/cutout_' + name + '.png')
 `);
-  execFileSync(python, [join(folder, 'make.py'), join(folder, 'cutout_a.png')]);
-  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', '--cell', '256']);
-  const size = execFileSync(python, ['-c', `from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)`, join(folder, 'sprite_a.png')], { encoding: 'utf8' }).trim();
-  assert.equal(size, '100 220', 'the sprite is the figure alone');
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', 'b', 'c', '--cell', '256']);
+  const sizes = ['a', 'b', 'c'].map((n) => execFileSync(python, ['-c', 'from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)', join(folder, `sprite_${n}.png`)], { encoding: 'utf8' }).trim());
+  assert.deepEqual(sizes, ['100 220', '100 220', '150 220'], 'floor bit gone, streak gone, the drop stays');
 });

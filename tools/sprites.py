@@ -82,16 +82,47 @@ def one_palette(images, colours=32):
     return done
 
 
+def drop_floor(image):
+    """A thin, wide streak under the figure (a floor line or a shadow stuck to the feet) is removed: pixels that sit in vertical
+    runs shorter than 6% of the picture's height form pieces; a piece in the lowest 15% of the figure that is at least three times
+    as wide as it is tall goes."""
+    alpha = np.asarray(image.getchannel('A'))
+    mask = (alpha > ALPHA_CUT).astype(np.uint8)
+    rows = np.nonzero(mask.any(1))[0]
+    if len(rows) == 0:
+        return image
+    top, bottom = rows[0], rows[-1]
+    k = max(3, round((bottom - top + 1) * 0.06))
+    kernel = np.ones((k, 1), np.uint8)
+    thick = cv2.dilate(cv2.erode(mask, kernel), kernel)
+    thin = mask & (1 - thick)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(thin, connectivity=8)
+    drop = np.zeros(mask.shape, bool)
+    for i in range(1, count):
+        x, y, w, h, _area = stats[i]
+        if y >= bottom - 0.15 * (bottom - top) and w >= 3 * h and w >= 2 * k:
+            drop |= labels == i
+    if not drop.any():
+        return image
+    image = image.copy()
+    image.putalpha(Image.fromarray(np.where(drop, 0, alpha).astype(np.uint8), 'L'))
+    return image
+
+
 def drop_specks(image):
-    """Pieces cut out together with the figure (a bit of the floor, a shadow line) are removed: only the parts that are at
-    least 10% of the largest part's area stay."""
+    """Pieces cut out together with the figure at its feet (a bit of the floor, a shadow) are removed: a separate piece smaller
+    than 10% of the largest part's area that lies in the lowest 12% of the figure. Effects around the body (sweat drops, sparks)
+    stay."""
     alpha = np.asarray(image.getchannel('A'))
     count, labels, stats, _ = cv2.connectedComponentsWithStats((alpha > ALPHA_CUT).astype(np.uint8), connectivity=8)
     if count <= 2:
         return image
     areas = stats[1:, cv2.CC_STAT_AREA]
-    keep = np.zeros(count, bool)
-    keep[1:] = areas >= areas.max() * 0.1
+    top = stats[1:, cv2.CC_STAT_TOP].min()
+    bottom = (stats[1:, cv2.CC_STAT_TOP] + stats[1:, cv2.CC_STAT_HEIGHT]).max()
+    low = top + 0.88 * (bottom - top)
+    keep = np.ones(count, bool)
+    keep[1:] = ~((areas < areas.max() * 0.1) & (stats[1:, cv2.CC_STAT_TOP] >= low))
     cleaned = np.where(keep[labels], alpha, 0).astype(np.uint8)
     image = image.copy()
     image.putalpha(Image.fromarray(cleaned, 'L'))
@@ -222,7 +253,7 @@ def main():
         return tiles(a)
     loaded = []
     for name in a.names:
-        image = drop_specks(Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA'))
+        image = drop_floor(drop_specks(Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA')))
         box = image.getchannel('A').point(lambda v: 255 if v > ALPHA_CUT else 0).getbbox()
         if box is None:
             print(f'ERROR: {name}: nothing is left after the background removal', flush=True)
