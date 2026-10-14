@@ -262,16 +262,56 @@ def even_light(image):
     return Image.fromarray(cv2.cvtColor(lab.astype(np.uint8), cv2.COLOR_LAB2RGB), 'RGB')
 
 
+def cheapest_path(cost, cyclic=False):
+    """The column per row of the cheapest top-to-bottom path through cost, moving at most one column a row; cyclic: it ends next to
+    where it began, so the path wraps (every third column is tried as its start, which keeps the memory small)."""
+    h, w = cost.shape
+    starts = np.arange(0, w, 3) if cyclic else np.array([0])
+    total = np.full((len(starts), w), np.inf)
+    if cyclic:
+        total[np.arange(len(starts)), starts] = cost[0, starts]
+    else:
+        total[0] = cost[0]
+    moves = np.zeros((h, len(starts), w), np.int8)
+    edge = np.full((len(starts), 1), np.inf)
+    for y in range(1, h):
+        options = np.stack([np.concatenate([edge, total[:, :-1]], 1), total, np.concatenate([total[:, 1:], edge], 1)])
+        moves[y] = options.argmin(0) - 1
+        total = options.min(0) + cost[y]
+    if cyclic:
+        ends = [total[i, max(0, s - 1):s + 2].min() for i, s in enumerate(starts)]
+        start = int(np.argmin(ends))
+        x = max(0, starts[start] - 1) + int(total[start, max(0, starts[start] - 1):starts[start] + 2].argmin())
+    else:
+        start, x = 0, int(total[0].argmin())
+    path = np.zeros(h, int)
+    for y in range(h - 1, -1, -1):
+        path[y] = x
+        x += int(moves[y, start, x])
+    return path
+
+
 def seamless(image):
-    """Made tileable: the picture rolled by half its size wraps without a seam on its edges, but has one in the middle; the middle
-    box of the original picture (which has no seam there) is blended over it."""
+    """Made tileable: the picture rolled by half its width wraps without a seam on its edges, but has one in the middle; the middle
+    of the original picture (which has no seam there) is put over it, cut along the paths where the two differ least (between the
+    stones, not through them) rather than faded over a wide band, which left half-see-through ghost stones (14.10.2026). Across,
+    then the same down; the second cuts wrap so the sides stay seamless."""
     a = np.asarray(image.convert('RGB')).astype(np.float32)
     h, w = a.shape[:2]
-    rolled = np.roll(np.roll(a, w // 2, 1), h // 2, 0)
-    mask = np.zeros((h, w), np.float32)
-    mask[h // 4:3 * h // 4, w // 4:3 * w // 4] = 1
-    mask = cv2.GaussianBlur(mask, (0, 0), min(h, w) / 16)
-    return Image.fromarray(np.clip(blend(rolled, a, mask), 0, 255).astype(np.uint8), 'RGB')
+
+    def middle(under, over, cyclic):
+        smooth = lambda im: cv2.GaussianBlur(im, (0, 0), 2)
+        cost = ((smooth(under) - smooth(over)) ** 2).sum(2)
+        width = cost.shape[1]
+        band = width // 8
+        left, right = (cheapest_path(cost[:, x - band:x + band], cyclic) + x - band for x in (width // 4, 3 * width // 4))
+        x = np.arange(width)[None, :]
+        mask = ((x >= left[:, None]) & (x < right[:, None])).astype(np.float32)
+        return np.clip(blend(under, over, cv2.GaussianBlur(mask, (0, 0), 1.5)), 0, 255)
+
+    across = middle(np.roll(a, w // 2, 1), a, False)
+    down = middle(np.roll(across, h // 2, 0).transpose(1, 0, 2).copy(), across.transpose(1, 0, 2).copy(), True).transpose(1, 0, 2)
+    return Image.fromarray(down.astype(np.uint8), 'RGB')
 
 
 def tiles(a):

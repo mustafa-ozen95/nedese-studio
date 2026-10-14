@@ -488,3 +488,35 @@ Image.fromarray(a, 'RGBA').save(sys.argv[1] + '/cutout_a.png')
   const size = execFileSync(python, ['-c', 'from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)', join(folder, 'sprite_a.png')], { encoding: 'utf8' }).trim();
   assert.equal(size, '134 280', 'the line on the left is gone, the drop on the right stays');
 });
+
+test('tiles: stones are cut between, not faded into each other (no half-see-through ghost stones), and the tile still wraps', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'ghost-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys, cv2
+from PIL import Image
+n = 512
+a = np.zeros((n, n, 3), np.uint8)
+a[:] = (40, 60, 200)                                                                  # blue mortar
+rng = np.random.default_rng(3)
+for y in range(0, n, 64):                                                             # red stones, rows shifted at random
+    shift = int(rng.integers(0, 64))
+    for x in range(-64, n, 64):
+        cv2.rectangle(a, (x + shift + 6, y + 6), (x + shift + 57, y + 57), (210, 50, 40), -1)
+Image.fromarray(a, 'RGB').save(sys.argv[1] + '/source_t1.png')
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'tiles', '--folder', folder, '--names', 't1', '--cell', '512']);
+  const [ghost, wrap] = execFileSync(python, ['-c', [
+    'import sys, numpy as np',
+    'from PIL import Image',
+    'a = np.asarray(Image.open(sys.argv[1]).convert("RGB")).astype(int)',
+    'mixed = (a[..., 0] > 90) & (a[..., 2] > 90)',
+    'print(round(float(mixed.mean() * 100), 2), round(float(max(np.abs(a[0] - a[-1]).mean(), np.abs(a[:, 0] - a[:, -1]).mean())), 1))',
+  ].join('\n'), join(folder, 'tile_t1.png')], { encoding: 'utf8' }).trim().split(' ').map(Number);
+  assert.ok(ghost < 1.5, `${ghost}% of the tile is a red-blue mix (a ghost stone)`);
+  assert.ok(wrap < 40, `the opposite edges differ ${wrap}`);
+});
