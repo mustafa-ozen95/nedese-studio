@@ -89,10 +89,13 @@ function parseList(value, defaults, max, label) {
   });
 }
 
+/**
+ * An empty list given on purpose: the first picture only (14.10.2026: the chat agent sent [] for "only an attack
+ * animation, no extra poses", was refused and added a pose nobody asked for). Nothing given: the defaults.
+ */
 export function parsePoses(value, kind) {
-  const list = parseList(value, DEFAULT_POSES[kind] ?? [], MAX_POSES, 'poses or views');
-  if (!list.length) throw new UserError('Give at least one pose or view.');
-  return list;
+  if (Array.isArray(value) && !value.some((s) => String(s ?? '').trim())) return [];
+  return parseList(value, DEFAULT_POSES[kind] ?? [], MAX_POSES, 'poses or views');
 }
 
 /** Animations: none by default; the names may not clash with the poses' (their files differ by prefix, so they cannot). */

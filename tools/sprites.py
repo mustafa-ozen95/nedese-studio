@@ -238,8 +238,12 @@ def loop(a):
         # the clip was closed by a second clip that ends on the first frame: the loop is all of it
         end = len(files) - 1
     else:
-        # the loop may not be shorter than 40% of the clip (the figure must have moved away and come back)
-        start = max(2, int(len(files) * 0.4))
+        # the loop may not be shorter than 40% of the clip (the figure must have moved away and come back), and it holds
+        # the main motion: an orc that stood with the axe raised for 19 frames before the swing came back "closest"
+        # there, and the loop was the axe shaking in the air (14.10.2026)
+        peak = max(diffs)
+        moved = next((i for i, d in enumerate(diffs) if d >= peak * 0.6), 0)
+        start = min(len(files) - 1, max(2, int(len(files) * 0.4), moved + 1))
         best = min(diffs[start:])
         # the earliest frame that is about as close as the closest: a longer loop would repeat the motion more than once
         end = next(i for i in range(start, len(files)) if diffs[i] <= best * 1.1 + 1.0)

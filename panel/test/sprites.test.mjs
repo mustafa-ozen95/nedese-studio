@@ -22,6 +22,9 @@ test('poses: "name: description" lines, defaults per kind, unique file-safe name
   assert.deepEqual(parsePoses(['base: x'], 'character').map((p) => p.name), ['base-2'], 'base is the first picture');
   assert.deepEqual(parsePoses(['  ', '??: ???'], 'character').map((p) => p.name), ['pose1'], 'a name without letters falls back');
   assert.throws(() => parsePoses(Array.from({ length: 13 }, (_, i) => `p${i}: x`), 'character'), /At most 12/);
+  assert.deepEqual(parsePoses([], 'character'), [], 'an empty list on purpose: the first picture only');
+  assert.deepEqual(parsePoses(['', ' '], 'character'), []);
+  assert.equal(parsePoses('', 'character').length, 5, 'an empty form field: the defaults');
 });
 
 test('the cut-out graph inverts the subject mask before it becomes the alpha channel', () => {
@@ -331,4 +334,42 @@ test('sprites: --whole takes the loop over the whole clip (its last frame, the f
   const whole = run('--whole');
   assert.equal(whole.length, 9);
   assert.deepEqual(whole.files, ['00001.png', '00004.png', '00007.png']);
+});
+
+test('Game assets: poses [] with an animation makes the first picture and the animation only (the chat agent asked for no extra poses)', async () => {
+  const p = await createPanel();
+  try {
+    const job = p.queue.add('sprites', { prompt: 'an orc', kind: 'character', poses: [], animations: ['attack: swinging an axe'], frames: 6, cell: 256, translate: false, seed: 2 });
+    assert.match(job.summary.detail, /character · 1 sprites · 1 animation/);
+    const done = await p.waitUntilDone(job.id, 90000);
+    assert.equal(done.status, 'done', done.error);
+    const files = done.outputs.map((o) => o.file);
+    assert.ok(files.includes('sprite_base.png') && files.includes('attack_sheet.png'), files.join(', '));
+    assert.ok(!files.some((f) => /^sprite_(?!base)/.test(f)), 'no other pose');
+  } finally {
+    await p.close();
+  }
+});
+
+test('sprites: the loop holds the main motion, not a still start that came back early', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = join(mkdtempSync(join(tmpdir(), 'peak-')), 'frames');
+  mkdirSync(folder);
+  // 49 frames: still (a shake of 1-2) until 24, a big swing 25-36, back at 44
+  execFileSync(python, ['-c', [
+    'import sys',
+    'from PIL import Image',
+    'def level(i):',
+    '    if i < 25: return 100 + i % 2 * 2',
+    '    if i <= 36: return 100 + (i - 24) * 12',
+    '    return max(100, 244 - (i - 36) * 18)',
+    'for i in range(49): Image.new("RGB", (32, 32), (level(i), level(i), level(i))).save(sys.argv[1] + "/%05d.png" % (i + 1))',
+  ].join('\n'), folder]);
+  const out = execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'loop', '--frames', folder, '--count', '8'], { encoding: 'utf8' });
+  const loop = JSON.parse(/RESULT (.*)/.exec(out)[1]);
+  assert.ok(loop.length >= 44, `the loop ends after the swing came back, not at ${loop.length}`);
+  assert.ok(loop.closure < 3, String(loop.closure));
 });
