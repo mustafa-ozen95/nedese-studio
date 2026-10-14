@@ -311,6 +311,27 @@ def even_light(image):
     return Image.fromarray(cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB), 'RGB')
 
 
+def one_panel(image):
+    """One panel of a picture the model drew as two, side by side or one above the other (14.10.2026: a brick wall came as two
+    walls, each with its own dark edges, joined by a straight joint down the middle, which stayed in the tile): the middle is
+    darker than the middles of both halves, and the straightest line of the picture is there. A square from the first half is
+    kept; a single picture, lit in the middle, is left as it is."""
+    light = cv2.cvtColor(np.asarray(image.convert('RGB')), cv2.COLOR_RGB2LAB)[..., 0].astype(np.float32)
+    for axis in (0, 1):
+        profile = light.mean(axis)
+        n = len(profile)
+        broad = cv2.GaussianBlur(profile[None, :], (0, 0), n / 40)[0]
+        dip = min(broad[n // 4], broad[3 * n // 4]) - broad[n // 2]
+        line = np.abs(profile - cv2.GaussianBlur(profile[None, :], (0, 0), n / 60)[0])
+        at = int(np.argmax(line[int(n * .3):int(n * .7)])) + int(n * .3)
+        if dip > 2 and abs(at - n / 2) < n * .05:
+            other = light.shape[axis]
+            top = (other - at) // 2
+            box = (0, top, at, top + at) if axis == 0 else (top, 0, top + at, at)
+            return image.crop(box)
+    return image
+
+
 def cheapest_path(cost, cyclic=False):
     """The column per row of the cheapest top-to-bottom path through cost, moving at most one column a row; cyclic: it ends next to
     where it began, so the path wraps (every third column is tried as its start, which keeps the memory small)."""
@@ -371,7 +392,7 @@ def tiles(a):
     done = []
     for i, name in enumerate(a.names):
         image = Image.open(os.path.join(a.folder, f'source_{name}.png')).convert('RGB')
-        tile = seamless(even_light(image)).resize((a.cell, a.cell), Image.LANCZOS)
+        tile = seamless(even_light(one_panel(image))).resize((a.cell, a.cell), Image.LANCZOS)
         tile.save(os.path.join(a.folder, f'tile_{name}.png'))
         done.append((name, tile))
         print(f'progress {i + 1}/{len(a.names) + 1} {name}', flush=True)

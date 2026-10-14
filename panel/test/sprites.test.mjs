@@ -605,3 +605,35 @@ Image.fromarray(a, 'RGB').save(sys.argv[1] + '/source_t1.png')
   ].join('\n'), join(folder, 'tile_t1.png')], { encoding: 'utf8' }).trim());
   assert.ok(same < 0.5, `the tile matches itself shifted by about half its width: ${same}`);
 });
+
+test('tiles: a source drawn as two panels side by side becomes one panel; a single picture stays whole', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'panels-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys
+from PIL import Image
+n = 512
+y, x = np.mgrid[0:n, 0:n].astype(np.float32)
+stripes = np.where(x < n / 2, np.sin(x / 3), np.sin(y / 3)) * 40 + 150           # upright stripes on the left, lying on the right
+def vignette(x, y, w, h):
+    return 1 - 0.5 * (((x - w / 2) / (w / 2)) ** 2 + ((y - h / 2) / (h / 2)) ** 2) / 2
+two = stripes * np.where(x < n / 2, vignette(x, y, n / 2, n), vignette(x - n / 2, y, n / 2, n))
+two[:, n // 2 - 3:n // 2 + 3] = 40                                                # the joint between the two panels
+one = stripes * vignette(x, y, n, n)
+for name, a in (('two', two), ('one', one)):
+    Image.fromarray(np.repeat(np.clip(a, 0, 255).astype(np.uint8)[..., None], 3, 2), 'RGB').save(sys.argv[1] + f'/source_{name}.png')
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'tiles', '--folder', folder, '--names', 'two', 'one', '--cell', '256']);
+  const lying = (name) => Number(execFileSync(python, ['-c', [
+    'import sys, numpy as np',
+    'from PIL import Image',
+    'g = np.asarray(Image.open(sys.argv[1]).convert("L")).astype(np.float32)',
+    'print(np.abs(np.diff(g, axis=0)).mean() / np.abs(np.diff(g, axis=1)).mean())',
+  ].join('\n'), join(folder, `tile_${name}.png`)], { encoding: 'utf8' }).trim());
+  assert.ok(lying('two') < 0.3, `only the first panel (upright stripes) is in the tile: ${lying('two')}`);
+  assert.ok(lying('one') > 0.5, `a single picture keeps both halves: ${lying('one')}`);
+});
