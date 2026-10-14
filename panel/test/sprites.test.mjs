@@ -114,12 +114,12 @@ test('Game assets: an animation starts from a picture of the motion, Wan plays i
     // draw, poses, cut-outs, the starting picture (an edit), the clip, the frame cut-outs
     const start = requests.find((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && /shown in the middle of that motion/.test(d.inputs.prompt ?? '')));
     assert.ok(start, 'the starting picture is the base picture changed as the animation describes');
-    assert.match(start.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt, /^The same character as in image 1, walking in place seen from the side, shown in the middle of that motion./);
+    assert.match(start.find((d) => d.class_type === 'TextEncodeQwenImageEditPlus' && d.inputs.prompt).inputs.prompt, /^The same character as in image 1, walking in place seen from the side, shown in the middle of that motion. Only this one character is in the picture, alone, with no other character, opponent, target or object\./);
     const wan = requests.find((r) => r.some((d) => d.class_type === 'WanImageToVideo'));
     assert.ok(wan, 'one start picture, no last frame: a first = last frame clip hardly moved on the real machine');
     assert.equal(wan.some((d) => d.class_type === 'WanFirstLastFrameToVideo'), false);
     assert.equal(wan.find((d) => d.class_type === 'WanImageToVideo').inputs.length, 49);
-    assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character walking in place seen from the side. It stays in the same place with a static camera/);
+    assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character walking in place seen from the side. Only this one character is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera/);
     const cuts = requests.at(-1).filter((d) => d.class_type === 'RemoveBackground');
     assert.equal(cuts.length, 6, 'the six frames in one cut-out request');
     const calls = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8'));
