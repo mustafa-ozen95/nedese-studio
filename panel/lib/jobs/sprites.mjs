@@ -346,7 +346,7 @@ async function runAnimation(ctx, animation, baseFile, index) {
   }
   if (!existsSync(sheet)) {
     const fps = Math.round((g.frames / (loop.length / ANIMATION.fps)) * 10) / 10;
-    await packer(ctx, ['--folder', folder, '--cell', String(g.cell), '--anchor', g.kind === 'object' ? 'center' : 'bottom', '--prefix', `${animation.name}_`, ...pixelArgs(g), '--union', '--fps', String(fps), '--columns', '6', '--names', ...names]);
+    await packer(ctx, ['--folder', folder, '--cell', String(g.cell), '--anchor', g.kind === 'object' ? 'center' : 'bottom', '--prefix', `${animation.name}_`, ...pixelArgs(g), '--union', '--match', '--fps', String(fps), '--columns', '6', '--names', ...names]);
   }
   return [
     { file: `${animation.name}_sheet.png`, type: 'image', atlas: `${animation.name}_atlas.json`, archive: `${animation.name}_sprites.zip`, animation: animation.name, sprites: names.length, cell: g.cell, loop: loop.length, seed: g.seed },

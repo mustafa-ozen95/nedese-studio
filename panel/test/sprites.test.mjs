@@ -295,6 +295,58 @@ print(sorted(alphas), len(np.unique(t[t[..., 3] == 255][:, :3], axis=0)), bad)
   assert.ok(bad <= 4, `${bad} blocks are not one colour (the block grid may be offset by the crop)`);
 });
 
+test('sprites --match: a frame whose colours drifted (lighter, more saturated) is brought back to the base; a frame showing more of one colour (another pose) is left as it is', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'match-'));
+  // a figure of four colour bands (cape red, skin, steel, robe blue); "pose": the same colours, the red band wide, the skin
+  // narrow; "drift": the base's bands 12 levels lighter and 12% more saturated (the loop's closing clip, 15.10.2026)
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys, cv2
+from PIL import Image
+colours = [(150, 30, 35), (225, 175, 135), (140, 150, 165), (35, 50, 120)]
+def figure(widths, drift=False):
+    a = np.zeros((260, 260, 4), np.uint8)
+    x = 50
+    for c, w in zip(colours, widths):
+        a[30:230, x:x + w, :3] = c
+        x += w
+    a[30:230, 50:x, 3] = 255
+    if drift:
+        lab = cv2.cvtColor(np.ascontiguousarray(a[..., :3]), cv2.COLOR_RGB2LAB).astype(np.float32)
+        lab[..., 0] += 12
+        lab[..., 1:] = (lab[..., 1:] - 128) * 1.12 + 128
+        a[..., :3] = cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB)
+    return Image.fromarray(a, 'RGBA')
+folder = sys.argv[1]
+figure([40, 40, 40, 40]).save(folder + '/cutout_base.png')
+figure([40, 40, 40, 40]).save(folder + '/cutout_w-01.png')
+figure([80, 12, 40, 28]).save(folder + '/cutout_w-02.png')
+figure([40, 40, 40, 40], True).save(folder + '/cutout_w-03.png')
+`);
+  // the largest RGB distance of a frame's colours (each texel to the nearest of the four) from those four
+  writeFileSync(join(folder, 'check.py'), `
+import numpy as np, sys
+from PIL import Image
+colours = np.array([(150, 30, 35), (225, 175, 135), (140, 150, 165), (35, 50, 120)], float)
+for f in sys.argv[1:]:
+    t = np.asarray(Image.open(f).convert('RGBA')).astype(float)
+    px = t[t[..., 3] == 255][:, :3]
+    near = np.argmin(((px[:, None] - colours[None]) ** 2).sum(2), 1)
+    print(round(max(np.linalg.norm(px[near == i].mean(0) - colours[i]) for i in range(4) if (near == i).any()), 1))
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  const sprites = join(import.meta.dirname, '..', '..', 'tools', 'sprites.py');
+  const files = ['cutout_w-02.png', 'cutout_w-03.png', 'sprite_w-02.png', 'sprite_w-03.png'].map((f) => join(folder, f));
+  execFileSync(python, ['-s', sprites, '--folder', folder, '--names', 'w-01', 'w-02', 'w-03', '--cell', '256', '--prefix', 'w_', '--union', '--match']);
+  const [posed, drifted, posedOut, driftedOut] = execFileSync(python, [join(folder, 'check.py'), ...files], { encoding: 'utf8' }).trim().split(/\s+/).map(Number);
+  assert.ok(posed < 1 && drifted > 15, `the made frames: ${posed}, ${drifted}`);
+  assert.ok(posedOut < 3, `the other pose was changed by ${posedOut}`);
+  assert.ok(driftedOut < drifted / 3, `the drifted frame is still ${driftedOut} off (was ${drifted})`);
+});
+
 test('sprites: floor bits and a streak stuck to the feet are removed, effects around the body stay', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');

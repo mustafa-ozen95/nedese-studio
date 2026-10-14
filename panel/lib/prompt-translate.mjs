@@ -3,6 +3,7 @@
  * seed "Gözlüğü çıkartsın" did not take the glasses off, its English did. Without a text model, or when it fails, the
  * prompt is used as written.
  */
+import { readFileSync } from 'node:fs';
 import { CancelError } from './errors.mjs';
 import { runText, setTextModel, hasText, readsImages } from './text-model.mjs';
 
@@ -21,6 +22,61 @@ export const promptTranslationOpen = () => translateOpen() !== false;
  * ("tırpanlı" a tarp, "sopalı" a pot, "kaskli" dropped; 14.10.2026, Bonsai 27B).
  */
 export const HAS_WORDS = 'Every Turkish word ending in -lı, -li, -lu or -lü names something the subject has, holds or wears ("asalı" = with a staff, "kollu" = with arms, "şapkalı" = wearing a hat): translate each of them.';
+
+/**
+ * The meaning of the Turkish nouns of a text, for the local model, which does not know many of them: with every wording of the
+ * rule above 10 of 36 "-lı" words still went wrong ("küpeli" a cup, "yabalı" wild, "testereli" a tester, "kürekli" bearded,
+ * "bıyıklı" bearded; 15.10.2026, Bonsai 27B), the words were unknown. turkish-nouns.json holds the nouns of things a figure has,
+ * holds or wears, animals, places and the like; a word of the text is looked up as written, without a case ending (only for
+ * roots of 4 letters or more: "oku" is "read", not ok + u) and without -lı/-li/-lu/-lü (and an ending after it). Returns
+ * 'Meanings of the Turkish words in this text: ...' or ''.
+ */
+const NOUNS = JSON.parse(readFileSync(new URL('./turkish-nouns.json', import.meta.url), 'utf8'));
+const HAS_ENDINGS = ['lı', 'li', 'lu', 'lü'];
+const CASE_ENDINGS = ['', 'ı', 'i', 'u', 'ü', 'a', 'e', 'yı', 'yi', 'yu', 'yü', 'ya', 'ye', 'sı', 'si', 'su', 'sü', 'la', 'le', 'yla', 'yle', 'da', 'de', 'ta', 'te', 'dan', 'den', 'tan', 'ten', 'ın', 'in', 'un', 'ün', 'nın', 'nin', 'nun', 'nün', 'lar', 'ler', 'ları', 'leri', 'lara', 'lere'];
+const MAX_HINTS = 12;
+
+export function wordHints(text) {
+  const lower = String(text ?? '').toLocaleLowerCase('tr');
+  const hints = new Map();
+  // a phrase ("güneş gözlüğü") is explained whole and its words not one by one
+  const covered = new Set();
+  for (const phrase of Object.keys(NOUNS)) {
+    if (!phrase.includes(' ') || !lower.includes(phrase)) continue;
+    hints.set(phrase, `"${phrase}" = ${NOUNS[phrase]}`);
+    for (const w of phrase.split(' ')) covered.add(w);
+  }
+  const words = (lower.match(/\p{L}+/gu) ?? []).filter((w) => !covered.has(w));
+  // first the "-lı" words (the ones that went wrong), then the plain nouns
+  for (const word of words) {
+    for (let i = word.length - 2; i >= 2; i--) {
+      const root = word.slice(0, i);
+      if (HAS_ENDINGS.includes(word.slice(i, i + 2)) && CASE_ENDINGS.includes(word.slice(i + 2)) && NOUNS[root] && !hints.has(word)) {
+        hints.set(word, `"${word}" = with ${root} (${root} = ${NOUNS[root]})`);
+        break;
+      }
+    }
+  }
+  for (const word of words) {
+    if (hints.has(word)) continue;
+    for (let i = word.length; i >= 2; i--) {
+      const root = word.slice(0, i);
+      if (NOUNS[root] && (i === word.length || (i >= 4 && CASE_ENDINGS.includes(word.slice(i))))) {
+        hints.set(word, i === word.length ? `"${word}" = ${NOUNS[root]}` : `"${word}": ${root} = ${NOUNS[root]}`);
+        break;
+      }
+    }
+  }
+  const list = [...hints.values()].slice(0, MAX_HINTS);
+  return list.length ? `Meanings of the Turkish words in this text: ${list.join('; ')}.` : '';
+}
+
+/** The translation instruction of a job type with the meanings of the text's nouns (picture and video prompts). */
+export function translationSystem(type, text) {
+  const system = SYSTEMS[type] ?? SYSTEM;
+  const hints = type === 'voice' || type === 'music' ? '' : wordHints(text);
+  return hints ? `${system}\n${hints}` : system;
+}
 
 const SYSTEM = [
   'You translate prompts for an image-to-video model (Wan 2.2) into English.',
@@ -64,7 +120,7 @@ export async function makePromptEnglish(text, { type = 'video', signal = null } 
   if (!promptTranslationOpen()) return { prompt: text, translated: false, closed: true };
   if (!hasText()) return { prompt: text, translated: false, error: 'no text model' };
   try {
-    const english = await runText({ system: SYSTEMS[type] ?? SYSTEM, prompt: text, signal, name: 'Prompt translation', parse: (m) => String(m).trim().replace(/^["'“]|["'”]$/g, '') });
+    const english = await runText({ system: translationSystem(type, text), prompt: text, signal, name: 'Prompt translation', parse: (m) => String(m).trim().replace(/^["'“]|["'”]$/g, '') });
     return english ? { prompt: english, translated: english !== text } : { prompt: text, translated: false, error: 'empty response' };
   } catch (e) {
     if (e instanceof CancelError) throw e; // the job was cancelled or paused: it does not go on with the fallback

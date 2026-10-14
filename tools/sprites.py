@@ -10,7 +10,8 @@ Game sprites from transparent pictures (the Game assets job; ComfyUI's python: P
 - --prefix NAME_ puts it before sheet.png / atlas.json / sprites.zip (several sets in one folder); --union crops every
   picture by the box that holds ALL of them (the frames of an animation keep their place in the cell: a walking figure's
   width changes from frame to frame and a per-frame trim would make it jitter); --fps N also writes <prefix>animation.webp
-  (animated, with alpha) and stores the rate in the atlas.
+  (animated, with alpha) and stores the rate in the atlas. --match: the colours of every picture are brought back to those of
+  cutout_base.png (the frames of a clip drift from it; see match_colours).
 - --mode tiles: reads <folder>/source_<name>.png, makes each seamless (the picture and its half-shifted copy are cross-faded,
   so the opposite edges meet) at --cell x --cell: tile_<name>.png, the sheet, the atlas and tile-preview.png (the first tile
   repeated 3 x 3: the seams show there).
@@ -49,6 +50,7 @@ def args():
     p.add_argument('--frames', default='')
     p.add_argument('--count', type=int, default=12)
     p.add_argument('--whole', action='store_true')
+    p.add_argument('--match', action='store_true')
     return p.parse_args()
 
 
@@ -277,6 +279,57 @@ def blend(under, over, mask, levels=5):
     return out
 
 
+def opaque_lab(image, limit=40000):
+    """The Lab colours of the opaque texels (a fixed sample of at most limit)."""
+    a = np.asarray(image)
+    px = cv2.cvtColor(np.ascontiguousarray(a[..., :3]), cv2.COLOR_RGB2LAB).astype(np.float32)[a[..., 3] > 200]
+    if len(px) > limit:
+        px = px[np.random.default_rng(0).choice(len(px), limit, replace=False)]
+    return px
+
+
+def palette(image, k=8):
+    """The main colours of a picture (Lab cluster centres of its opaque texels)."""
+    px = opaque_lab(image)
+    if len(px) < k * 10:
+        return None
+    _, _, centres = cv2.kmeans(px, k, None, (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.5), 3, cv2.KMEANS_PP_CENTERS)
+    return centres
+
+
+def match_colours(image, centres):
+    """
+    The colours of a frame brought back to the reference's main colours: Wan drifts from its start picture, most in the second
+    clip that closes the loop (its frames came about 10% more saturated, a wizard's robe 13 levels lighter; 15.10.2026). Each
+    texel goes to the nearest reference colour and a gain and offset per Lab channel are fitted to the means of those groups,
+    weighted by their size, not to the mean of the whole figure: an orc raising its axe shows more fur and less skin and is
+    darker on the whole, which is the pose, not a drift (a match of the whole mean lightened its skin). Mild: gains 0.85-1.18,
+    offsets at most 20 levels, and nothing when fewer than three reference colours are in the frame.
+    """
+    px = opaque_lab(image)
+    if centres is None or len(px) < 500:
+        return image
+    gain, offset = np.ones(3, np.float32), np.zeros(3, np.float32)
+    for _ in range(3):
+        near = np.argmin((((px * gain + offset)[:, None, :] - centres[None]) ** 2).sum(2), 1)
+        weight = np.bincount(near, minlength=len(centres)).astype(np.float32)
+        keep = weight >= max(50, 0.01 * len(px))
+        if keep.sum() < 3:
+            return image
+        means = np.stack([px[near == i].mean(0) for i in np.flatnonzero(keep)])
+        w = weight[keep]
+        for c in range(3):
+            x, y = means[:, c], centres[keep, c]
+            xm, ym = np.average(x, weights=w), np.average(y, weights=w)
+            var = np.average((x - xm) ** 2, weights=w)
+            gain[c] = np.clip(np.average((x - xm) * (y - ym), weights=w) / var if var > 1 else 1.0, 0.85, 1.18)
+            offset[c] = np.clip(ym - gain[c] * xm, -20 - (gain[c] - 1) * xm, 20 - (gain[c] - 1) * xm)
+    a = np.asarray(image)
+    lab = cv2.cvtColor(np.ascontiguousarray(a[..., :3]), cv2.COLOR_RGB2LAB).astype(np.float32)
+    rgb = cv2.cvtColor(np.clip(lab * gain + offset, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB)
+    return Image.fromarray(np.dstack([rgb, a[..., 3]]), 'RGBA')
+
+
 def surface(channel, degree=4):
     """A smooth surface (a polynomial of x and y) fitted to a channel: the broad shape of a vignette, right up to the corners, where
     a blur takes in the lit middle and falls short."""
@@ -495,6 +548,7 @@ def main():
     # grey robot is itself the background's colour
     base = os.path.join(a.folder, 'cutout_base.png')
     plain = os.path.exists(base) and figure_share(*(lambda im: (im, background_left(im)))(Image.open(base).convert('RGBA'))) < 0.005
+    centres = palette(Image.open(base).convert('RGBA')) if a.match and os.path.exists(base) else None
     loaded = []
     for name in a.names:
         image = Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA')
@@ -502,6 +556,8 @@ def main():
             removed = background_left(image)
             image = drop_strokes(drop_background(image, removed), removed)
         image = drop_floor(drop_specks(drop_lines(image)))
+        if centres is not None and name != 'base':
+            image = match_colours(image, centres)
         box = image.getchannel('A').point(lambda v: 255 if v > ALPHA_CUT else 0).getbbox()
         if box is None:
             print(f'ERROR: {name}: nothing is left after the background removal', flush=True)

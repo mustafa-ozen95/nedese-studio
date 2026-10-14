@@ -980,3 +980,20 @@ test('prompt translation: Turkish "-lı/-li" words (what it has, holds or wears)
   for (const type of ['image', 'edit', 'video']) assert.ok(SYSTEMS[type].includes(HAS_WORDS), type);
   for (const type of ['voice', 'music']) assert.ok(!SYSTEMS[type].includes(HAS_WORDS), `${type}: no objects to keep`);
 });
+
+test('translation: the meanings of the Turkish nouns go with the text (the local model read "küpeli" as a cup, "yabalı" as wild)', async () => {
+  const { wordHints, translationSystem, SYSTEMS } = await import('../lib/prompt-translate.mjs');
+  assert.equal(wordHints('Küpeli bir korsan'), 'Meanings of the Turkish words in this text: "küpeli" = with küpe (küpe = earring); "korsan" = pirate.');
+  // a case ending after the noun or after -lı; a phrase whole, its words not again
+  assert.match(wordHints('elinde yabası olan çiftçi'), /"yabası": yaba = pitchfork/);
+  assert.match(wordHints('kürekliler geldi'), /"kürekliler" = with kürek \(kürek = oar/);
+  assert.equal(wordHints('güneş gözlüğü takan kız'), 'Meanings of the Turkish words in this text: "güneş gözlüğü" = sunglasses; "kız" = girl.');
+  // not a noun of the list: "oku" is read (not ok + u: short roots take no case ending), "toplu" is plump
+  assert.equal(wordHints('bunu oku'), '');
+  assert.equal(wordHints('toplu bir adam').includes('toplu'), false);
+  assert.equal(wordHints('a pirate with an earring'), '');
+  assert.ok(translationSystem('image', 'küpeli bir korsan').startsWith(`${SYSTEMS.image}\nMeanings of the Turkish words in this text: "küpeli"`));
+  assert.ok(translationSystem('edit', 'yabayı kaldırsın').includes('yaba = pitchfork'));
+  assert.equal(translationSystem('voice', 'küpeli bir korsan sesi'), SYSTEMS.voice);
+  assert.equal(translationSystem('image', 'hello'), SYSTEMS.image);
+});

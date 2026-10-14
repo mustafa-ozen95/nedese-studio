@@ -34,6 +34,7 @@ import { findSkills } from './skills.mjs';
 import { pluginFolders, pluginMcpServers, pluginSkills } from './plugins.mjs';
 import { runFfmpeg } from '../ffmpeg.mjs';
 import { attachmentText, readableKind } from '../attachments.mjs';
+import { wordHints } from '../prompt-translate.mjs';
 
 export const AGENT_STEPS = 40;
 /** Project rule files, read in the working folder and the folders above it (nearest first). */
@@ -2722,7 +2723,10 @@ ${project.instructions}` : ''}`);
         const language = code === 'tr' ? 'Turkish' : code === 'en' ? 'English' : null;
         const said = language ? `written in ${language}: answer in ${language}` : 'answer in the language this message is written in';
         const sent = m.time ? `\n[sent ${new Date(m.time).toLocaleString('en-GB', { timeZone: 'Europe/Istanbul', dateStyle: 'medium', timeStyle: 'short' })} · ${said}]` : '';
-        const text = `${notes.length ? `${notes.join('\n')}\n\n` : ''}${m.content}${extraText}${sent}`;
+        // the agent writes the English prompts of jobs with the same local model that did not know "küpeli" or "yaba"
+        // (15.10.2026): a Turkish message carries the meanings of its nouns (the same for the same words: the cache holds)
+        const hints = code === 'tr' && !m.hidden && !m.wake ? wordHints(m.content) : '';
+        const text = `${notes.length ? `${notes.join('\n')}\n\n` : ''}${m.content}${extraText}${sent}${hints ? `\n[${hints}]` : ''}`;
         notes = [];
         const parts = [];
         if (withImage && userIndexes.includes(i)) {
