@@ -73,6 +73,7 @@ globalThis.NedeseDictionary = {
         "Download all sprites (ZIP)": "Tüm sprite'ları indir (ZIP)",
         "Tile (seamless texture)": "Döşeme (kesintisiz doku)",
         "Art style": "Çizim stili",
+        "The first picture is drawn by FLUX.2 klein when a LoRA is picked; the trigger word is added automatically.": "LoRA seçilirse ilk görseli FLUX.2 klein çizer; tetik kelime kendiliğinden eklenir.",
         "From the description": "Tarifteki gibi",
         "Cartoon": "Çizgi film",
         "Pixel art": "Piksel sanatı",

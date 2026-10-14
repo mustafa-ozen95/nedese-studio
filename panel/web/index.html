@@ -421,6 +421,12 @@
                                             <option value="tile">Tile (seamless texture)</option>
                                         </select>
                                     </div>
+                                    <div class="field" data-sprite-lora hidden>
+                                        <label class="field__label" for="g-sprite-lora">LoRA (trained here)</label>
+                                        <select class="select" id="g-sprite-lora" name="lora" translate="no"><option value="">None</option></select>
+                                        <input type="hidden" name="imageModel" value="qwen">
+                                        <span class="field__hint">The first picture is drawn by FLUX.2 klein when a LoRA is picked; the trigger word is added automatically.</span>
+                                    </div>
                                     <div class="field">
                                         <label class="field__label" for="g-sprite-style">Art style</label>
                                         <select class="select" id="g-sprite-style" name="style">

@@ -2073,7 +2073,21 @@
         if ([...choice.options].some((o) => o.value === previous)) choice.value = previous;
         status.hasImageLora = loras.length > 0;
         imageFields();
+        // the same LoRAs for Game assets (the first picture is drawn by FLUX when one is picked)
+        const sprites = $('[data-job-form="sprites"]');
+        const spriteChoice = sprites?.lora;
+        if (spriteChoice) {
+            const keep = spriteChoice.value;
+            spriteChoice.replaceChildren(el('option', { value: '', text: 'None' }), ...loras.map((m) => el('option', { value: m.lora, text: `${m.name} · trigger "${m.trigger ?? ''}"` })));
+            if ([...spriteChoice.options].some((o) => o.value === keep)) spriteChoice.value = keep;
+            $('[data-sprite-lora]', sprites).hidden = loras.length === 0;
+            sprites.imageModel.value = spriteChoice.value ? 'flux' : 'qwen';
+        }
     }
+
+    $('[data-job-form="sprites"]')?.addEventListener('change', (event) => {
+        if (event.target.name === 'lora') event.currentTarget.imageModel.value = event.target.value ? 'flux' : 'qwen';
+    });
 
     function imageFields() {
         const s = status.options;
