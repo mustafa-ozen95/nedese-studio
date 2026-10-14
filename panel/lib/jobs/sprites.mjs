@@ -229,6 +229,9 @@ async function animationPicture(ctx, animation, baseFile, range) {
   return target;
 }
 
+/** Pixel art is packed as real pixels: 64 pixels across a cell. */
+const pixelArgs = (g) => (g.style === 'pixel' ? ['--pixel', '64'] : []);
+
 /** One animation: a picture of the motion moved by Wan, the loop closed, its frames cut out and packed as <name>_sheet.png. */
 async function runAnimation(ctx, animation, baseFile, index) {
   const g = ctx.job.input;
@@ -271,7 +274,7 @@ async function runAnimation(ctx, animation, baseFile, index) {
   }
   if (!existsSync(sheet)) {
     const fps = Math.round((g.frames / (loop.length / ANIMATION.fps)) * 10) / 10;
-    await packer(ctx, ['--folder', folder, '--cell', String(g.cell), '--anchor', g.kind === 'object' ? 'center' : 'bottom', '--prefix', `${animation.name}_`, '--union', '--fps', String(fps), '--columns', '6', '--names', ...names]);
+    await packer(ctx, ['--folder', folder, '--cell', String(g.cell), '--anchor', g.kind === 'object' ? 'center' : 'bottom', '--prefix', `${animation.name}_`, ...pixelArgs(g), '--union', '--fps', String(fps), '--columns', '6', '--names', ...names]);
   }
   return [
     { file: `${animation.name}_sheet.png`, type: 'image', atlas: `${animation.name}_atlas.json`, archive: `${animation.name}_sprites.zip`, animation: animation.name, sprites: names.length, cell: g.cell, loop: loop.length, seed: g.seed },
@@ -339,7 +342,7 @@ export async function run(ctx) {
 
   // 4. sprites, sheet, atlas
   ctx.progress({ stage: 'Packing the sprite sheet', percent: hasAnimations ? 60 : 94 });
-  await packer(ctx, ['--folder', folder, '--cell', String(g.cell), '--anchor', g.kind === 'object' ? 'center' : 'bottom', '--names', ...names]);
+  await packer(ctx, ['--folder', folder, '--cell', String(g.cell), '--anchor', g.kind === 'object' ? 'center' : 'bottom', ...pixelArgs(g), '--names', ...names]);
   const outputs = [{ file: 'sheet.png', type: 'image', main: true, atlas: 'atlas.json', archive: 'sprites.zip', sprites: names.length, cell: g.cell, seed: g.seed }];
   for (const n of names) outputs.push({ file: `sprite_${n}.png`, type: 'image', sprite: n, seed: g.seed });
 

@@ -214,3 +214,40 @@ test('Game assets: the art style is written into the first picture and every pos
     await p.close();
   }
 });
+
+test('pixel art: the real script turns a smooth cut-out into hard blocks (every 4x4 block one colour, alpha 0 or 255)', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'pixel-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys
+from PIL import Image
+y, x = np.mgrid[0:200, 0:200]
+rgb = np.stack([x * 1.2, y * 1.2, (x + y) * 0.6], -1)
+a = (((x - 100) ** 2 + (y - 100) ** 2) < 80 ** 2) * 255
+Image.fromarray(np.dstack([rgb, a]).clip(0, 255).astype('uint8'), 'RGBA').save(sys.argv[1])
+`);
+  writeFileSync(join(folder, 'check.py'), `
+import numpy as np, sys
+from PIL import Image
+t = np.asarray(Image.open(sys.argv[1]).convert('RGBA')).astype(int)
+alphas = set(np.unique(t[..., 3]).tolist())
+bad = 0
+ys, xs = np.nonzero(t[..., 3])
+x0, y0 = xs.min(), ys.min()
+for by in range(y0, ys.max() - 4, 4):
+    for bx in range(x0, xs.max() - 4, 4):
+        b = t[by:by + 4, bx:bx + 4].reshape(-1, 4)
+        if b[:, 3].min() == 255 and (b[:, :3].max(0) - b[:, :3].min(0)).max() > 0:
+            bad += 1
+print(sorted(alphas), bad)
+`);
+  execFileSync(python, [join(folder, 'make.py'), join(folder, 'cutout_a.png')]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', '--cell', '256', '--padding', '0', '--pixel', '64']);
+  const out = execFileSync(python, [join(folder, 'check.py'), join(folder, 'sheet.png')], { encoding: 'utf8' }).trim();
+  const [alphas, bad] = [out.slice(0, out.lastIndexOf(' ')), Number(out.slice(out.lastIndexOf(' ') + 1))];
+  assert.equal(alphas, '[0, 255]', 'only fully opaque or empty pixels');
+  assert.ok(bad <= 4, `${bad} blocks are not one colour (the block grid may be offset by the crop)`);
+});

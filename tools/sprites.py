@@ -44,10 +44,22 @@ def args():
     p.add_argument('--prefix', default='')
     p.add_argument('--fps', type=float, default=0)
     p.add_argument('--union', action='store_true')
+    p.add_argument('--pixel', type=int, default=0)
     p.add_argument('--mode', choices=('sprites', 'tiles', 'loop'), default='sprites')
     p.add_argument('--frames', default='')
     p.add_argument('--count', type=int, default=12)
     return p.parse_args()
+
+
+def pixelate(image, cell, logical):
+    """Real pixel art: the sprite is reduced to blocks of cell/logical pixels (the block average) and enlarged without smoothing;
+    a block is either fully opaque or empty."""
+    block = max(1, cell // logical)
+    w, h = max(1, image.width // block), max(1, image.height // block)
+    small = image.resize((w, h), Image.BOX)
+    alpha = small.getchannel('A').point(lambda v: 255 if v >= 128 else 0)
+    small.putalpha(alpha)
+    return small.resize((w * block, h * block), Image.NEAREST)
 
 
 def clean_edge(image):
@@ -200,6 +212,9 @@ def main():
     for i, (name, im) in enumerate(sprites):
         w, h = max(1, round(im.width * k)), max(1, round(im.height * k))
         small = im.resize((w, h), Image.LANCZOS)
+        if a.pixel:
+            small = pixelate(small, a.cell, a.pixel)
+            w, h = small.size
         cx, cy = (i % columns) * a.cell, (i // columns) * a.cell
         x = cx + (a.cell - w) // 2
         y = cy + (a.cell - a.padding - h if a.anchor == 'bottom' else (a.cell - h) // 2)
