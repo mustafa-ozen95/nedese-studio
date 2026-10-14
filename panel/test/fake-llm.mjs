@@ -229,6 +229,8 @@ function agentResponse(g) {
   }
   // the model thinks first (reasoning_content), then answers; and the thinking settings the agent sent
   if (/^think about/.test(text)) return { content: `Answer after thinking about ${text.slice(12)}.`, reasoning: `First I consider ${text.slice(12)}. ${'Then I weigh it. '.repeat(Number(process.env.FAKE_LLM_THINK_REPEAT) || 2)}Decided.` };
+  // the server did not separate the thinking: a draft answer, a closing tag without an opening one, the answer again
+  if (/^leak thinking/.test(text)) return finish('Draft: the answer is 4.\n</think>\n\nThe answer is 4.');
   if (/^which thinking/.test(text)) return finish(`Thinking: ${g.chat_template_kwargs?.enable_thinking ? 'on' : 'off'}, budget ${g.thinking_budget_tokens ?? 0}`);
   // a long answer (streamed in many pieces; with FAKE_LLM_STREAM_MS it takes a while); "long answer 300": 300 words
   const long = /^long answer(?: (\d+))?/.exec(text);

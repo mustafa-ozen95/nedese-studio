@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLlm } from '../lib/llm.mjs';
-import { toolBlocks, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, uninstalledTools, cleanSources, followUpList } from '../lib/agent/agent.mjs';
+import { toolBlocks, splitThinking, searchQuery, searchFold, partialWrite, noteLine, summaryCut, turnSources, uninstalledTools, cleanSources, followUpList } from '../lib/agent/agent.mjs';
 import { apiResultText, htmlText, truncate, isDestructiveApi, isDestructiveCommand, isReadOnlyCommand, needsApproval, panelApiRisk, commandRisk, bingTarget, relevantResults, pageExcerpt, guessLanguage, messageLanguage, sourceTrust, mcpCommand, localPaths, terminalText, artifactOf, TOOLS } from '../lib/agent/tools.mjs';
 import { McpClient, McpManager, expandVariables, functionSchema, mcpFunctionName, mcpServers, nativeMcpTools, progressText } from '../lib/agent/mcp.mjs';
 import { startFakeMcpHttp } from './fake-mcp-http.mjs';
@@ -510,6 +510,16 @@ test('thinking: the model\'s reasoning streams as reasoning events, stays with i
     o.p.setting.agentStream = false;
     await o.send(s.id, 'think about dogs');
     assert.match(o.agent.get(s.id).messages.at(-1).reasoning, /^First I consider dogs\./);
+    o.p.setting.agentStream = true;
+    // thinking the server left in the text before "</think>" (user report 14.10.2026: the tag and the answer twice
+    // in the chat): the answer once, the draft as thinking, streamed or not
+    for (const stream of [true, false]) {
+      o.p.setting.agentStream = stream;
+      assert.equal((await o.send(s.id, 'leak thinking')).response, 'The answer is 4.');
+      const last = o.agent.get(s.id).messages.at(-1);
+      assert.equal(last.content, 'The answer is 4.');
+      assert.equal(last.reasoning, 'Draft: the answer is 4.');
+    }
     o.p.setting.agentStream = true;
     // the level: low by default (1024 tokens); PATCH changes it from the next call, none turns thinking off
     assert.equal((await o.send(s.id, 'which thinking')).response, 'Thinking: on, budget 1024');
@@ -2812,4 +2822,11 @@ test('Artifacts (user request 10.10.2026, like Claude): an HTML or SVG file the 
   assert.equal(artifactOf('/a/notes.txt', '<html>'), null);
   assert.equal(artifactOf('/a/big.html', 'x'.repeat(512 * 1024)).kind, 'html');
   assert.equal(artifactOf('/a/big.html', 'x'.repeat(512 * 1024 + 1)), null);
+});
+
+test('splitThinking: text before the last closing think tag is thinking; no tag or nothing after it leaves the text as the answer', () => {
+  assert.deepEqual(splitThinking('Plain answer.'), { text: 'Plain answer.', reasoning: '' });
+  assert.deepEqual(splitThinking('<think>plan</think>\nAnswer.'), { text: 'Answer.', reasoning: 'plan' });
+  assert.deepEqual(splitThinking('draft\n</think>\n\nAnswer.'), { text: 'Answer.', reasoning: 'draft' });
+  assert.deepEqual(splitThinking('Only text\n</think>\n'), { text: 'Only text', reasoning: '' });
 });

@@ -35,6 +35,13 @@ export const STYLES = {
 const MAX_POSES = 12;
 const MAX_ANIMATIONS = 4;
 const ANIMATION = { frame: 49, fps: 16, size: 640 };
+/**
+ * A loop whose last frame is further from its first than this (mean grey difference 0-255) jumps when it starts again:
+ * an attack that ended mid-strike measured 19.8 (14.10.2026), loops that looked closed 2.3-4.4. Such a clip gets a
+ * second short clip (back frames) from its last frame to its first; one picture as both ends hardly moved.
+ */
+const CLOSE_LIMIT = 5;
+const BACK_FRAMES = 17;
 const DEFAULT_POSES = {
   character: [
     'walk: seen from the side facing right, in the middle of a walking stride',
@@ -255,10 +262,22 @@ async function runAnimation(ctx, animation, baseFile, index) {
         const prompt = `The ${g.kind} ${instruction}${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera, on the same plain light grey background, no ground, no cast shadow, a steady repeating motion.`;
         await runWan(ctx, {
           model: 'wan14', source: start, prompt, seed: g.seed + index, width, height, frame: ANIMATION.frame, smooth: 1,
-          target: frameDir, stage: `Animation: ${animation.name}`, range: part(0.1, 0.7), prefixExtra: `anim_${animation.name}`,
+          target: frameDir, stage: `Animation: ${animation.name}`, range: part(0.1, 0.55), prefixExtra: `anim_${animation.name}`,
         });
       }
+      // back frames of a run that stopped before the loop was written are made again
+      for (const f of readdirSync(frameDir)) if (Number.parseInt(f, 10) > ANIMATION.frame) rmSync(join(frameDir, f), { force: true });
       loop = await packer(ctx, ['--mode', 'loop', '--frames', frameDir, '--count', String(g.frames)]);
+      if (loop.closure > CLOSE_LIMIT) {
+        ctx.log(`Animation ${animation.name}: the motion does not come back (closing difference ${loop.closure}), a clip back to the first frame`);
+        const files = readdirSync(frameDir).filter((f) => f.toLowerCase().endsWith('.png')).sort();
+        const prompt = `The ${g.kind} moves smoothly back into its starting pose${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera, on the same plain light grey background, no ground, no cast shadow.`;
+        await runWan(ctx, {
+          model: 'wan14', source: join(frameDir, files.at(-1)), lastSource: join(frameDir, files[0]), prompt, seed: g.seed + index + 100, width, height, frame: BACK_FRAMES, smooth: 1,
+          target: frameDir, startNo: files.length + 1, skip: 1, stage: `Animation: ${animation.name} (back to the start)`, range: part(0.55, 0.7), prefixExtra: `back_${animation.name}`,
+        });
+        loop = { ...(await packer(ctx, ['--mode', 'loop', '--frames', frameDir, '--count', String(g.frames), '--whole'])), back: true };
+      }
       writeFileSync(loopFile, JSON.stringify(loop));
       ctx.log(`Animation ${animation.name}: loop of ${loop.length} frames of ${loop.frames}, closing difference ${loop.closure}`);
     }

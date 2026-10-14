@@ -48,6 +48,7 @@ def args():
     p.add_argument('--mode', choices=('sprites', 'tiles', 'loop'), default='sprites')
     p.add_argument('--frames', default='')
     p.add_argument('--count', type=int, default=12)
+    p.add_argument('--whole', action='store_true')
     return p.parse_args()
 
 
@@ -233,11 +234,15 @@ def loop(a):
         sys.exit(1)
     small = [np.asarray(Image.open(os.path.join(a.frames, f)).convert('L').resize((64, 64), Image.BILINEAR)).astype(np.float32) for f in files]
     diffs = [float(np.abs(x - small[0]).mean()) for x in small]
-    # the loop may not be shorter than 40% of the clip (the figure must have moved away and come back)
-    start = max(2, int(len(files) * 0.4))
-    best = min(diffs[start:])
-    # the earliest frame that is about as close as the closest: a longer loop would repeat the motion more than once
-    end = next(i for i in range(start, len(files)) if diffs[i] <= best * 1.1 + 1.0)
+    if a.whole:
+        # the clip was closed by a second clip that ends on the first frame: the loop is all of it
+        end = len(files) - 1
+    else:
+        # the loop may not be shorter than 40% of the clip (the figure must have moved away and come back)
+        start = max(2, int(len(files) * 0.4))
+        best = min(diffs[start:])
+        # the earliest frame that is about as close as the closest: a longer loop would repeat the motion more than once
+        end = next(i for i in range(start, len(files)) if diffs[i] <= best * 1.1 + 1.0)
     picks = [min(end - 1, round(i * end / a.count)) for i in range(a.count)]
     print('RESULT ' + json.dumps({'files': [files[i] for i in picks], 'length': end, 'closure': round(diffs[end], 2), 'frames': len(files)}))
 

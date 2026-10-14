@@ -289,3 +289,46 @@ test('Game assets: the first sentence of the job description (all the chat agent
   assert.match(description, /any game character/);
   assert.match(description, /even one pose/);
 });
+
+test('Game assets: a motion that does not come back to its start (an attack ending mid-strike) gets a clip from its last frame back to its first, the loop runs over both', async () => {
+  process.env.FAKE_SPRITES_CLOSURE = '19.8';
+  const p = await createPanel();
+  try {
+    const job = p.queue.add('sprites', { prompt: 'an orc', kind: 'character', poses: ['side: from the side'], animations: ['attack: swinging an axe'], frames: 6, cell: 256, translate: false, seed: 2 });
+    const done = await p.waitUntilDone(job.id, 90000);
+    assert.equal(done.status, 'done', done.error);
+    const requests = promptList(p);
+    const clips = requests.filter((r) => r.some((d) => ['WanImageToVideo', 'WanFirstLastFrameToVideo'].includes(d.class_type)));
+    assert.equal(clips.length, 2, 'the motion, then the way back');
+    assert.ok(clips[0].some((d) => d.class_type === 'WanImageToVideo'), 'the motion has one start picture');
+    const back = clips[1].find((d) => d.class_type === 'WanFirstLastFrameToVideo');
+    assert.ok(back, 'the way back ends on the first frame');
+    assert.equal(back.inputs.length, 17);
+    assert.match(clips[1].find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character moves smoothly back into its starting pose\. Only this one character is in the scene, alone/);
+    const loops = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8')).filter((c) => c[c.indexOf('--mode') + 1] === 'loop');
+    assert.equal(loops.length, 2);
+    assert.ok(loops[1].includes('--whole'), 'the second loop takes the whole clip');
+    const loop = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'loop_attack.json'), 'utf8'));
+    assert.equal(loop.frames, 49 + 16, 'the way back without its first frame (the motion\'s last)');
+    assert.equal(loop.length, 64);
+    assert.equal(loop.back, true);
+    assert.equal(requests.at(-1).filter((d) => d.class_type === 'RemoveBackground').length, 6);
+  } finally {
+    delete process.env.FAKE_SPRITES_CLOSURE;
+    await p.close();
+  }
+});
+
+test('sprites: --whole takes the loop over the whole clip (its last frame, the first again, left out)', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = join(mkdtempSync(join(tmpdir(), 'whole-')), 'frames');
+  mkdirSync(folder);
+  execFileSync(python, ['-c', 'import sys\nfrom PIL import Image\nfor i in range(10): Image.new("RGB", (32, 32), (i * 20, 0, 0)).save(sys.argv[1] + "/%05d.png" % (i + 1))', folder]);
+  const run = (...extra) => JSON.parse(/RESULT (.*)/.exec(execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'loop', '--frames', folder, '--count', '3', ...extra], { encoding: 'utf8' }))[1]);
+  const whole = run('--whole');
+  assert.equal(whole.length, 9);
+  assert.deepEqual(whole.files, ['00001.png', '00004.png', '00007.png']);
+});

@@ -20,16 +20,18 @@ if (process.env.FAKE_SPRITES_ERROR) {
   process.exit(1);
 }
 if (arg('--mode') === 'loop') {
-  // the picks: evenly spaced files of the first 30 frames (a loop of 30); FAKE_SPRITES_CLOSURE sets the difference
+  // the picks: evenly spaced files of the first 30 frames (a loop of 30), with --whole of all but the last;
+  // FAKE_SPRITES_CLOSURE sets the difference (--whole: 1)
   const dir = arg('--frames');
   const files = readdirSync(dir).filter((x) => x.endsWith('.png')).sort();
   const count = Number(arg('--count'));
-  const length = Math.min(30, files.length);
+  const whole = argv.includes('--whole');
+  const length = whole ? files.length - 1 : Math.min(30, files.length);
   const picks = Array.from({ length: count }, (_, i) => files[Math.min(length - 1, Math.round((i * length) / count))]);
   const log = join(dir, '..', 'sprites-calls.json');
   const before = existsSync(log) ? JSON.parse(readFileSync(log, 'utf8')) : [];
   writeFileSync(log, JSON.stringify([...before, argv]));
-  console.log('RESULT ' + JSON.stringify({ files: picks, length, closure: Number(process.env.FAKE_SPRITES_CLOSURE ?? 3.5), frames: files.length }));
+  console.log('RESULT ' + JSON.stringify({ files: picks, length, closure: whole ? 1 : Number(process.env.FAKE_SPRITES_CLOSURE ?? 3.5), frames: files.length }));
   process.exit(0);
 }
 const folder = arg('--folder');

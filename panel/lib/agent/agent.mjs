@@ -256,6 +256,21 @@ export function partialWrite(raw) {
 }
 
 /**
+ * Thinking the server left in the answer text: a model that writes its thinking and then "</think>" without the
+ * opening tag (seen 14.10.2026 with the local model: a draft answer, "</think>", then the answer again, so the chat
+ * showed the tag and the answer twice). The text before the last "</think>" is thinking, the rest is the answer.
+ */
+export function splitThinking(text) {
+  const s = String(text ?? '');
+  const end = s.lastIndexOf('</think>');
+  if (end < 0) return { text: s, reasoning: '' };
+  const before = s.slice(0, end).replace(/<\/?think>/g, '').trim();
+  const after = s.slice(end + '</think>'.length);
+  if (!after.trim()) return { text: before, reasoning: '' };
+  return { text: after.replace(/^\s+/, ''), reasoning: before };
+}
+
+/**
  * Tool call blocks: <tool>{"name","input"}</tool> (also <tool_call>…</tool_call>), ```json {"name"...}```.
  * Keys: name (or tool), input (or arguments, parameters).
  */
@@ -3101,7 +3116,8 @@ ${project.instructions}` : ''}`);
       this.emit(s, 'context', { used: s.conversationTokens, size: this.conversationRoom(s) });
     }
     const message = r.json.choices?.[0]?.message ?? {};
-    const content = typeof message.content === 'string' ? message.content : Array.isArray(message.content) ? message.content.map((p) => p?.text ?? '').join('') : '';
+    const leaked = splitThinking(typeof message.content === 'string' ? message.content : Array.isArray(message.content) ? message.content.map((p) => p?.text ?? '').join('') : '');
+    const content = leaked.text;
     const calls = (message.tool_calls ?? []).map((t) => {
       let input = {};
       try {
@@ -3114,7 +3130,7 @@ ${project.instructions}` : ''}`);
     // stopped at the output limit (max_tokens): a tool call in it may be incomplete
     const cut = r.json.choices?.[0]?.finish_reason === 'length';
     // the model's thinking: kept with the message for the user (folded in the chat), never sent back to the model
-    const reasoning = typeof message.reasoning_content === 'string' ? message.reasoning_content.trim().slice(0, REASONING_KEEP) : '';
+    const reasoning = [typeof message.reasoning_content === 'string' ? message.reasoning_content.trim() : '', leaked.reasoning].filter(Boolean).join('\n\n').slice(0, REASONING_KEEP);
     if (calls.length) return { text: content.trim(), calls, raw: null, cut, content, reasoning };
     // Sablon ayristirmadiysa metindeki bloklar
     const b = toolBlocks(content, { fenced: this.native(s) === false, known: new Set(TOOLS.map((t) => t.name)) });
