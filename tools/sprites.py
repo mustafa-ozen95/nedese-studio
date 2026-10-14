@@ -177,7 +177,9 @@ def drop_strokes(image, removed):
 def drop_lines(image):
     """Thin separate pieces go: speed lines and swoosh strokes the model drew around a blow, left floating once the background
     inside them is gone (14.10.2026). A piece counts as thin when no point of it is further than 0.8% of the figure's height from
-    its edge; pieces from 5% of the largest part's area stay, and so do thick ones (a sweat drop, a spark)."""
+    its edge; pieces from 5% of the largest part's area stay, and so do thick ones (a sweat drop, a spark). A brush stroke is
+    often thicker at an end: a long piece (six such widths) that is thin over 90% of it and nowhere twice as thick goes too
+    (arcs around an orc's swing stayed, 14.10.2026); a short drop of blood does not."""
     alpha = np.asarray(image.getchannel('A'))
     mask = (alpha > ALPHA_CUT).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
@@ -191,7 +193,9 @@ def drop_lines(image):
     for i in range(1, count):
         if areas[i - 1] < 0.05 * areas.max():
             piece = labels == i
-            if depth[piece].max() <= reach:
+            inside = depth[piece]
+            long = max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= 6 * reach
+            if inside.max() <= reach or (long and np.percentile(inside, 90) <= reach and inside.max() <= 2 * reach):
                 drop |= piece
     if not drop.any():
         return image
@@ -273,23 +277,38 @@ def blend(under, over, mask, levels=5):
     return out
 
 
+def surface(channel, degree=4):
+    """A smooth surface (a polynomial of x and y) fitted to a channel: the broad shape of a vignette, right up to the corners, where
+    a blur takes in the lit middle and falls short."""
+    h, w = channel.shape
+    small = cv2.resize(channel, (64, 64), interpolation=cv2.INTER_AREA)
+    y, x = np.mgrid[0:64, 0:64] / 63 * 2 - 1
+    terms = [(i, j) for i in range(degree + 1) for j in range(degree + 1 - i)]
+    coef = np.linalg.lstsq(np.stack([(x ** i * y ** j).ravel() for i, j in terms], 1), small.ravel(), rcond=None)[0]
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    x, y = x / (w - 1) * 2 - 1, y / (h - 1) * 2 - 1
+    return sum(c * x ** i * y ** j for c, (i, j) in zip(coef, terms)).astype(np.float32)
+
+
 def even_light(image):
     """The broad light and colour of a texture made even (detail kept): the model draws a vignette (dark edges, a lit middle) even
     when asked not to, and the half-shift of seamless() puts the dark edges in the middle, a dark cross repeated on every tile of
-    a floor (14.10.2026). The lightness is scaled, the colour shifted, to their level in the lit quarter of the picture."""
+    a floor (14.10.2026). The lightness is scaled, the colour shifted, to their level in the lit quarter of the picture: first by a
+    smooth surface (the vignette, which the tile keeps at its edges since nothing is shifted), then by a blur (broad patches)."""
     lab = cv2.cvtColor(np.asarray(image.convert('RGB')), cv2.COLOR_RGB2LAB).astype(np.float32)
     h, w = lab.shape[:2]
 
-    def broad(channel):
+    def blurred(channel):
         return cv2.GaussianBlur(channel, (0, 0), min(h, w) / 12, borderType=cv2.BORDER_REFLECT)
 
-    light = broad(lab[..., 0])
-    lit = light >= np.percentile(light, 75)
-    lab[..., 0] = np.clip(lab[..., 0] * np.clip(light[lit].mean() / np.maximum(light, 1), 0.5, 2.5), 0, 255)
-    for c in (1, 2):
-        colour = broad(lab[..., c])
-        lab[..., c] = np.clip(lab[..., c] - colour + colour[lit].mean(), 0, 255)
-    return Image.fromarray(cv2.cvtColor(lab.astype(np.uint8), cv2.COLOR_LAB2RGB), 'RGB')
+    for broad in (surface, blurred):
+        light = broad(lab[..., 0])
+        lit = light >= np.percentile(light, 75)
+        lab[..., 0] = np.clip(lab[..., 0] * np.clip(light[lit].mean() / np.maximum(light, 1), 0.5, 3), 0, 255)
+        for c in (1, 2):
+            colour = broad(lab[..., c])
+            lab[..., c] = np.clip(lab[..., c] - colour + colour[lit].mean(), 0, 255)
+    return Image.fromarray(cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB), 'RGB')
 
 
 def cheapest_path(cost, cyclic=False):
@@ -322,26 +341,30 @@ def cheapest_path(cost, cyclic=False):
 
 
 def seamless(image):
-    """Made tileable: the picture rolled by half its width wraps without a seam on its edges, but has one in the middle; the middle
-    of the original picture (which has no seam there) is put over it, cut along the paths where the two differ least (between the
-    stones, not through them) rather than faded over a wide band, which left half-see-through ghost stones (14.10.2026). Across,
-    then the same down; the second cuts wrap so the sides stay seamless."""
+    """Made tileable by overlapping the picture with itself: its last eighth is laid over its first one and the picture ends where
+    that eighth began, so the right edge runs on into the left. The two strips are joined along the path where they differ least
+    (between the stones, not through them, 14.10.2026), not faded into each other, which left half-see-through ghost stones; and
+    nothing is used twice (the earlier half-shift repeated the middle half, so every tile showed its pattern twice). Across, then
+    the same down; the second cut wraps so the sides stay seamless."""
     a = np.asarray(image.convert('RGB')).astype(np.float32)
-    h, w = a.shape[:2]
 
-    def middle(under, over, cyclic):
+    def wrap(a, cyclic):
+        w = a.shape[1]
+        o = w // 8
+        start, end = a[:, :o], a[:, w - o:]
         smooth = lambda im: cv2.GaussianBlur(im, (0, 0), 2)
-        cost = ((smooth(under) - smooth(over)) ** 2).sum(2)
-        width = cost.shape[1]
-        band = width // 8
-        left, right = (cheapest_path(cost[:, x - band:x + band], cyclic) + x - band for x in (width // 4, 3 * width // 4))
-        x = np.arange(width)[None, :]
-        mask = ((x >= left[:, None]) & (x < right[:, None])).astype(np.float32)
-        return np.clip(blend(under, over, cv2.GaussianBlur(mask, (0, 0), 1.5)), 0, 255)
+        cost = ((smooth(start) - smooth(end)) ** 2).sum(2)
+        margin = o // 8
+        path = cheapest_path(cost[:, margin:o - margin], cyclic) + margin
+        x = np.arange(o)[None, :]
+        mask = cv2.GaussianBlur((x < path[:, None]).astype(np.float32), (0, 0), 1.5)[..., None]
+        out = a[:, :w - o].copy()
+        out[:, :o] = end * mask + start * (1 - mask)
+        return out
 
-    across = middle(np.roll(a, w // 2, 1), a, False)
-    down = middle(np.roll(across, h // 2, 0).transpose(1, 0, 2).copy(), across.transpose(1, 0, 2).copy(), True).transpose(1, 0, 2)
-    return Image.fromarray(down.astype(np.uint8), 'RGB')
+    across = wrap(a, False)
+    down = wrap(across.transpose(1, 0, 2).copy(), True).transpose(1, 0, 2)
+    return Image.fromarray(np.clip(down, 0, 255).astype(np.uint8), 'RGB')
 
 
 def tiles(a):

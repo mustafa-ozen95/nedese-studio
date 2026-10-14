@@ -160,14 +160,18 @@ test('Game assets: tiles are drawn as variants in one request and made seamless 
     assert.equal(requests.length, 1, 'one request draws all variants');
     const texts = requests[0].filter((d) => d.class_type === 'CLIPTextEncode').map((d) => d.inputs.text);
     assert.equal(texts.length, 1, 'the same prompt: the nodes are shared');
-    assert.match(texts[0], /^A flat game texture of a surface seen straight from above, like a scanned material sample: mossy cobblestone ground. Seamless tileable texture, flat top-down orthographic view/);
-    assert.match(texts[0], /no leaf shadows or patches of sunlight[\s\S]*no trees, trunks, roots/, 'a surface, not a scene');
+    assert.match(texts[0], /^2D game tileset ground tile seen straight from above, orthographic top-down view: mossy cobblestone ground. The surface fills the whole square edge to edge/);
+    assert.doesNotMatch(texts[0], /\bno (trees|trunks|shadows|vignette|objects)\b/i, 'no thing named as absent: the model draws it');
     assert.equal(requests[0].filter((d) => d.class_type === 'KSampler').length, 3, 'three seeds');
     const call = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8'))[0];
     assert.equal(call[call.indexOf('--mode') + 1], 'tiles');
     assert.deepEqual(call.slice(call.indexOf('--names') + 1), ['t1', 't2', 't3']);
     assert.deepEqual(done.outputs.map((o) => o.file), ['sheet.png', 'tile_t1.png', 'tile_t2.png', 'tile_t3.png', 'tile-preview.png']);
     assert.throws(() => p.queue.add('sprites', { kind: 'tile', prompt: 'x', variants: 9 }), /Tile variants can be at most 8/);
+    const wall = await p.waitUntilDone(p.queue.add('sprites', { prompt: 'red brick wall', kind: 'tile', variants: 1, cell: 128, translate: false, seed: 4 }).id, 60000);
+    assert.equal(wall.status, 'done', wall.error);
+    const wallText = promptList(p).at(-1).find((d) => d.class_type === 'CLIPTextEncode').inputs.text;
+    assert.match(wallText, /^2D game tileset tile, a square texture swatch seen straight on, filled edge to edge with one repeating surface: red brick wall\. [\s\S]*orthographic view, the surface only/, 'a wall is seen straight on');
   } finally {
     await p.close();
   }
@@ -511,7 +515,7 @@ for y in range(0, n, 64):                                                       
 Image.fromarray(a, 'RGB').save(sys.argv[1] + '/source_t1.png')
 `);
   execFileSync(python, [join(folder, 'make.py'), folder]);
-  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'tiles', '--folder', folder, '--names', 't1', '--cell', '512']);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'tiles', '--folder', folder, '--names', 't1', '--cell', '448']);
   const [ghost, wrap] = execFileSync(python, ['-c', [
     'import sys, numpy as np',
     'from PIL import Image',
@@ -552,4 +556,52 @@ Image.fromarray(a, 'RGBA').save(sys.argv[1] + '/cutout_a.png')
   const [w, h] = size.split(' ').map(Number);
   assert.ok(w <= 106, `the outline is gone (a stub where it met the corner may stay): ${w} wide, the figure is 100`);
   assert.equal(h, 315, 'the antenna stays');
+});
+
+test('sprites: a floating stroke thicker at one end goes, a small drop of blood stays', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'stroke-end-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys, cv2
+from PIL import Image
+a = np.zeros((400, 400, 4), np.uint8)
+a[60:340, 150:250] = (60, 140, 40, 255)                                              # the figure, 280 tall
+cv2.ellipse(a, (200, 200), (150, 150), 0, 150, 210, (20, 20, 20, 255), 2)             # a stroke on the left
+cv2.circle(a, (70, 125), 3, (20, 20, 20, 255), -1)                                    # its thicker end
+cv2.circle(a, (290, 120), 3, (150, 20, 20, 255), -1)                                  # a drop of blood on the right
+Image.fromarray(a, 'RGBA').save(sys.argv[1] + '/cutout_a.png')
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', '--cell', '512']);
+  const size = execFileSync(python, ['-c', 'from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)', join(folder, 'sprite_a.png')], { encoding: 'utf8' }).trim();
+  assert.equal(size, '144 280', 'the stroke on the left is gone, the drop on the right stays');
+});
+
+test('tiles: every part of the drawn texture is used once (a tile does not repeat its own pattern inside)', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'repeat-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys, cv2
+from PIL import Image
+rng = np.random.default_rng(5)
+a = cv2.GaussianBlur(rng.random((512, 512, 3)).astype(np.float32), (0, 0), 6)        # blotches that are nowhere the same
+a = ((a - a.min()) / (a.max() - a.min()) * 255).astype(np.uint8)
+Image.fromarray(a, 'RGB').save(sys.argv[1] + '/source_t1.png')
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'tiles', '--folder', folder, '--names', 't1', '--cell', '256']);
+  const same = Number(execFileSync(python, ['-c', [
+    'import sys, numpy as np',
+    'from PIL import Image',
+    'g = np.asarray(Image.open(sys.argv[1]).convert("L")).astype(np.float32)',
+    'g -= g.mean()',
+    'print(max(float((g * np.roll(g, s, 1)).mean() / (g * g).mean()) for s in range(96, 161)))',
+  ].join('\n'), join(folder, 'tile_t1.png')], { encoding: 'utf8' }).trim());
+  assert.ok(same < 0.5, `the tile matches itself shifted by about half its width: ${same}`);
 });
