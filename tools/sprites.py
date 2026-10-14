@@ -62,6 +62,26 @@ def pixelate(image, cell, logical):
     return small.resize((w * block, h * block), Image.NEAREST)
 
 
+def one_palette(images, colours=32):
+    """All the pixel-art sprites of a sheet drawn with one palette (the frames of an animation would flicker otherwise)."""
+    pixels = np.concatenate([np.asarray(im.convert('RGBA')).reshape(-1, 4) for im in images])
+    pixels = pixels[pixels[:, 3] == 255][:, :3]
+    if len(pixels) == 0:
+        return images
+    side = math.ceil(math.sqrt(len(pixels)))
+    sample = np.zeros((side * side, 3), np.uint8)
+    sample[:len(pixels)] = pixels
+    sample[len(pixels):] = pixels[0]
+    palette = Image.fromarray(sample.reshape(side, side, 3), 'RGB').quantize(colours, Image.MEDIANCUT)
+    done = []
+    for im in images:
+        alpha = im.getchannel('A')
+        flat = im.convert('RGB').quantize(palette=palette, dither=Image.NONE).convert('RGB').convert('RGBA')
+        flat.putalpha(alpha)
+        done.append(flat)
+    return done
+
+
 def clean_edge(image):
     """Texels that are nearly transparent take the colour of the nearest opaque ones (no dark/grey fringe when scaled)."""
     a = np.asarray(image).astype(np.float32)
@@ -209,12 +229,12 @@ def main():
     sheet = Image.new('RGBA', (columns * a.cell, rows * a.cell), (0, 0, 0, 0))
     frames = []
     cells = []
+    scaled = [im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.LANCZOS) for _, im in sprites]
+    if a.pixel:
+        scaled = one_palette([pixelate(im, a.cell, a.pixel) for im in scaled])
     for i, (name, im) in enumerate(sprites):
-        w, h = max(1, round(im.width * k)), max(1, round(im.height * k))
-        small = im.resize((w, h), Image.LANCZOS)
-        if a.pixel:
-            small = pixelate(small, a.cell, a.pixel)
-            w, h = small.size
+        small = scaled[i]
+        w, h = small.size
         cx, cy = (i % columns) * a.cell, (i // columns) * a.cell
         x = cx + (a.cell - w) // 2
         y = cy + (a.cell - a.padding - h if a.anchor == 'bottom' else (a.cell - h) // 2)

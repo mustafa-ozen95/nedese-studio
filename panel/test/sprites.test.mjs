@@ -242,12 +242,14 @@ for by in range(y0, ys.max() - 4, 4):
         b = t[by:by + 4, bx:bx + 4].reshape(-1, 4)
         if b[:, 3].min() == 255 and (b[:, :3].max(0) - b[:, :3].min(0)).max() > 0:
             bad += 1
-print(sorted(alphas), bad)
+print(sorted(alphas), len(np.unique(t[t[..., 3] == 255][:, :3], axis=0)), bad)
 `);
   execFileSync(python, [join(folder, 'make.py'), join(folder, 'cutout_a.png')]);
   execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', '--cell', '256', '--padding', '0', '--pixel', '64']);
   const out = execFileSync(python, [join(folder, 'check.py'), join(folder, 'sheet.png')], { encoding: 'utf8' }).trim();
-  const [alphas, bad] = [out.slice(0, out.lastIndexOf(' ')), Number(out.slice(out.lastIndexOf(' ') + 1))];
+  const m = out.match(/^(\[.*\]) (\d+) (\d+)$/);
+  const [alphas, colours, bad] = [m[1], Number(m[2]), Number(m[3])];
+  assert.ok(colours <= 32, `${colours} colours: one shared palette of 32`);
   assert.equal(alphas, '[0, 255]', 'only fully opaque or empty pixels');
   assert.ok(bad <= 4, `${bad} blocks are not one colour (the block grid may be offset by the crop)`);
 });

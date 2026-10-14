@@ -58,7 +58,7 @@ const DEFAULT_POSES = {
 };
 const BASE_SUFFIX = {
   character: 'One single character shown complete and whole, full body from head to toe, standing in a neutral idle pose, centered with empty space around it, on a plain solid light grey background, no ground, no cast shadow, no text.',
-  vehicle: 'One single vehicle shown complete and whole, centered with empty space around it, on a plain solid light grey background, no ground, no cast shadow, no text.',
+  vehicle: 'One single vehicle shown complete and whole, seen exactly from the side facing right, centered with empty space around it, on a plain solid light grey background, no ground, no cast shadow, no text.',
   object: 'One single object shown complete and whole, centered with empty space around it, on a plain solid light grey background, no ground, no cast shadow, no text.',
   tile: 'Seamless tileable texture, flat top-down orthographic view, even lighting without shadows or vignette, the pattern fills the whole picture edge to edge, no border, no frame, no single large object in the middle.',
 };
