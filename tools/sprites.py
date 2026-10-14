@@ -227,6 +227,44 @@ def tiles(a):
     print('RESULT ' + json.dumps({'sheet': [sheet.width, sheet.height], 'frames': len(frames)}))
 
 
+def key_frames(small, end, count):
+    """
+    count frames of the loop 0..end-1 (end is the first again), the first one kept: the ones whose poses, joined in
+    order and back to the start, make the longest path, so the far poses of a motion are in (evenly spaced frames 1, 9,
+    17... of an orc's swing left out its two blows at 13 and 29, 14.10.2026). Gaps stay between half and twice the even
+    step, so the timing played at one frame rate stays about right.
+    """
+    even = [min(end - 1, round(i * end / count)) for i in range(count)]
+    step = end / count
+    lo, hi = max(1, int(step * 0.5)), max(2, int(round(step * 2)))
+    if count < 2 or count * lo >= end:
+        return even
+    flat = np.stack([s.ravel() for s in small[:end + 1]])
+    dist = np.abs(flat[:, None, :] - flat[None, :, :]).mean(axis=2)
+    none = float('-inf')
+    best = np.full((count, end + 1), none)
+    back = np.full((count, end + 1), -1, dtype=int)
+    best[0][0] = 0.0
+    for j in range(1, count):
+        for i in range(1, end):
+            for p in range(max(0, i - hi), i - lo + 1):
+                if best[j - 1][p] == none:
+                    continue
+                v = best[j - 1][p] + dist[p][i]
+                if v > best[j][i]:
+                    best[j][i], back[j][i] = v, p
+    last, total = -1, none
+    for i in range(max(1, end - hi), end - lo + 1):
+        if best[count - 1][i] != none and best[count - 1][i] + dist[i][end] > total:
+            last, total = i, best[count - 1][i] + dist[i][end]
+    if last < 0:
+        return even
+    picks = [last]
+    for j in range(count - 1, 0, -1):
+        picks.append(int(back[j][picks[-1]]))
+    return picks[::-1]
+
+
 def loop(a):
     files = sorted(f for f in os.listdir(a.frames) if f.lower().endswith('.png'))
     if len(files) < 4:
@@ -247,7 +285,7 @@ def loop(a):
         best = min(diffs[start:])
         # the earliest frame that is about as close as the closest: a longer loop would repeat the motion more than once
         end = next(i for i in range(start, len(files)) if diffs[i] <= best * 1.1 + 1.0)
-    picks = [min(end - 1, round(i * end / a.count)) for i in range(a.count)]
+    picks = key_frames(small, end, a.count)
     print('RESULT ' + json.dumps({'files': [files[i] for i in picks], 'length': end, 'closure': round(diffs[end], 2), 'frames': len(files)}))
 
 

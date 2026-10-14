@@ -333,7 +333,9 @@ test('sprites: --whole takes the loop over the whole clip (its last frame, the f
   const run = (...extra) => JSON.parse(/RESULT (.*)/.exec(execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'loop', '--frames', folder, '--count', '3', ...extra], { encoding: 'utf8' }))[1]);
   const whole = run('--whole');
   assert.equal(whole.length, 9);
-  assert.deepEqual(whole.files, ['00001.png', '00004.png', '00007.png']);
+  assert.equal(whole.files.length, 3);
+  assert.equal(whole.files[0], '00001.png');
+  assert.ok(!whole.files.includes('00010.png'), 'the last frame (the first again) left out');
 });
 
 test('Game assets: poses [] with an animation makes the first picture and the animation only (the chat agent asked for no extra poses)', async () => {
@@ -372,4 +374,30 @@ test('sprites: the loop holds the main motion, not a still start that came back 
   const loop = JSON.parse(/RESULT (.*)/.exec(out)[1]);
   assert.ok(loop.length >= 44, `the loop ends after the swing came back, not at ${loop.length}`);
   assert.ok(loop.closure < 3, String(loop.closure));
+});
+
+test('sprites: the loop\'s frames catch the far poses of a motion (a short blow between evenly spaced frames), the first frame kept', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = join(mkdtempSync(join(tmpdir(), 'keys-')), 'frames');
+  mkdirSync(folder);
+  // 65 frames, the last the first again: two short blows at 13 and 29 (index 12 and 28), between frames 1, 9, 17, 25...
+  execFileSync(python, ['-c', [
+    'import sys',
+    'from PIL import Image',
+    'def level(i):',
+    '    return int(100 + 140 * max(0, 1 - abs(i - 12) / 3) + 140 * max(0, 1 - abs(i - 28) / 3))',
+    'for i in range(65): Image.new("RGB", (32, 32), (level(i),) * 3).save(sys.argv[1] + "/%05d.png" % (i + 1))',
+  ].join('\n'), folder]);
+  const out = execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--mode', 'loop', '--frames', folder, '--count', '8', '--whole'], { encoding: 'utf8' });
+  const loop = JSON.parse(/RESULT (.*)/.exec(out)[1]);
+  const index = loop.files.map((f) => Number.parseInt(f, 10) - 1);
+  assert.equal(index[0], 0, 'the first frame first');
+  assert.ok(index.includes(12) && index.includes(28), `both blows: ${index}`);
+  for (let i = 1; i <= index.length; i++) {
+    const gap = (index[i] ?? 64) - index[i - 1];
+    assert.ok(gap >= 4 && gap <= 16, `gap ${gap} in ${index}`);
+  }
 });
