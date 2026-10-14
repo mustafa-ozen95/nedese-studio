@@ -205,7 +205,9 @@ export const JOB_TYPES = {
       { name: 'title', type: 'string', required: false, description: 'Title.' },
       { name: 'seed', type: 'integer', required: false, description: 'Seed.' },
     ],
-    example: { type: 'sprites', kind: 'character', prompt: 'Chibi fantasy knight with a big blue sword, dark spiky hair, red and black armor, cartoon 2D game art with thick clean outlines', poses: ['walk: seen from the side facing right, mid stride', 'attack: a big sword slash'] },
+    // the model copies the example: it shows the style, a title, a pose and an animation (14.10.2026: an example with two poses
+    // and nothing else made a "walk" pose for a walking animation)
+    example: { type: 'sprites', kind: 'character', style: 'cartoon', title: 'Blue sword knight', prompt: 'Chibi fantasy knight with a big blue sword, dark spiky hair, red and black armor', poses: ['attack: a big sword slash'], animations: ['walk: walking seen from the side'] },
   },
   model3d: {
     name: '3D model',

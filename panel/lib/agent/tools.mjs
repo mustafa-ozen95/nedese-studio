@@ -739,6 +739,12 @@ async function frontPlanCommand(b, record, durationSec) {
 
 /* ── Gorsel -> data URL ───────────────────────────────────────────────── */
 
+/** A job type's description, input fields and example body (api_document, and panel_api before a type's first job). */
+function jobTypeText(b, type) {
+  const t = b.jobTypes[type];
+  return truncate(JSON.stringify({ type, name: t.name, description: t.description, fields: t.fields.map((a) => ({ name: a.name, type: a.type, required: a.required || undefined, defaultValue: a.defaultValue, options: a.options, description: a.description })), example: t.example }));
+}
+
 /** Whether a PNG or WebP file has an alpha channel (PNG colour type 4/6 or a tRNS chunk, WebP VP8X alpha flag or VP8L). */
 export function hasAlpha(path) {
   let head;
@@ -829,6 +835,17 @@ export const TOOLS = [
         const { fields, ...remaining } = body;
         body = { ...fields, ...remaining };
       }
+      // a job type's fields are read before its first job in a chat (image aside: its example says enough): the model copied
+      // the sprites example body without reading them and made a "walk" pose for "only a side walking animation, no extra
+      // poses", with no animation and no style (14.10.2026)
+      const type = String(body?.type ?? '');
+      if (String(g.method).toUpperCase() === 'POST' && /^\/?(api\/v1\/)?jobs\/?$/.test(String(g.path)) && type && type !== 'image' && b.jobTypes?.[type] && b.chat) {
+        const read = b.chat.documentedTypes ?? [];
+        if (!read.includes(type)) {
+          b.chat.documentedTypes = [...read, type];
+          return `Not queued yet: check the body against the fields of "${type}" below, then send POST /jobs again (it is queued then).\n${jobTypeText(b, type)}`;
+        }
+      }
       const r = await b.api(g.method ?? 'GET', g.path, body);
       const extra = {};
       if (r?.job?.id) extra.job = r.job.id;
@@ -842,9 +859,9 @@ export const TOOLS = [
     params: object({ path: text('Route, e.g. "/jobs" or "/write-scenes"'), job_type: text('image, video, voice, music, film, model3d, edit, training, data…') }),
     async run(g, b) {
       if (g.job_type) {
-        const t = b.jobTypes[g.job_type];
-        if (!t) return `No such job type. Types: ${Object.keys(b.jobTypes).join(', ')}`;
-        return truncate(JSON.stringify({ type: g.job_type, name: t.name, description: t.description, fields: t.fields.map((a) => ({ name: a.name, type: a.type, required: a.required || undefined, defaultValue: a.defaultValue, options: a.options, description: a.description })), example: t.example }));
+        if (!b.jobTypes[g.job_type]) return `No such job type. Types: ${Object.keys(b.jobTypes).join(', ')}`;
+        if (b.chat) b.chat.documentedTypes = [...new Set([...(b.chat.documentedTypes ?? []), g.job_type])];
+        return jobTypeText(b, g.job_type);
       }
       const path = String(g.path ?? '').replace(/^\/api\/v1/, '').split('?')[0];
       const r = b.routes.filter((x) => x.path === path || x.pattern?.test(path));

@@ -830,6 +830,20 @@ test('agent resources: MCP server, skill, memory, scheduling, sub-agent, image v
     const sprite = await o.call('/api/v1/uploads/image?name=sprite.png', { method: 'POST', raw: rgbaPng(32, 32), type: 'image/png' });
     const rt = await o.send(s.id, `look ${sprite.json.image.source}`);
     assert.match(rt.response, /question: What is there\?\n\(The picture has transparent parts; they are shown here as a light grey and white checkerboard/);
+    // a job type's fields come before its first job in a chat (image aside): the sprites example body was copied unread and
+    // a walking animation became a pose (14.10.2026); the first POST returns the fields, the second queues
+    const jobCount = async () => (await o.call('/api/v1/jobs')).json.jobs.length;
+    const before = await jobCount();
+    const spritesJob = 'call tool panel_api {"method":"POST","path":"/jobs","body":{"type":"sprites","kind":"character","prompt":"a knight","poses":[]}}';
+    const unread = await o.send(s.id, spritesJob);
+    assert.match(unread.response, /^Result \(panel_api\): Not queued yet: check the body against the fields of "sprites" below, then send POST \/jobs again \(it is queued then\)\.\n\{"type":"sprites","name":"Game assets","description":/);
+    assert.equal(await jobCount(), before, 'not queued');
+    const queued = await o.send(s.id, spritesJob);
+    assert.match(queued.response, /^Ready: \/file\/job\/\d{8}-\d{6}-sprites-\w+\/sheet\.png$/, 'queued and waited for');
+    assert.equal(await jobCount(), before + 1);
+    // read with api_document: queued at once
+    await o.send(s.id, 'call tool api_document {"job_type":"voice"}');
+    assert.deepEqual(o.agent.get(s.id).documentedTypes, ['sprites', 'voice']);
     // OpenAI uyumlu: model nedese-agent, gecici oturum silinir
     const once = o.agent.list().total;
     const r = await fetch(`${o.p.address}/llm/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${o.p.settingFile.apiKey}` }, body: JSON.stringify({ model: 'nedese-agent', messages: [{ role: 'system', content: 'x' }, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'EN: hi' }, { role: 'user', content: 'run command' }] }) });
