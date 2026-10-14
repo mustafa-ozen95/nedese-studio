@@ -135,12 +135,42 @@ def figure_share(image, mask):
     return mask.sum() / max(1, int((np.asarray(image.getchannel('A')) > 0).sum()))
 
 
-def drop_background(image):
-    mask = background_left(image)
+def drop_background(image, mask=None):
+    mask = background_left(image) if mask is None else mask
     if not mask.any():
         return image
     image = image.copy()
     image.putalpha(Image.fromarray(np.where(mask, 0, np.asarray(image.getchannel('A'))).astype(np.uint8), 'L'))
+    return image
+
+
+def drop_strokes(image, removed):
+    """The outline of a swoosh that touches the figure goes too: once the background inside it is removed only its thin edge is
+    left, still joined to the axe or the arm, so drop_lines() (separate pieces only) keeps it (14.10.2026). Thin, long parts (a
+    disc of 0.8% of the figure's height does not fit in them, they are six such widths long) are removed when they lie along the
+    removed background; thin parts of the figure elsewhere (an antenna, a strand of hair) stay."""
+    if not removed.any():
+        return image
+    alpha = np.asarray(image.getchannel('A'))
+    mask = (alpha > ALPHA_CUT).astype(np.uint8)
+    rows = np.nonzero(mask.any(1))[0]
+    if not len(rows):
+        return image
+    r = max(2, int(np.ceil(0.008 * (rows[-1] - rows[0] + 1))))
+    disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    thin = mask & ~cv2.morphologyEx(mask, cv2.MORPH_OPEN, disc)
+    near = cv2.dilate(removed.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(thin, connectivity=8)
+    drop = np.zeros(mask.shape, bool)
+    for i in range(1, count):
+        if max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= 6 * r:
+            piece = labels == i
+            if (piece & near).sum() >= 0.2 * piece.sum():
+                drop |= piece
+    if not drop.any():
+        return image
+    image = image.copy()
+    image.putalpha(Image.fromarray(np.where(drop, 0, alpha).astype(np.uint8), 'L'))
     return image
 
 
@@ -425,7 +455,8 @@ def main():
     for name in a.names:
         image = Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA')
         if plain and name != 'base':
-            image = drop_background(image)
+            removed = background_left(image)
+            image = drop_strokes(drop_background(image, removed), removed)
         image = drop_floor(drop_specks(drop_lines(image)))
         box = image.getchannel('A').point(lambda v: 255 if v > ALPHA_CUT else 0).getbbox()
         if box is None:

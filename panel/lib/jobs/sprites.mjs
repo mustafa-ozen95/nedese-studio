@@ -67,7 +67,7 @@ const BASE_SUFFIX = {
   character: 'One single character shown complete and whole, full body from head to toe, standing in a neutral idle pose, centered with empty space around it, on a plain solid light grey background, no ground, no cast shadow, no text.',
   vehicle: 'One single vehicle shown complete and whole, seen exactly from the side facing right, centered with empty space around it, on a plain solid light grey background, no ground, no cast shadow, no text.',
   object: 'One single object shown complete and whole, centered with empty space around it, on a plain solid light grey background, no ground, no cast shadow, no text.',
-  tile: 'Seamless tileable texture, flat top-down orthographic view, even lighting without shadows or vignette, the pattern fills the whole picture edge to edge, no border, no frame, no single large object in the middle.',
+  tile: 'Seamless tileable texture, flat top-down orthographic view, evenly lit by soft ambient light: no cast shadows, no leaf shadows or patches of sunlight, no vignette. Only the surface itself: no trees, trunks, roots, tall plants or objects standing on it. The same density of detail fills the whole picture edge to edge, no border, no frame, no single large object in the middle.',
 };
 
 /** "name: description" lines (or a plain description); a list or a text split at line breaks and semicolons. */
@@ -193,13 +193,13 @@ async function packer(ctx, args) {
 }
 
 /** The first picture(s) drawn from the description: one request, `count` different seeds. */
-async function draw(ctx, { count, prefix, suffix, stage, range, files }) {
+async function draw(ctx, { count, prefix, head = '', suffix, stage, range, files }) {
   const g = ctx.job.input;
   const prompt = await jobPrompt(ctx, g.prompt, 'image', { translate: g.translate !== false });
   const generator = ctx.mod[IMAGE_MODELS[g.imageModel].generator];
   const written = g.lora?.trigger && !prompt.toLowerCase().includes(g.lora.trigger.toLowerCase()) ? `${g.lora.trigger}, ${prompt}` : prompt;
   const graphs = Array.from({ length: count }, (_, i) => {
-    const graph = generator({ text: `${written}. ${g.style ? `${STYLES[g.style]}. ` : ''}${suffix}`, seed: g.seed + i, width: g.width, height: g.height, prefix: `panel/${ctx.job.id}/${prefix}${i + 1}` });
+    const graph = generator({ text: `${head}${written}. ${g.style ? `${STYLES[g.style]}. ` : ''}${suffix}`, seed: g.seed + i, width: g.width, height: g.height, prefix: `panel/${ctx.job.id}/${prefix}${i + 1}` });
     if (g.lora) addLora(graph, g.lora.file, g.lora.strength);
     return graph;
   });
@@ -211,12 +211,16 @@ async function draw(ctx, { count, prefix, suffix, stage, range, files }) {
   ctx.measure(`image/${g.imageModel}`, (Date.now() - t) / 1000 / count);
 }
 
+// said first: told only at the end, the model drew a scene (a path with trees and their dappled shadows) rather than a
+// surface, and the shadows repeated as dark columns across the floor (14.10.2026)
+const TILE_HEAD = 'A flat game texture of a surface seen straight from above, like a scanned material sample: ';
+
 async function runTiles(ctx) {
   const g = ctx.job.input;
   const folder = ctx.folder;
   const names = Array.from({ length: g.variants }, (_, i) => `t${i + 1}`);
   const files = names.map((n) => join(folder, `source_${n}.png`));
-  if (files.some((f) => !existsSync(f))) await draw(ctx, { count: g.variants, prefix: 'tile_source_', suffix: BASE_SUFFIX.tile, stage: g.variants > 1 ? `Tiles (${g.variants})` : 'Tile', range: [0, 92], files });
+  if (files.some((f) => !existsSync(f))) await draw(ctx, { count: g.variants, prefix: 'tile_source_', head: TILE_HEAD, suffix: BASE_SUFFIX.tile, stage: g.variants > 1 ? `Tiles (${g.variants})` : 'Tile', range: [0, 92], files });
   ctx.progress({ stage: 'Making the tiles seamless', percent: 94 });
   await packer(ctx, ['--folder', folder, '--mode', 'tiles', '--cell', String(g.cell), '--names', ...names]);
   const outputs = [{ file: 'sheet.png', type: 'image', main: true, atlas: 'atlas.json', archive: 'sprites.zip', sprites: names.length, cell: g.cell, seed: g.seed }];
@@ -262,7 +266,7 @@ async function runAnimation(ctx, animation, baseFile, index) {
       if (!existsSync(frameDir) || readdirSync(frameDir).length < ANIMATION.frame) {
         rmSync(frameDir, { recursive: true, force: true });
         const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
-        const prompt = `The ${g.kind} ${instruction}${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails, a steady repeating motion.`;
+        const prompt = `The ${g.kind} ${instruction}${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails, a steady repeating motion.`;
         await runWan(ctx, {
           model: 'wan14', source: start, prompt, seed: g.seed + index, width, height, frame: ANIMATION.frame, smooth: 1,
           target: frameDir, stage: `Animation: ${animation.name}`, range: part(0.1, 0.55), prefixExtra: `anim_${animation.name}`,
@@ -274,7 +278,7 @@ async function runAnimation(ctx, animation, baseFile, index) {
       if (loop.closure > CLOSE_LIMIT) {
         ctx.log(`Animation ${animation.name}: the motion does not come back (closing difference ${loop.closure}), a clip back to the first frame`);
         const files = readdirSync(frameDir).filter((f) => f.toLowerCase().endsWith('.png')).sort();
-        const prompt = `The ${g.kind} moves smoothly back into its starting pose${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails.`;
+        const prompt = `The ${g.kind} moves smoothly back into its starting pose${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails.`;
         await runWan(ctx, {
           model: 'wan14', source: join(frameDir, files.at(-1)), lastSource: join(frameDir, files[0]), prompt, seed: g.seed + index + 100, width, height, frame: BACK_FRAMES, smooth: 1,
           target: frameDir, startNo: files.length + 1, skip: 1, stage: `Animation: ${animation.name} (back to the start)`, range: part(0.55, 0.7), prefixExtra: `back_${animation.name}`,

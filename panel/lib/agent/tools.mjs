@@ -842,7 +842,10 @@ export const TOOLS = [
         await new Promise((ok) => setTimeout(ok, b.pollingMs ?? 2000));
         job = b.jobSummary(g.id);
       }
-      const outputs = job.outputs.map((c) => ({ type: c.type, source: c.source, url: c.url, path: sourcePath(b.setting, c.source) }));
+      // files that come with an output (a sheet's atlas.json and zip) are named too: without them the model guessed the
+      // names in its answer (atlas.json for attack_atlas.json, 14.10.2026)
+      const companions = (c) => Object.fromEntries(Object.entries(c).filter(([k, v]) => !['file', 'preview'].includes(k) && typeof v === 'string' && /^[\w.-]+\.(json|zip|png|webp|txt|glb|obj|mp4|wav)$/i.test(v)).map(([k, v]) => [k, `job/${job.id}/${v}`]));
+      const outputs = job.outputs.map((c) => ({ type: c.type, source: c.source, url: c.url, path: sourcePath(b.setting, c.source), ...companions(c) }));
       // the lines that show the outputs in the answer (a finished dog image was sent to show_image, refused as an address,
       // then fetched from 127.0.0.1 into a copy: four extra steps, 08.10.2026)
       const shown = job.status === 'done' ? job.outputs.filter((c) => c.url).slice(0, 8).map((c, i) => (c.type === 'image' ? `![${c.type} ${i + 1}](${c.url})` : `[${c.type} ${i + 1}](${c.url})`)) : [];

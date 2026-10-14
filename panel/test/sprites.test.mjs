@@ -125,6 +125,7 @@ test('Game assets: an animation starts from a picture of the motion, Wan plays i
     assert.equal(wan.find((d) => d.class_type === 'WanImageToVideo').inputs.length, 49);
     assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /^The character walking in place seen from the side. Only this one character is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera/);
   assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /no motion lines or speed trails/);
+  assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /keeps facing the same way, its face, clothes and colours unchanged from start to end/, 'no turning to the camera, no drifting look');
     const cuts = requests.at(-1).filter((d) => d.class_type === 'RemoveBackground');
     assert.equal(cuts.length, 6, 'the six frames in one cut-out request');
     const calls = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8'));
@@ -159,7 +160,8 @@ test('Game assets: tiles are drawn as variants in one request and made seamless 
     assert.equal(requests.length, 1, 'one request draws all variants');
     const texts = requests[0].filter((d) => d.class_type === 'CLIPTextEncode').map((d) => d.inputs.text);
     assert.equal(texts.length, 1, 'the same prompt: the nodes are shared');
-    assert.match(texts[0], /mossy cobblestone ground. Seamless tileable texture, flat top-down orthographic view/);
+    assert.match(texts[0], /^A flat game texture of a surface seen straight from above, like a scanned material sample: mossy cobblestone ground. Seamless tileable texture, flat top-down orthographic view/);
+    assert.match(texts[0], /no leaf shadows or patches of sunlight[\s\S]*no trees, trunks, roots/, 'a surface, not a scene');
     assert.equal(requests[0].filter((d) => d.class_type === 'KSampler').length, 3, 'three seeds');
     const call = JSON.parse(readFileSync(join(p.setting.outputRoot, done.id, 'sprites-calls.json'), 'utf8'))[0];
     assert.equal(call[call.indexOf('--mode') + 1], 'tiles');
@@ -432,7 +434,7 @@ Image.fromarray(picture(True, sys.argv[2] == '1'), 'RGBA').save(sys.argv[1] + '/
     execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a-01', '--cell', '256', '--union', '--prefix', 'a_']);
     return execFileSync(python, ['-c', 'from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)', join(folder, 'sprite_a-01.png')], { encoding: 'utf8' }).trim();
   };
-  assert.equal(make(false), '60 260', 'the grey patch is gone, the figure and the swoosh line stay');
+  assert.equal(make(false), '60 220', 'the grey patch is gone and so is its line where it sticks out of the figure');
   assert.equal(make(true), '160 260', 'a figure with the background\'s grey: nothing taken');
 });
 
@@ -519,4 +521,35 @@ Image.fromarray(a, 'RGB').save(sys.argv[1] + '/source_t1.png')
   ].join('\n'), join(folder, 'tile_t1.png')], { encoding: 'utf8' }).trim().split(' ').map(Number);
   assert.ok(ghost < 1.5, `${ghost}% of the tile is a red-blue mix (a ghost stone)`);
   assert.ok(wrap < 40, `the opposite edges differ ${wrap}`);
+});
+
+test('sprites: a swoosh outline joined to the figure goes with the swoosh, a thin antenna away from it stays', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'stroke-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys, cv2
+from PIL import Image
+def canvas():
+    a = np.zeros((400, 400, 4), np.uint8)
+    a[..., :3] = 200                                                                      # the grey background, cleared
+    return a
+base = canvas()
+base[55:340, 150:250] = (60, 140, 40, 255)
+Image.fromarray(base, 'RGBA').save(sys.argv[1] + '/cutout_base.png')
+a = canvas()
+cv2.ellipse(a, (200, 200), (134, 134), 0, 180, 250, (200, 200, 200, 255), 28)             # the swoosh's grey inside, kept opaque
+a[55:340, 150:250] = (60, 140, 40, 255)                                                   # the figure, 285 tall
+a[25:55, 230:233] = (60, 140, 40, 255)                                                    # a thin antenna, 30 long
+cv2.ellipse(a, (200, 200), (150, 150), 0, 180, 270, (20, 20, 20, 255), 3)                 # the swoosh's outline, touching the figure
+Image.fromarray(a, 'RGBA').save(sys.argv[1] + '/cutout_a.png')
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  execFileSync(python, ['-s', join(import.meta.dirname, '..', '..', 'tools', 'sprites.py'), '--folder', folder, '--names', 'a', '--cell', '512']);
+  const size = execFileSync(python, ['-c', 'from PIL import Image; import sys; print(*Image.open(sys.argv[1]).size)', join(folder, 'sprite_a.png')], { encoding: 'utf8' }).trim();
+  const [w, h] = size.split(' ').map(Number);
+  assert.ok(w <= 106, `the outline is gone (a stub where it met the corner may stay): ${w} wide, the figure is 100`);
+  assert.equal(h, 315, 'the antenna stays');
 });

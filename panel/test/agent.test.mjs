@@ -2830,3 +2830,12 @@ test('splitThinking: text before the last closing think tag is thinking; no tag 
   assert.deepEqual(splitThinking('draft\n</think>\n\nAnswer.'), { text: 'Answer.', reasoning: 'draft' });
   assert.deepEqual(splitThinking('Only text\n</think>\n'), { text: 'Only text', reasoning: '' });
 });
+
+test('wait_job names the files that come with an output (atlas, zip), so the answer does not guess them', async () => {
+  const job = { id: 'j1', status: 'done', error: null, duration: 3, outputs: [{ file: 'attack_sheet.png', type: 'image', atlas: 'attack_atlas.json', archive: 'attack_sprites.zip', animation: 'attack', url: '/file/job/j1/attack_sheet.png', source: 'job/j1/attack_sheet.png' }] };
+  const out = await TOOLS.find((t) => t.name === 'wait_job').run({ id: 'j1' }, { jobSummary: () => job, setting: { outputRoot: 'C:/out' } });
+  const [first] = JSON.parse(out.text.split('\n')[0]).outputs;
+  assert.equal(first.atlas, 'job/j1/attack_atlas.json');
+  assert.equal(first.archive, 'job/j1/attack_sprites.zip');
+  assert.equal(first.animation, undefined, 'only file names, not every field');
+});
