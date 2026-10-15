@@ -50,10 +50,12 @@ test('Game assets: base picture, one edit request for the poses, one cut-out req
     assert.equal(done.status, 'done', done.error);
 
     const [draw, edits, cuts] = promptList(p);
-    // a 256 px cell: drawn at 1 MP, not 1328 x 1328 (the sampling took 55-73 s); its time measured apart from Image's
-    const latent = draw.find((d) => d.class_type === 'EmptySD3LatentImage').inputs;
+    // drawn by FLUX.2 klein unless asked (it kept the details better, 17 s against 68), at 1 MP for a 256 px cell (not
+    // 1440 x 1440); its time measured apart from Image's
+    const latent = draw.find((d) => d.class_type === 'EmptyFlux2LatentImage').inputs;
     assert.deepEqual([latent.width, latent.height], [1024, 1024]);
-    assert.ok('sprites/base/qwen' in p.queue.averages(), 'the first picture is measured on its own');
+    assert.equal(job.input.imageModel, 'flux');
+    assert.ok('sprites/base/flux' in p.queue.averages(), 'the first picture is measured on its own');
     const text = draw.find((d) => d.class_type === 'CLIPTextEncode').inputs.text;
     assert.match(text, /chibi knight with a blue sword\. One single character shown complete and whole/);
     assert.match(text, /no ground, no cast shadow/);
@@ -76,6 +78,10 @@ test('Game assets: base picture, one edit request for the poses, one cut-out req
     for (const f of ['base.png', 'pose_walk.png', 'cutout_back.png', 'atlas.json', 'sheet.png']) assert.ok(existsSync(join(folder, f)), f);
 
     // an object is anchored in the centre, a picture of its own skips the drawing
+    // asked for: Qwen-Image; tiles: Qwen-Image (their prompts were tuned on it)
+    const { validate } = await import('../lib/jobs/sprites.mjs');
+    assert.equal(validate({ prompt: 'a knight', imageModel: 'qwen' }, { mod: p.mod, setting: p.setting }).imageModel, 'qwen');
+    assert.equal(validate({ prompt: 'grass', kind: 'tile' }, { mod: p.mod, setting: p.setting }).imageModel, 'qwen');
     const upload = p.queue.add('sprites', { source: `job/${done.id}/base.png`, kind: 'object', poses: ['open: with the lid open'], translate: false });
     const second = await p.waitUntilDone(upload.id, 60000);
     assert.equal(second.status, 'done', second.error);

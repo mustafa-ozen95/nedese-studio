@@ -66,7 +66,7 @@ globalThis.NedeseDictionary = {
         "A picture to start from instead of drawing one (\"upload/…\" or \"job/<id>/<file>\").": "Çizmek yerine başlangıç olarak kullanılacak görsel (\"upload/…\" veya \"job/<id>/<dosya>\").",
         "Picks the default poses/views and the pivot (object: centre).": "Varsayılan pozları/görünümleri ve eksen noktasını seçer (nesne: merkez).",
         "Poses or views as \"name: description\" (at most 12; a text with one per line also works). Default for a character: walk, run, attack, hurt, back; vehicle: side, front, back, top, damaged; object: side, back, top. An empty list []: the first picture only (sprite_base.png), e.g. when only animations are wanted.": "\"ad: açıklama\" biçiminde pozlar veya görünümler (en çok 12; satır başına bir tane yazılmış metin de olur). Karakter varsayılanı: walk, run, attack, hurt, back; araç: side, front, back, top, damaged; nesne: side, back, top. Boş liste []: yalnız ilk resim (sprite_base.png), örneğin yalnız animasyon istendiğinde.",
-        "Model of the first picture.": "İlk görselin modeli.",
+        "Model of the first picture: flux unless asked (it kept the details of a description better and is 4 times faster); tiles, or a machine without FLUX: qwen.": "İlk görselin modeli: istenmedikçe flux (tarifin ayrıntılarını daha iyi tuttu, 4 kat hızlı); döşemeler ya da FLUX olmayan makine: qwen.",
         "Aspect ratio of the first picture.": "İlk görselin en/boy oranı.",
         "Sprite sheet cell size in pixels (128-1024).": "Sprite sayfası hücre boyutu, piksel (128-1024).",
         "Download atlas (JSON)": "Atlası indir (JSON)",

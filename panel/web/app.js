@@ -2081,12 +2081,12 @@
             spriteChoice.replaceChildren(el('option', { value: '', text: 'None' }), ...loras.map((m) => el('option', { value: m.lora, text: `${m.name} · trigger "${m.trigger ?? ''}"` })));
             if ([...spriteChoice.options].some((o) => o.value === keep)) spriteChoice.value = keep;
             $('[data-sprite-lora]', sprites).hidden = loras.length === 0;
-            sprites.imageModel.value = spriteChoice.value ? 'flux' : 'qwen';
+            sprites.imageModel.value = spriteChoice.value ? 'flux' : '';
         }
     }
 
     $('[data-job-form="sprites"]')?.addEventListener('change', (event) => {
-        if (event.target.name === 'lora') event.currentTarget.imageModel.value = event.target.value ? 'flux' : 'qwen';
+        if (event.target.name === 'lora') event.currentTarget.imageModel.value = event.target.value ? 'flux' : '';
     });
 
     function imageFields() {
@@ -3531,7 +3531,8 @@
         // Game assets: the first picture, a pose each (an empty field: the kind's defaults), an animation each; tiles: four pictures
         const sp = $('[data-job-form="sprites"]');
         const spCount = (v) => v.split(/[\r\n;]+/).filter((x) => x.trim()).length;
-        const spModel = sp.imageModel.value;
+        // the server's choice when none is given: FLUX for sprites when it is installed, Qwen for tiles (lib/jobs/sprites.mjs)
+        const spModel = sp.imageModel.value || (sp.kind.value !== 'tile' && status.options.imageModels?.find((m) => m.id === 'flux')?.available ? 'flux' : 'qwen');
         if (sp.kind.value === 'tile') estimateWrite('sprites', (o[`image/${spModel}`] ?? 0) * 4);
         else {
             const spBase = o[`sprites/base/${spModel}`] ?? o[`image/${spModel}`];

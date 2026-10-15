@@ -197,7 +197,7 @@ export const JOB_TYPES = {
       { name: 'animations', type: 'array', required: false, description: 'Looping animations as "name: description" (at most 4), e.g. "walk: walking in place". Each takes about a minute more; none by default.' },
       { name: 'frames', type: 'integer', required: false, defaultValue: 12, description: 'Frames per animation (4-24) taken from a 2 second loop.' },
       { name: 'variants', type: 'integer', required: false, defaultValue: 4, description: 'Kind tile: how many different tiles (1-8).' },
-      { name: 'imageModel', type: 'string', required: false, defaultValue: 'qwen', options: ['qwen', 'flux'], description: 'Model of the first picture.' },
+      { name: 'imageModel', type: 'string', required: false, defaultValue: 'flux', options: ['qwen', 'flux'], description: 'Model of the first picture: flux unless asked (it kept the details of a description better and is 4 times faster); tiles, or a machine without FLUX: qwen.' },
       { name: 'lora', type: 'string', required: false, description: 'A LoRA trained here (Training > Image) for the art style of the first picture; only with imageModel flux. The poses are made by the edit model and follow the first picture.' },
       { name: 'loraStrength', type: 'number', required: false, defaultValue: 1, description: 'LoRA strength (0-2).' },
       { name: 'ratio', type: 'string', required: false, defaultValue: '1:1', description: 'Aspect ratio of the first picture.' },

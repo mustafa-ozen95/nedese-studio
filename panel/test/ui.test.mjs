@@ -91,10 +91,10 @@ test('UI: sections, training fields, video models and the language toggle work w
       await new Promise((r) => setTimeout(r, 50));
       return document.querySelector('[data-estimate="sprites"]').textContent;
     })()`);
-    const measured = { 'sprites/base/qwen': 40, edit: 40, 'sprites/animation': 200 };
+    const measured = { 'sprites/base/flux': 40, 'sprites/base/qwen': 40, edit: 40, 'sprites/animation': 200 };
     assert.equal(await spriteEstimate(measured, ''), 'Estimated time ≈ 4 min 05 s', 'first picture 40 + 5 poses × 40 + packing 5');
     assert.equal(await spriteEstimate(measured, 'walk: walking\nidle: breathing'), 'Estimated time ≈ 10 min 45 s', 'and two animations × 200');
-    assert.equal(await spriteEstimate({ 'sprites/base/qwen': 40, edit: 40 }, 'walk: walking'), 'No measurements on this machine yet', 'no animation measured yet');
+    assert.equal(await spriteEstimate({ 'sprites/base/flux': 40, 'sprites/base/qwen': 40, edit: 40 }, 'walk: walking'), 'No measurements on this machine yet', 'no animation measured yet');
     assert.equal(await t.evaluate("Boolean(document.querySelector('[data-section=text], [data-text-form], a[href=\"#text\"]'))"), false, 'something of the Text section is left');
     // Egitim: her alan (yontem, temel listesi, ipucu, alan bloklari degisir)
     const fields = await t.evaluate(`(async () => {

@@ -150,11 +150,27 @@ export function pickFrames(total, wanted) {
   return Array.from({ length: wanted }, (_, i) => Math.min(total - 1, Math.round((i * (total - 1)) / wanted)));
 }
 
+/**
+ * The model of the first picture when none is asked for: FLUX.2 klein for a character, vehicle or object. Against
+ * Qwen-Image on 10 descriptions with two seeds (15.10.2026) it drew the whole body (Qwen cut a farmer at the waist both
+ * times), a car's racing stripe (Qwen 0 of 2) and a round shield more often, in 17 s against 68 s; Qwen drew an open lid and a
+ * painted style better. Tiles stay on Qwen-Image (their prompts were tuned on it), and so does all when FLUX is missing.
+ */
+function defaultModel(kind, mod, setting) {
+  if (kind === 'tile') return 'qwen';
+  try {
+    generatorRequired(mod, IMAGE_MODELS.flux.generator, IMAGE_MODELS.flux.name, setting?.modelRoot);
+    return 'flux';
+  } catch {
+    return 'qwen';
+  }
+}
+
 export function validate(g, { mod, setting }) {
   const kind = choice(g.kind, 'Kind', KINDS, 'character');
   const source = kind === 'tile' ? '' : String(g.source ?? '').trim();
   if (source) sourcePath(setting.outputRoot, source);
-  const model = choice(g.imageModel, 'Image model', Object.keys(IMAGE_MODELS), 'qwen');
+  const model = choice(g.imageModel, 'Image model', Object.keys(IMAGE_MODELS), defaultModel(kind, mod, setting));
   if (!source) {
     generatorRequired(mod, IMAGE_MODELS[model].generator, IMAGE_MODELS[model].name, setting?.modelRoot);
     // the description is required when there is no picture to start from
