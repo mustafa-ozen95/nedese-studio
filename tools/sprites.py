@@ -133,6 +133,23 @@ def background_left(image):
     return big[labels]
 
 
+def background_edge(image):
+    """The pieces of background_left() on the figure's outer edge (a tenth of their border against cleared pixels): the
+    background between shake strokes and the body that the cut-out kept as a halo around a hurt knight (6-19% of the figure,
+    15.10.2026). Background-coloured parts inside the outline (a grey knight's highlights, a sword blade) are not on the edge."""
+    mask = background_left(image)
+    if not mask.any():
+        return mask
+    outside = cv2.dilate((np.asarray(image.getchannel('A')) == 0).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    count, labels, _, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+    edge = np.zeros(count, bool)
+    for i in range(1, count):
+        piece = (labels == i).astype(np.uint8)
+        rim = (piece > 0) & ~(cv2.erode(piece, np.ones((3, 3), np.uint8)) > 0)
+        edge[i] = (rim & outside).sum() >= 0.1 * rim.sum()
+    return edge[labels]
+
+
 def figure_share(image, mask):
     return mask.sum() / max(1, int((np.asarray(image.getchannel('A')) > 0).sum()))
 
@@ -548,12 +565,15 @@ def main():
     # grey robot is itself the background's colour
     base = os.path.join(a.folder, 'cutout_base.png')
     plain = os.path.exists(base) and figure_share(*(lambda im: (im, background_left(im)))(Image.open(base).convert('RGBA'))) < 0.005
+    # a figure with the background's colour inside (a grey knight's armour, 1.7%): only what is on its outer edge goes, when
+    # its own edge has none (a white figure's rim would be eaten)
+    rim = not plain and os.path.exists(base) and figure_share(*(lambda im: (im, background_edge(im)))(Image.open(base).convert('RGBA'))) < 0.005
     centres = palette(Image.open(base).convert('RGBA')) if a.match and os.path.exists(base) else None
     loaded = []
     for name in a.names:
         image = Image.open(os.path.join(a.folder, f'cutout_{name}.png')).convert('RGBA')
-        if plain and name != 'base':
-            removed = background_left(image)
+        if (plain or rim) and name != 'base':
+            removed = background_left(image) if plain else background_edge(image)
             image = drop_strokes(drop_background(image, removed), removed)
         image = drop_floor(drop_specks(drop_lines(image)))
         if centres is not None and name != 'base':

@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
 import { makeWav } from '../lib/media.mjs';
@@ -20,6 +20,8 @@ async function upload(p, name) {
 
 test('own voice: prepare + training + a sample in the new voice; the library gets the reference, its text and the LoRA', async () => {
   const log = join(process.env.TEMP ?? '.', `clone-log-${process.pid}.jsonl`);
+  // Windows gives a process id again: a log left by an earlier run was appended to (prepare, train twice, 15.10.2026)
+  rmSync(log, { force: true });
   const p = await createPanel({ cloneEnv: { FAKE_CLONE_LOG: log } });
   try {
     const record = await upload(p, 'kayit.wav');

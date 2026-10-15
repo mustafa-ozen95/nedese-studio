@@ -444,6 +444,52 @@ for name, im in zip('abc', (a, b, c)):
   assert.deepEqual(sizes, ['100 220', '100 220', '150 220'], 'floor bit gone, streak gone, the drop stays');
 });
 
+test('sprites: background kept around a figure that has the background\'s colour inside (a shake halo around a grey knight) is removed with its strokes; inside the outline, or on a figure whose own edge is that colour, it stays', { skip: !existsSync('C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe') }, async () => {
+  const { mkdtempSync, mkdirSync: mkdir, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const python = 'C:/Users/root/nedese-studio/ComfyUI_windows_portable/python_embeded/python.exe';
+  const folder = mkdtempSync(join(tmpdir(), 'halo-'));
+  writeFileSync(join(folder, 'make.py'), `
+import numpy as np, sys, os
+from PIL import Image
+GREY = (220, 220, 222)
+def figure(rim):
+    a = np.zeros((400, 400, 4), np.uint8)
+    a[..., :3] = GREY                              # the cleared background keeps its colour under alpha 0
+    a[80:320, 140:260] = (30, 30, 40, 255)         # the outline
+    a[84:316, 144:256] = (90, 100, 140, 255)       # the body
+    a[150:200, 170:230] = GREY + (255,)            # a highlight of the background's colour, inside the outline
+    if rim:
+        a[80:320, 140:150] = GREY + (255,)         # a white figure: its own edge is the background's colour
+    return a
+for case in ('grey', 'white'):
+    d = os.path.join(sys.argv[1], case)
+    os.makedirs(d, exist_ok=True)
+    base = figure(case == 'white')
+    hurt = figure(case == 'white')
+    hurt[100:250, 260:300] = GREY + (255,)         # the halo the cut-out kept between the shake strokes and the body
+    hurt[110:240, 296:298] = (30, 30, 40, 255)     # a shake stroke at its outer side
+    Image.fromarray(base, 'RGBA').save(d + '/cutout_base.png')
+    Image.fromarray(hurt, 'RGBA').save(d + '/cutout_hurt.png')
+`);
+  writeFileSync(join(folder, 'check.py'), `
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1])
+print(*im.size, im.getpixel((im.width // 2, 95))[3])
+`);
+  execFileSync(python, [join(folder, 'make.py'), folder]);
+  const sprites = join(import.meta.dirname, '..', '..', 'tools', 'sprites.py');
+  const result = {};
+  for (const c of ['grey', 'white']) {
+    execFileSync(python, ['-s', sprites, '--folder', join(folder, c), '--names', 'base', 'hurt', '--cell', '256']);
+    result[c] = ['base', 'hurt'].map((n) => execFileSync(python, [join(folder, 'check.py'), join(folder, c, `sprite_${n}.png`)], { encoding: 'utf8' }).trim());
+  }
+  assert.deepEqual(result.grey, ['120 240 255', '120 240 255'], 'the halo and its stroke are gone, the highlight inside stays');
+  assert.deepEqual(result.white, ['120 240 255', '160 240 255'], 'a figure whose edge is the background\'s colour: nothing is cut');
+});
+
 test('Game assets: the first sentence of the job description (all the chat agent sees, 140 characters) names game characters and single poses', () => {
   const source = readFileSync(new URL('../lib/api.mjs', import.meta.url), 'utf8');
   const description = source.match(/name: 'Game assets',\s+description: '([^\r\n]*?)\. /)[1];
