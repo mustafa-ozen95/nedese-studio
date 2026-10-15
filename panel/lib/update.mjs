@@ -290,7 +290,10 @@ export class Updater {
       this.last = { ...d, fresh: false, local: { sha: d.remote.sha, dateText: d.remote.dateText, source: 'pkg' } };
       const message = `Updated: ${d.remote.sha.slice(0, 7)} (${d.remote.message}). ${written} files written${deleted ? `, ${deleted} deleted` : ''}; the panel is restarting.${d.setupRequired ? ' Python environments or ComfyUI extensions changed too: run setup.bat -Models none.' : ''}`;
       this.log(message);
-      if (this.startAgain) setTimeout(() => this.startAgain(), 1500).unref?.();
+      if (this.startAgain) {
+        this.queue.hold?.();
+        setTimeout(() => this.startAgain(), 1500).unref?.();
+      }
       return { message, written, same, deleted, setupRequired: d.setupRequired, version: d.remote };
     } finally {
       this.applying = false;

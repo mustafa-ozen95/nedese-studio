@@ -513,6 +513,14 @@ export class Queue {
     this.loop().catch((e) => console.error('Queue loop stopped:', e));
   }
 
+  /**
+   * A restart is due in a moment: no new job starts, what is added stays waiting and runs in the new panel. A job added
+   * in the 1.5 s between an applied update and the restart started and was cut off as "interrupted" (15.10.2026).
+   */
+  hold() {
+    this.held = true;
+  }
+
   async stop() {
     this.closed = true;
     this.wake?.();
@@ -526,6 +534,13 @@ export class Queue {
 
   async loop() {
     while (!this.closed) {
+      if (this.held) {
+        await new Promise((ok) => {
+          this.wake = ok;
+        });
+        this.wake = null;
+        continue;
+      }
       const next = this.pending()[0];
       if (!next) {
         // Jobs that yielded: the one with an end first (a collection cut off midway), unbounded last; the older first on a tie

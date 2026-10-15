@@ -684,6 +684,7 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       if (!restart) throw new UserError('This panel cannot restart itself; close it and start it again.');
       const chats = h.agent?.running?.().length ?? 0;
       if (queue.active || queue.pending().length || chats) throw new UserError(`Not now: ${queue.active ? 'a job is running' : queue.pending().length ? 'jobs are waiting' : 'a chat is working'}. Restart when it finishes.`, 'inUse');
+      queue.hold?.();
       setTimeout(() => restart(), 400).unref?.();
       const next = { address: settingFile?.listen.address ?? DEFAULTS.address, port: settingFile?.listen.port ?? DEFAULTS.port };
       return { message: 'Restarting; the panel is back in a few seconds.', port: next.port, address: next.address };

@@ -12,6 +12,8 @@ import { tmpdir } from 'node:os';
 import { Updater, blobSha, localVersion, SETUP_FILE } from '../lib/update.mjs';
 import { SettingsFile } from '../lib/settings-file.mjs';
 import { createPanel } from './env.mjs';
+import { Queue } from '../lib/queue.mjs';
+import { loadSettings } from '../lib/settings.mjs';
 
 const OLD = 'a'.repeat(40);
 const NEW = 'b'.repeat(40);
@@ -309,4 +311,22 @@ test('setup again: only when a Python environment lock or vendored code changes,
   const not = ['setup/setup.ps1', 'setup/tools.json', 'setup/download-models.mjs', 'setup/voice-models.py', 'setup.bat', 'panel/server.mjs', 'docs/setup/lock.md'];
   assert.deepEqual(required.filter((f) => !SETUP_FILE.test(f)), []);
   assert.deepEqual(not.filter((f) => SETUP_FILE.test(f)), []);
+});
+
+test('an applied update: a job added before the restart waits for the new panel (one started and was cut off as interrupted)', async () => {
+  const gh = await fakeGithub();
+  const { root, settingFile } = setupSetup();
+  let ran = 0;
+  const queue = new Queue({ setting: { ...loadSettings({ aiRoot: root }), gpuWatchdog: null, ramWatchdog: null }, comfy: null, mod: null, runners: { tiny: { name: 'Tiny', validate: (i) => i, run: async () => ran++ } } });
+  queue.start();
+  try {
+    const g = new Updater({ setting: setting(root, gh.api), settingFile, queue, startAgain: () => {} });
+    await g.apply();
+    const job = queue.add('tiny', {});
+    await new Promise((ok) => setTimeout(ok, 400));
+    assert.deepEqual([job.status, ran], ['waiting', 0], 'it runs in the new panel');
+  } finally {
+    await queue.stop();
+    gh.close();
+  }
 });
