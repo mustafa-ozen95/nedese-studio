@@ -28,6 +28,13 @@ test('poses: "name: description" lines, defaults per kind, unique file-safe name
   assert.deepEqual(parsePoses([], 'character'), [], 'an empty list on purpose: the first picture only');
   assert.deepEqual(parsePoses(['', ' '], 'character'), []);
   assert.equal(parsePoses('', 'character').length, 5, 'an empty form field: the defaults');
+  // the form job.json keeps, sent through the API: was drawn as "[object Object]" (15.10.2026)
+  assert.deepEqual(parsePoses([{ name: 'h1', description: 'flinching in pain' }, { description: 'kneeling' }], 'character'), [
+    { name: 'h1', description: 'flinching in pain' },
+    { name: 'kneeling', description: 'kneeling' },
+  ]);
+  assert.deepEqual(parseAnimations([{ name: 'run', description: 'running fast' }]), [{ name: 'run', description: 'running fast' }]);
+  assert.throws(() => parsePoses([{ name: 'h1' }], 'character'), /name: description/);
 });
 
 test('the cut-out graph inverts the subject mask before it becomes the alpha channel', () => {

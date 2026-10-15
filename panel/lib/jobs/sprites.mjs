@@ -91,11 +91,23 @@ export const isRunning = (text) => /\b(run|runs|running|sprint|sprints|sprinting
 
 const SIDE_SUFFIX = (facing) => `One single character shown complete and whole, full body from head to toe, seen exactly from the side in profile, facing ${facing}, standing still, centered with empty space around it. The character floats on a plain, even, solid light grey background, no text.`;
 
+/**
+ * One item of a list as text: { name, description } (the form job.json keeps) is "name: description". Such a list sent through
+ * the API was drawn as four "[object Object]" poses (15.10.2026).
+ */
+function itemText(item, label) {
+  if (item === null || typeof item !== 'object') return String(item ?? '').trim();
+  const description = String(item.description ?? item.prompt ?? '').trim();
+  if (!description) throw new UserError(`Each of the ${label} is "name: description" or { name, description }.`);
+  const name = String(item.name ?? '').trim();
+  return name ? `${name}: ${description}` : description;
+}
+
 /** "name: description" lines (or a plain description); a list or a text split at line breaks and semicolons. */
 function parseList(value, defaults, max, label) {
   let list = Array.isArray(value) ? value : typeof value === 'string' && value.trim() ? value.split(/[\r\n;]+/) : null;
   if (!list) list = defaults;
-  list = list.map((s) => String(s ?? '').trim()).filter(Boolean);
+  list = list.map((s) => itemText(s, label)).filter(Boolean);
   if (list.length > max) throw new UserError(`At most ${max} ${label}.`);
   const used = new Set(['base']);
   return list.map((s, i) => {
@@ -115,7 +127,7 @@ function parseList(value, defaults, max, label) {
  * animation, no extra poses", was refused and added a pose nobody asked for). Nothing given: the defaults.
  */
 export function parsePoses(value, kind) {
-  if (Array.isArray(value) && !value.some((s) => String(s ?? '').trim())) return [];
+  if (Array.isArray(value) && !value.some((s) => (s !== null && typeof s === 'object') || String(s ?? '').trim())) return [];
   return parseList(value, DEFAULT_POSES[kind] ?? [], MAX_POSES, 'poses or views');
 }
 
