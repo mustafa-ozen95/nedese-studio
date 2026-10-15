@@ -1126,7 +1126,7 @@ test('chat settings while running: approval modes (pending approval accepted on 
     // a Turkish message carries the meanings of its nouns (the agent writes the English prompts with the same local model);
     // an English one does not
     const ask = async (content) => (await o.agent.translateMessages({ ...o.agent.get(m.id), messages: [{ role: 'user', content, attachments: [], time: new Date().toISOString() }], trimmed: 0 }, null)).at(-1).content;
-    assert.match(await ask('küpeli bir korsan çiz'), /answer in Turkish\]\n\[Meanings of the Turkish words in this text: "küpeli" = with küpe \(küpe = earring\); "korsan" = pirate\.\]$/);
+    assert.match(await ask('küpeli bir korsan çiz'), /answer in Turkish\]\n\[Meanings of the Turkish words in this text: "küpeli" = with earring; "korsan" = pirate\.\]$/);
     assert.doesNotMatch(await ask('draw a pirate with a hook'), /Meanings/);
     assert.equal((await o.call(`/api/v1/chat/${m.id}`, { method: 'PATCH', body: { model: 'nope.gguf' } })).code, 400);
     assert.equal((await o.call('/api/v1/chat', { method: 'POST', body: { model: 'nope.gguf' } })).code, 400);

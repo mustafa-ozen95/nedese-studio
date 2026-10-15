@@ -29,7 +29,9 @@ export const HAS_WORDS = 'Every Turkish word ending in -lı, -li, -lu or -lü na
  * "bıyıklı" bearded; 15.10.2026, Bonsai 27B), the words were unknown. turkish-nouns.json holds the nouns of things a figure has,
  * holds or wears, animals, places and the like; a word of the text is looked up as written, without a case ending (only for
  * roots of 4 letters or more: "oku" is "read", not ok + u) and without -lı/-li/-lu/-lü (and an ending after it). Returns
- * 'Meanings of the Turkish words in this text: ...' or ''.
+ * 'Meanings of the Turkish words in this text: ...' or ''. A "-lı" word is "with" and the meaning, not the Turkish root: given
+ * as "with ibrik (ibrik = ewer)" 7 of 22 rare words came back in Turkish ("a waiter with an ibrik", "a shepherd with charik";
+ * 15.10.2026, Bonsai 27B).
  */
 const NOUNS = JSON.parse(readFileSync(new URL('./turkish-nouns.json', import.meta.url), 'utf8'));
 const HAS_ENDINGS = ['lı', 'li', 'lu', 'lü'];
@@ -52,7 +54,7 @@ export function wordHints(text) {
     for (let i = word.length - 2; i >= 2; i--) {
       const root = word.slice(0, i);
       if (HAS_ENDINGS.includes(word.slice(i, i + 2)) && CASE_ENDINGS.includes(word.slice(i + 2)) && NOUNS[root] && !hints.has(word)) {
-        hints.set(word, `"${word}" = with ${root} (${root} = ${NOUNS[root]})`);
+        hints.set(word, `"${word}" = with ${NOUNS[root]}`);
         break;
       }
     }
@@ -75,7 +77,7 @@ export function wordHints(text) {
 export function translationSystem(type, text) {
   const system = SYSTEMS[type] ?? SYSTEM;
   const hints = type === 'voice' || type === 'music' ? '' : wordHints(text);
-  return hints ? `${system}\n${hints}` : system;
+  return hints ? `${system}\n${hints} Write these meanings in English, never the Turkish words.` : system;
 }
 
 const SYSTEM = [

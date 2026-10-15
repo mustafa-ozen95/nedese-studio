@@ -983,10 +983,10 @@ test('prompt translation: Turkish "-lı/-li" words (what it has, holds or wears)
 
 test('translation: the meanings of the Turkish nouns go with the text (the local model read "küpeli" as a cup, "yabalı" as wild)', async () => {
   const { wordHints, translationSystem, SYSTEMS } = await import('../lib/prompt-translate.mjs');
-  assert.equal(wordHints('Küpeli bir korsan'), 'Meanings of the Turkish words in this text: "küpeli" = with küpe (küpe = earring); "korsan" = pirate.');
+  assert.equal(wordHints('Küpeli bir korsan'), 'Meanings of the Turkish words in this text: "küpeli" = with earring; "korsan" = pirate.');
   // a case ending after the noun or after -lı; a phrase whole, its words not again
   assert.match(wordHints('elinde yabası olan çiftçi'), /"yabası": yaba = pitchfork/);
-  assert.match(wordHints('kürekliler geldi'), /"kürekliler" = with kürek \(kürek = oar/);
+  assert.match(wordHints('kürekliler geldi'), /"kürekliler" = with oar/);
   assert.equal(wordHints('güneş gözlüğü takan kız'), 'Meanings of the Turkish words in this text: "güneş gözlüğü" = sunglasses; "kız" = girl.');
   // not a noun of the list: "oku" is read (not ok + u: short roots take no case ending), "toplu" is plump
   assert.equal(wordHints('bunu oku'), '');
@@ -994,6 +994,10 @@ test('translation: the meanings of the Turkish nouns go with the text (the local
   assert.equal(wordHints('a pirate with an earring'), '');
   assert.ok(translationSystem('image', 'küpeli bir korsan').startsWith(`${SYSTEMS.image}\nMeanings of the Turkish words in this text: "küpeli"`));
   assert.ok(translationSystem('edit', 'yabayı kaldırsın').includes('yaba = pitchfork'));
+  // "with ibrik (ibrik = ewer)" came back as "a waiter with an ibrik" (7 of 22 rare words, 15.10.2026)
+  assert.match(translationSystem('image', 'ibrikli bir garson'), /"ibrikli" = with ewer \(long-spouted jug\); "garson" = waiter\. Write these meanings in English, never the Turkish words\.$/);
+  // rare nouns the local model did not know (keserli "sharp", satırlı "with a row", oklavalı "with a staff")
+  for (const [word, meaning] of [['keserli', 'adze'], ['satırlı', 'cleaver'], ['oklavalı', 'rolling pin'], ['çıkınlı', 'cloth bundle'], ['yumaklı', 'yarn']]) assert.ok(wordHints(word).includes(meaning), word);
   assert.equal(translationSystem('voice', 'küpeli bir korsan sesi'), SYSTEMS.voice);
   assert.equal(translationSystem('image', 'hello'), SYSTEMS.image);
 });
