@@ -235,12 +235,18 @@ export async function partPrompts(text, n, { translate: translateJob = true, sig
   }
 }
 
-/** Translates the job's prompt once and keeps it in ctx.job[field] (a retry does not translate it again). */
+/**
+ * Translates the job's prompt once and keeps it in ctx.job[field] (a retry does not translate it again). A failure is not
+ * kept: a job cut off while the text model could not start was retried with the Turkish prompt and drew an army officer
+ * instead of a pirate (15.10.2026).
+ */
 export async function jobPrompt(ctx, text, type, { field = 'promptEnglish', translate = true } = {}) {
   if (typeof ctx.job[field] === 'string') return ctx.job[field];
   const c = translate ? await makePromptEnglish(text, { type, signal: ctx.signal }) : { prompt: text, translated: false };
-  ctx.job[field] = c.prompt;
-  ctx.save();
+  if (!c.error) {
+    ctx.job[field] = c.prompt;
+    ctx.save();
+  }
   if (c.translated) ctx.log(`Prompt translated to English: ${c.prompt}`);
   else if (c.closed) ctx.log('Prompt translation is off (Settings): the prompt is used as written.');
   else if (c.error) ctx.log(`Prompt could not be translated; using it as is (${c.error}).`);

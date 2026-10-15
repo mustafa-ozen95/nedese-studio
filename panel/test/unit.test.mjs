@@ -1005,3 +1005,27 @@ test('translation: the meanings of the Turkish nouns go with the text (the local
   assert.equal(translationSystem('voice', 'küpeli bir korsan sesi'), SYSTEMS.voice);
   assert.equal(translationSystem('image', 'hello'), SYSTEMS.image);
 });
+
+test('a job prompt that could not be translated is not kept: the retry translates it (a pirate was drawn as an army officer)', async () => {
+  const { jobPrompt, setTextModel } = await import('../lib/prompt-translate.mjs');
+  let up = false;
+  setTextModel({
+    installed: true,
+    req: async () => {
+      if (!up) throw new Error('Text model could not start (llama-server closed)');
+      return { code: 200, json: { choices: [{ message: { content: 'a pirate captain with a mother-of-pearl shield' } }] } };
+    },
+  });
+  const logs = [];
+  const ctx = { job: {}, save: () => {}, log: (m) => logs.push(m), signal: null };
+  try {
+    assert.equal(await jobPrompt(ctx, 'sedefli kalkanlı bir korsan kaptan', 'image'), 'sedefli kalkanlı bir korsan kaptan', 'used as is this time');
+    assert.match(logs.join('\n'), /could not be translated/);
+    assert.equal(ctx.job.promptEnglish, undefined, 'the failure is not kept');
+    up = true;
+    assert.equal(await jobPrompt(ctx, 'sedefli kalkanlı bir korsan kaptan', 'image'), 'a pirate captain with a mother-of-pearl shield');
+    assert.equal(ctx.job.promptEnglish, 'a pirate captain with a mother-of-pearl shield', 'a translation is kept');
+  } finally {
+    setTextModel(null);
+  }
+});
