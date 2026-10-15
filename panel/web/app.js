@@ -88,8 +88,8 @@
     const RETRY_STATUSES = ['error', 'cancelled', 'interrupted', 'paused'];
     const retryButton = (job, button) => actionForm({ path: `/api/job/${job.id}/retry`, tag: job.status === 'paused' ? 'Resume' : 'Retry', button });
     const pauseButton = (job, button) => actionForm({ path: `/api/job/${job.id}/pause`, tag: 'Pause', title: 'Pause job', approval: 'Training will stop and the GPU and RAM will be freed. "Resume" continues from the last completed step (an unfinished step is redone).', button });
-    const SECTIONS = ['chat', 'image', 'video', 'voice', 'music', 'edit', 'model3d', 'film', 'training', 'gallery', 'settings'];
-    const SINGLE = ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d'];
+    const SECTIONS = ['chat', 'image', 'video', 'voice', 'music', 'edit', 'sprites', 'model3d', 'film', 'training', 'gallery', 'settings'];
+    const SINGLE = ['image', 'video', 'voice', 'music', 'film', 'edit', 'sprites', 'model3d'];
     const SPEECH_RATE = 13; // Türkçe anlatım, karakter/sn (Chatterbox, cfg 0,5): tahmin için
 
     const status = {
@@ -358,7 +358,7 @@
         const name = trainingTabName ?? ($(`[data-sub-tab="${section}"]`) ?? $(`[data-section-link="${section}"]`))?.textContent ?? '';
         document.title = `${name} · Nedese Studio`;
         if (section === 'gallery') {
-            status.galleryFilter = ['image', 'video', 'voice', 'music', 'film', 'model3d', 'error'].includes(sub) ? sub : '';
+            status.galleryFilter = ['image', 'video', 'voice', 'music', 'film', 'sprites', 'model3d', 'error'].includes(sub) ? sub : '';
             $$('[data-filter]').forEach((a) => {
                 if (a.dataset.filter === status.galleryFilter) a.setAttribute('aria-current', 'page');
                 else a.removeAttribute('aria-current');
@@ -3339,7 +3339,7 @@
     const promoForm = $('[data-job-form="promo"]');
     const promoList = $('[data-promo-scenes]', promoForm);
     // the panel's sections a scene can show (lib/jobs/promo.mjs PANEL_SECTIONS); demo: the words typed in its form
-    const PROMO_SECTIONS = { chat: 'Chat', image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', edit: 'Edit', song: 'Song edit', videoEdit: 'Audio and video edit', model3d: '3D', training: 'Training', gallery: 'Gallery', devices: 'On a phone', settings: 'Settings' };
+    const PROMO_SECTIONS = { chat: 'Chat', image: 'Image', video: 'Video', voice: 'Voice', music: 'Music', film: 'Film', edit: 'Edit', song: 'Song edit', videoEdit: 'Audio and video edit', sprites: 'Game assets', model3d: '3D', training: 'Training', gallery: 'Gallery', devices: 'On a phone', settings: 'Settings' };
     const PROMO_TYPED = ['image', 'edit', 'videoEdit'];
     const promoPanel = () => /^(panel)?$/i.test(promoForm.url.value.trim());
 
@@ -3813,6 +3813,7 @@
         $('[data-side="voice"]').append(lastPanel('voice', 'Recent voice-overs'));
         $('[data-side="music"]').append(lastPanel('music', 'Recent music'));
         $('[data-side="edit"]').append(lastPanel('edit', 'Recent edits'));
+        $('[data-side="sprites"]').append(lastPanel('sprites', 'Recent game assets'));
         $('[data-side="model3d"]').append(lastPanel('model3d', 'Recent 3D models'));
         $('[data-side="film"]').append(lastPanel('film', 'Recent films'));
         applyRoute();

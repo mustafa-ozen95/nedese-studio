@@ -17,7 +17,7 @@ import { Browser, browserPath } from '../lib/browser.mjs';
 import { LocalLlm } from '../lib/llm.mjs';
 import { CATALOG } from '../lib/models.mjs';
 
-const SECTIONS = ['image', 'video', 'voice', 'music', 'edit', 'edit/image', 'edit/audio', 'edit/video', 'model3d', 'film', 'gallery', 'training', 'settings'];
+const SECTIONS = ['image', 'video', 'voice', 'music', 'edit', 'edit/image', 'edit/audio', 'edit/video', 'sprites', 'model3d', 'film', 'gallery', 'training', 'settings'];
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const FAKE_LLM = fileURLToPath(new URL('./fake-llm.mjs', import.meta.url));
 const freePort = () => new Promise((ok) => {
@@ -68,7 +68,18 @@ test('UI: sections, training fields, video models and the language toggle work w
     }
     assert.deepEqual([...leftovers], [], 'Turkish text left on the English page');
     // the Text section is gone (user decision 09.10.2026: the chat does its work): not in the menu, no page for it
-    assert.deepEqual(await t.evaluate("[...document.querySelectorAll('[data-sub-tab]')].map((a) => a.dataset.subTab)"), ['image', 'video', 'voice', 'music', 'film', 'edit', 'model3d'], 'Production tabs');
+    assert.deepEqual(await t.evaluate("[...document.querySelectorAll('[data-sub-tab]')].map((a) => a.dataset.subTab)"), ['image', 'video', 'voice', 'music', 'film', 'edit', 'sprites', 'model3d'], 'Production tabs');
+    // 2D has its own page (user 15.10.2026: the Game assets form sat under the Image form, nowhere else): the form,
+    // its recent jobs and a gallery filter
+    assert.equal(await t.evaluate("document.querySelector('[data-job-form=\"sprites\"]').closest('[data-section]').dataset.section"), 'sprites', 'the Game assets form is on the 2D page');
+    assert.equal(await t.evaluate("Boolean(document.querySelector('[data-section=\"image\"] [data-job-form=\"sprites\"]'))"), false, 'no Game assets form under Image');
+    assert.equal(await t.evaluate("Boolean(document.querySelector('[data-side=\"sprites\"] [data-last=\"sprites\"]'))"), true, 'the 2D page shows the recent game assets');
+    await t.evaluate("location.hash = '#sprites'");
+    await wait(250);
+    assert.deepEqual(await t.evaluate("[document.querySelector('[data-section=\"sprites\"]').hidden, document.querySelector('[data-sub-tab=\"sprites\"]').getAttribute('aria-current'), document.title]"), [false, 'page', '2D · Nedese Studio'], 'the 2D tab opens its page');
+    await t.evaluate("location.hash = '#gallery/sprites'");
+    await wait(250);
+    assert.equal(await t.evaluate("document.querySelector('[data-filter=\"sprites\"]').getAttribute('aria-current')"), 'page', 'the gallery has a 2D filter');
     assert.equal(await t.evaluate("Boolean(document.querySelector('[data-section=text], [data-text-form], a[href=\"#text\"]'))"), false, 'something of the Text section is left');
     // Egitim: her alan (yontem, temel listesi, ipucu, alan bloklari degisir)
     const fields = await t.evaluate(`(async () => {

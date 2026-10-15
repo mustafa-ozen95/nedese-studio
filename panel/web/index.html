@@ -75,6 +75,7 @@
             <a href="#music" class="tabs__link" data-sub-tab="music">Music</a>
             <a href="#film" class="tabs__link" data-sub-tab="film">Film</a>
             <a href="#edit" class="tabs__link" data-sub-tab="edit">Edit</a>
+            <a href="#sprites" class="tabs__link" data-sub-tab="sprites">2D</a>
             <a href="#model3d" class="tabs__link" data-sub-tab="model3d">3D</a>
         </nav>
 
@@ -397,10 +398,28 @@
                                 </div>
                             </div>
                         </form>
+                    </div>
+                    <aside class="split__side" data-side="image"></aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── 2D: game assets (own page, user 15.10.2026: the form sat under Image) ── -->
+        <section data-section="sprites" aria-labelledby="b-sprites" hidden>
+            <div class="page__inner page__inner--wide">
+                <header class="page-head">
+                    <div class="page-head__text">
+                        <h1 id="b-sprites">Game assets</h1>
+                        <p class="page-head__subtitle">Characters, vehicles, objects and tiles for 2D games: transparent sprites, sprite sheets and looping animations.</p>
+                    </div>
+                </header>
+
+                <div class="split">
+                    <div class="split__main">
                         <form class="panel" data-job-form="sprites" novalidate autocomplete="off">
                             <header class="panel__head">
                                 <div>
-                                    <h2 class="panel__title">Game assets</h2>
+                                    <h2 class="panel__title">Asset settings</h2>
                                     <p class="text-sm text-muted">A character, vehicle or object in several poses or views: transparent PNG sprites, a sprite sheet and its atlas.</p>
                                 </div>
                             </header>
@@ -465,7 +484,7 @@
                             </div>
                         </form>
                     </div>
-                    <aside class="split__side" data-side="image"></aside>
+                    <aside class="split__side" data-side="sprites"></aside>
                 </div>
             </div>
         </section>
@@ -1749,6 +1768,7 @@
                     <a href="#gallery/voice" class="tabs__link" data-filter="voice">Voice</a>
                     <a href="#gallery/music" class="tabs__link" data-filter="music">Music</a>
                     <a href="#gallery/film" class="tabs__link" data-filter="film">Film</a>
+                    <a href="#gallery/sprites" class="tabs__link" data-filter="sprites">2D</a>
                     <a href="#gallery/model3d" class="tabs__link" data-filter="model3d">3D</a>
                     <a href="#gallery/error" class="tabs__link" data-filter="error">Failed</a>
                 </nav>

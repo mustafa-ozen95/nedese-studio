@@ -70,6 +70,10 @@ export const PANEL_SECTIONS = {
     { do: 'open', url: '#edit/video', seconds: 1.8 },
     { do: 'type', target: '[data-job-form="videoEdit"] [name="instruction"]', text: demo || 'Make it vertical, add a caption' },
   ] },
+  sprites: { about: 'Game assets: a 2D game character, vehicle or object in several poses, its sprite sheet and looping animations', jobs: 'sprites', steps: () => [
+    { do: 'open', url: '#sprites', seconds: 1.5 },
+    { do: 'hover', target: '[data-last="sprites"] .media', seconds: 1.5 },
+  ] },
   model3d: { about: '3D: a 3D model from an image, turned around, an STL for a 3D printer', jobs: 'model3d', steps: ({ phone }) => [
     { do: 'open', url: '#model3d', seconds: 1.2 },
     { do: 'click', target: '[data-last="model3d"] [data-preview]', seconds: 2.4 },
