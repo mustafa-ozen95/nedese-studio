@@ -166,6 +166,42 @@ test('Game assets: an animation starts from the base picture, Wan plays it, the 
   }
 });
 
+test('Game assets: a running animation starts from a running picture (the pose of its name, or one edit); a walk from the base; what is held is said', async () => {
+  const { isRunning } = await import('../lib/jobs/sprites.mjs');
+  assert.ok(isRunning('running fast seen from the side') && isRunning('a horse galloping') && isRunning('sprints'));
+  assert.ok(!isRunning('walking in place') && !isRunning('swinging an axe') && !isRunning('runic glow'));
+  const p = await createPanel();
+  try {
+    const edits = (from) => promptList(p).slice(from).filter((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus'));
+    // no pose of its name: one edit draws it running, from the base, in the same view
+    let before = promptList(p).length;
+    let done = await p.waitUntilDone(p.queue.add('sprites', { prompt: 'a knight', kind: 'character', poses: [], animations: ['run: running fast seen from the side'], frames: 6, cell: 128, translate: false, seed: 5 }).id, 90000);
+    assert.equal(done.status, 'done', done.error);
+    let list = edits(before);
+    assert.equal(list.length, 1, 'the start picture only (drawn in profile: no turn)');
+    const text = list[0].find((d) => d.class_type === 'TextEncodeQwenImageEditPlus').inputs.prompt;
+    assert.match(text, /^The same character as in image 1, running fast seen from the side, caught mid-stride\. The character keeps holding everything it holds, in the same hands, each held item whole and fully visible\./);
+    assert.ok(existsSync(join(p.setting.outputRoot, done.id, 'start_run.png')));
+    const wan = promptList(p).slice(before).find((r) => r.some((d) => d.class_type === 'WanImageToVideo'));
+    assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /The character keeps holding everything it holds/);
+    // a pose of the same name showing running: it is the start, no extra edit
+    before = promptList(p).length;
+    done = await p.waitUntilDone(p.queue.add('sprites', { prompt: 'a knight', kind: 'character', poses: ['run: running fast with a forward lean'], animations: ['run: running fast seen from the side'], frames: 6, cell: 128, translate: false, seed: 5 }).id, 90000);
+    assert.equal(done.status, 'done', done.error);
+    list = edits(before);
+    assert.equal(list.length, 1, 'the poses only');
+    assert.match(list[0].find((d) => d.class_type === 'TextEncodeQwenImageEditPlus').inputs.prompt, /running fast with a forward lean\. The character keeps holding everything it holds/);
+    assert.equal(existsSync(join(p.setting.outputRoot, done.id, 'start_run.png')), false);
+    // a walk: from the base picture, no edit
+    before = promptList(p).length;
+    done = await p.waitUntilDone(p.queue.add('sprites', { prompt: 'a knight', kind: 'character', poses: [], animations: ['walk: walking seen from the side'], frames: 6, cell: 128, translate: false, seed: 5 }).id, 90000);
+    assert.equal(done.status, 'done', done.error);
+    assert.equal(edits(before).length, 0);
+  } finally {
+    await p.close();
+  }
+});
+
 test('Game assets: the view an animation asks for: from the side (right unless left is said), from behind, or the base picture\'s own', () => {
   assert.equal(animationView('walking in place seen from the side'), 'right');
   assert.equal(animationView('walking from the side, mid stride loop'), 'right');

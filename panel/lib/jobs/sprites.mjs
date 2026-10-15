@@ -74,6 +74,19 @@ const BASE_SUFFIX = {
  * front-facing wizard only three-quarter (8 of 8 tries, two wordings, a second pass too), drawn so it stood in profile in 4 of
  * 4 (an orc 2 clear, 2 nearly; 14.10.2026). The background is said positively (cfg 1: a named "no shadow" is drawn).
  */
+/**
+ * What a character holds, said in every pose and clip: the knight's run pose lost its sword blade (only the hilt left) in 1 of
+ * 4 seeds without it, 0 of 4 with it, and the clip from that pose kept the sword in 12 of 12 frames (15.10.2026).
+ */
+const HOLD = (kind) => `The ${kind} keeps holding everything it holds, in the same hands, each held item whole and fully visible.`;
+
+/**
+ * A running animation (English description). Wan moved a standing knight's "running" (two wordings) as a walk in place, the
+ * feet hardly leaving the ground; from a picture of the knight running it ran: long strides, forward lean, the cape streaming
+ * (15.10.2026). Only running: an attack started from a picture in the middle of the swing came with swoosh arcs (14.10.2026).
+ */
+export const isRunning = (text) => /\b(run|runs|running|sprint|sprints|sprinting|jog|jogs|jogging|dash|dashes|dashing|gallop|gallops|galloping)\b/i.test(String(text ?? ''));
+
 const SIDE_SUFFIX = (facing) => `One single character shown complete and whole, full body from head to toe, seen exactly from the side in profile, facing ${facing}, standing still, centered with empty space around it. The character floats on a plain, even, solid light grey background, no text.`;
 
 /** "name: description" lines (or a plain description); a list or a text split at line breaks and semicolons. */
@@ -322,6 +335,24 @@ async function viewPicture(ctx, view, baseFile, range) {
   return target;
 }
 
+/**
+ * The start picture of a running animation: the pose of the same name when it shows running too (no extra edit), otherwise the
+ * base picture drawn running mid-stride (one edit).
+ */
+async function runningPicture(ctx, animation, instruction, baseFile, range) {
+  const g = ctx.job.input;
+  const pose = g.poses.find((p) => p.name === animation.name && isRunning(p.description));
+  if (pose && existsSync(join(ctx.folder, `pose_${pose.name}.png`))) return join(ctx.folder, `pose_${pose.name}.png`);
+  const target = join(ctx.folder, `start_${animation.name}.png`);
+  if (existsSync(target)) return target;
+  const picture = await ctx.comfy.load(baseFile, `panel_${ctx.job.id}_base${extname(baseFile).toLowerCase()}`);
+  const prompt = `The same ${g.kind} as in image 1, ${instruction.replace(/[.\s]+$/, '')}, caught mid-stride. ${HOLD(g.kind)} Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
+  const graph = ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + 300, prefix: `panel/${ctx.job.id}/start_${animation.name}` });
+  const outputs = await ctx.runComfy(graph, { stage: `Animation: ${animation.name} (start picture)`, range });
+  await saveFirst(ctx, images(outputs, nodes(graph, 'SaveImage')[0]), target, `the start of ${animation.name}`);
+  return target;
+}
+
 /** Pixel art is packed as real pixels: 64 pixels across a cell. */
 const pixelArgs = (g) => (g.style === 'pixel' ? ['--pixel', '64'] : []);
 
@@ -353,17 +384,19 @@ async function runAnimation(ctx, animation, baseFile, index) {
       // left and it walked so, 14.10.2026): it is turned
       const view = animationView(instruction);
       const turn = view && !(g.kind === 'vehicle' && view === 'right') && ctx.job.baseView !== view;
-      const start = turn ? await viewPicture(ctx, view, baseFile, part(0, 0.1)) : baseFile;
+      // a running character starts running (from a standing picture Wan walked); one turned first starts from the turn
+      const running = !turn && g.kind === 'character' && isRunning(instruction);
+      const start = turn ? await viewPicture(ctx, view, baseFile, part(0, 0.1)) : running ? await runningPicture(ctx, animation, instruction, baseFile, part(0, 0.1)) : baseFile;
       const size = imageSize(start) ?? { width: 1, height: 1 };
       const [width, height] = animationSize(size.width, size.height);
       if (!existsSync(frameDir) || readdirSync(frameDir).length < ANIMATION.frame) {
         rmSync(frameDir, { recursive: true, force: true });
         // "The character in the picture: ...": the translated description is often a sentence of its own ("The character The
         // person swings an axe" was sent, 14.10.2026)
-        const prompt = `The ${g.kind} in the picture: ${instruction.replace(/[.\s]+$/, '')}${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails, a steady repeating motion.`;
+        const prompt = `The ${g.kind} in the picture: ${instruction.replace(/[.\s]+$/, '')}${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails, a steady repeating motion. ${HOLD(g.kind)}`;
         await runWan(ctx, {
           model: 'wan14', source: start, prompt, seed: g.seed + index, width, height, frame: ANIMATION.frame, smooth: 1,
-          target: frameDir, stage: `Animation: ${animation.name}`, range: part(turn ? 0.1 : 0, 0.55), prefixExtra: `anim_${animation.name}`,
+          target: frameDir, stage: `Animation: ${animation.name}`, range: part(turn || running ? 0.1 : 0, 0.55), prefixExtra: `anim_${animation.name}`,
         });
       }
       // back frames of a run that stopped before the loop was written are made again
@@ -372,7 +405,7 @@ async function runAnimation(ctx, animation, baseFile, index) {
       if (loop.closure > CLOSE_LIMIT) {
         ctx.log(`Animation ${animation.name}: the motion does not come back (closing difference ${loop.closure}), a clip back to the first frame`);
         const files = readdirSync(frameDir).filter((f) => f.toLowerCase().endsWith('.png')).sort();
-        const prompt = `The ${g.kind} moves smoothly back into its starting pose${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails.`;
+        const prompt = `The ${g.kind} moves smoothly back into its starting pose${g.style ? `, ${STYLES[g.style]}` : ''}. Only this one ${g.kind} is in the scene, alone: no second character, opponent, target or object appears. It stays in the same place with a static camera and keeps facing the same way, its face, clothes and colours unchanged from start to end, on the same plain light grey background, no ground, no cast shadow, no motion lines or speed trails. ${HOLD(g.kind)}`;
         await runWan(ctx, {
           model: 'wan14', source: join(frameDir, files.at(-1)), lastSource: join(frameDir, files[0]), prompt, seed: g.seed + index + 100, width, height, frame: BACK_FRAMES, smooth: 1,
           target: frameDir, startNo: files.length + 1, skip: 1, stage: `Animation: ${animation.name} (back to the start)`, range: part(0.55, 0.7), prefixExtra: `back_${animation.name}`,
@@ -450,7 +483,7 @@ export async function run(ctx) {
     const graphs = [];
     for (const [i, p] of todo.entries()) {
       const instruction = await jobPrompt(ctx, p.description, 'edit', { field: `pose_${p.name}`, translate: g.translate !== false });
-      const prompt = `The same ${g.kind} as in image 1, ${instruction}. Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
+      const prompt = `The same ${g.kind} as in image 1, ${instruction}. ${HOLD(g.kind)} Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
       graphs.push(ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + i, prefix: `panel/${ctx.job.id}/pose_${p.name}` }));
     }
     ctx.job.modelFiles = modelFiles(graphs[0]);
