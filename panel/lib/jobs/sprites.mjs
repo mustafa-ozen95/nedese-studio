@@ -78,9 +78,11 @@ const BASE_SUFFIX = {
  */
 /**
  * What a character holds, said in every pose and clip: the knight's run pose lost its sword blade (only the hilt left) in 1 of
- * 4 seeds without it, 0 of 4 with it, and the clip from that pose kept the sword in 12 of 12 frames (15.10.2026).
+ * 4 seeds without it, 0 of 4 with it, and the clip from that pose kept the sword in 12 of 12 frames (15.10.2026). A still
+ * picture also says each held item is one solid shape: the pirate's slash had blade trails stuck to the sword in 4 of 4 seeds
+ * without it, 1 of 4 with it, and the knight's run a second sword in 1 of 4, then 0 of 4 (15.10.2026).
  */
-const HOLD = (kind) => `The ${kind} keeps holding everything it holds, in the same hands, each held item whole and fully visible.`;
+const HOLD = (kind, still) => `The ${kind} keeps holding everything it holds, in the same hands, each held item whole and fully visible.${still ? ' Every held item is one clean solid shape with a crisp outline.' : ''}`;
 
 /**
  * A running animation (English description). Wan moved a standing knight's "running" (two wordings) as a walk in place, the
@@ -368,7 +370,7 @@ async function runningPicture(ctx, animation, instruction, baseFile, range) {
   const target = join(ctx.folder, `start_${animation.name}.png`);
   if (existsSync(target)) return target;
   const picture = await ctx.comfy.load(baseFile, `panel_${ctx.job.id}_base${extname(baseFile).toLowerCase()}`);
-  const prompt = `The same ${g.kind} as in image 1, ${instruction.replace(/[.\s]+$/, '')}, caught mid-stride. ${HOLD(g.kind)} Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
+  const prompt = `The same ${g.kind} as in image 1, ${instruction.replace(/[.\s]+$/, '')}, caught mid-stride. ${HOLD(g.kind, true)} Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
   const graph = ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + 300, prefix: `panel/${ctx.job.id}/start_${animation.name}` });
   const outputs = await ctx.runComfy(graph, { stage: `Animation: ${animation.name} (start picture)`, range });
   await saveFirst(ctx, images(outputs, nodes(graph, 'SaveImage')[0]), target, `the start of ${animation.name}`);
@@ -505,7 +507,7 @@ export async function run(ctx) {
     const graphs = [];
     for (const [i, p] of todo.entries()) {
       const instruction = await jobPrompt(ctx, p.description, 'edit', { field: `pose_${p.name}`, translate: g.translate !== false });
-      const prompt = `The same ${g.kind} as in image 1, ${actionPose(g.kind, instruction)}. ${HOLD(g.kind)} Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
+      const prompt = `The same ${g.kind} as in image 1, ${actionPose(g.kind, instruction)}. ${HOLD(g.kind, true)} Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
       graphs.push(ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + i, prefix: `panel/${ctx.job.id}/pose_${p.name}` }));
     }
     ctx.job.modelFiles = modelFiles(graphs[0]);

@@ -998,6 +998,10 @@ test('translation: the meanings of the Turkish nouns go with the text (the local
   assert.match(translationSystem('image', 'ibrikli bir garson'), /"ibrikli" = with ewer \(long-spouted jug\); "garson" = waiter\. Write these meanings in English, never the Turkish words\.$/);
   // rare nouns the local model did not know (keserli "sharp", satırlı "with a row", oklavalı "with a staff")
   for (const [word, meaning] of [['keserli', 'adze'], ['satırlı', 'cleaver'], ['oklavalı', 'rolling pin'], ['çıkınlı', 'cloth bundle'], ['yumaklı', 'yarn']]) assert.ok(wordHints(word).includes(meaning), word);
+  // words outside the dictionary it filled in itself, 9 of 20 right; with these entries 20 of 20 (15.10.2026)
+  for (const [word, meaning] of [['zembilli', 'basket'], ['üzengili', 'stirrup'], ['tenteli', 'awning'], ['sedefli', 'mother-of-pearl'], ['hararlı', 'sack'], ['şadırvanlı', 'fountain']]) assert.ok(wordHints(word).includes(meaning), word);
+  // everyday words with another meaning get no hint: "bağlı" tied, "masalı" the tale of, "nişanlı" engaged
+  for (const word of ['bağlı', 'masalı', 'nişanlı']) assert.ok(!wordHints(word), word);
   assert.equal(translationSystem('voice', 'küpeli bir korsan sesi'), SYSTEMS.voice);
   assert.equal(translationSystem('image', 'hello'), SYSTEMS.image);
 });

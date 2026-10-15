@@ -202,10 +202,11 @@ test('Game assets: a running animation starts from a running picture (the pose o
     let list = edits(before);
     assert.equal(list.length, 1, 'the start picture only (drawn in profile: no turn)');
     const text = list[0].find((d) => d.class_type === 'TextEncodeQwenImageEditPlus').inputs.prompt;
-    assert.match(text, /^The same character as in image 1, running fast seen from the side, caught mid-stride\. The character keeps holding everything it holds, in the same hands, each held item whole and fully visible\./);
+    assert.match(text, /^The same character as in image 1, running fast seen from the side, caught mid-stride\. The character keeps holding everything it holds, in the same hands, each held item whole and fully visible\. Every held item is one clean solid shape with a crisp outline\./);
     assert.ok(existsSync(join(p.setting.outputRoot, done.id, 'start_run.png')));
     const wan = promptList(p).slice(before).find((r) => r.some((d) => d.class_type === 'WanImageToVideo'));
     assert.match(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /The character keeps holding everything it holds/);
+    assert.doesNotMatch(wan.find((d) => d.class_type === 'CLIPTextEncode').inputs.text, /crisp outline/, 'the solid-shape sentence is for still pictures, the clip was measured without it');
     // a pose of the same name showing running: it is the start, no extra edit
     before = promptList(p).length;
     done = await p.waitUntilDone(p.queue.add('sprites', { prompt: 'a knight', kind: 'character', poses: ['run: running fast with a forward lean'], animations: ['run: running fast seen from the side'], frames: 6, cell: 128, translate: false, seed: 5 }).id, 90000);
