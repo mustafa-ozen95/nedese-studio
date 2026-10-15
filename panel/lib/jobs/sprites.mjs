@@ -42,12 +42,14 @@ const ANIMATION = { frame: 49, fps: 16, size: 640 };
  */
 const CLOSE_LIMIT = 5;
 const BACK_FRAMES = 17;
+// hurt is a still flinch: "knocked back and hurt" was drawn as a shake with a second, ghost shield or sword in 3 of 4 seeds
+// (a knight, 15.10.2026), "flinching in pain, hunched over" 0 of the same 4
 const DEFAULT_POSES = {
   character: [
     'walk: seen from the side facing right, in the middle of a walking stride',
     'run: seen from the side facing right, running fast with a forward lean',
     'attack: in a big action pose, striking or attacking with force',
-    'hurt: knocked back and hurt, with a dizzy pained expression',
+    'hurt: flinching in pain, hunched over and wincing, with a pained expression',
     'back: seen from behind, standing',
   ],
   vehicle: [

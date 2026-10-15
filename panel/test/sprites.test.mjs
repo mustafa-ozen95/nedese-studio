@@ -14,6 +14,8 @@ import * as comfy from '../../tools/comfy.mjs';
 const promptList = (p) => p.fake.status.records.filter((x) => x.path === '/prompt').map((x) => Object.values(JSON.parse(x.prompt).prompt));
 
 test('poses: "name: description" lines, defaults per kind, unique file-safe names, at most 12', () => {
+  const hurt = parsePoses(undefined, 'character').find((p) => p.name === 'hurt');
+  assert.ok(!/knocked|dizzy/.test(hurt.description), 'a still flinch: a knock-back was drawn with a ghost shield');
   assert.deepEqual(parsePoses(['walk: seen from the side', 'Hurt Badly: knocked back'], 'character'), [
     { name: 'walk', description: 'seen from the side' },
     { name: 'hurt-badly', description: 'knocked back' },
