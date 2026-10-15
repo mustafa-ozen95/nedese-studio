@@ -138,7 +138,16 @@ function parseList(value, defaults, max, label) {
  */
 export function parsePoses(value, kind) {
   if (Array.isArray(value) && !value.some((s) => (s !== null && typeof s === 'object') || String(s ?? '').trim())) return [];
-  return parseList(value, DEFAULT_POSES[kind] ?? [], MAX_POSES, 'poses or views');
+  return parseList(value, DEFAULT_POSES[kind] ?? [], MAX_POSES, 'poses or views').map((p) => ({ ...p, description: bareDefault(p, kind) }));
+}
+
+/**
+ * A pose given by a default name alone takes that default's description: "hurt" was drawn as "Make the subject hurt",
+ * the same standing pose with a sad face (15.10.2026).
+ */
+function bareDefault(pose, kind) {
+  const line = (DEFAULT_POSES[kind] ?? []).find((d) => d.startsWith(`${pose.name}: `));
+  return line && pose.description.trim().toLowerCase() === pose.name ? line.slice(pose.name.length + 2) : pose.description;
 }
 
 /** Animations: none by default; the names may not clash with the poses' (their files differ by prefix, so they cannot). */

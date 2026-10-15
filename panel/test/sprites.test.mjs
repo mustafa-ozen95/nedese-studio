@@ -35,6 +35,14 @@ test('poses: "name: description" lines, defaults per kind, unique file-safe name
   ]);
   assert.deepEqual(parseAnimations([{ name: 'run', description: 'running fast' }]), [{ name: 'run', description: 'running fast' }]);
   assert.throws(() => parsePoses([{ name: 'h1' }], 'character'), /name: description/);
+  // a default name alone: "hurt" was drawn as "Make the subject hurt", a standing pose with a sad face (15.10.2026)
+  assert.deepEqual(parsePoses(['hurt', 'Attack', 'hurt: falling over', 'kneeling'], 'character'), [
+    { name: 'hurt', description: 'flinching in pain, hunched over and wincing, with a pained expression' },
+    { name: 'attack', description: 'in a big action pose, striking or attacking with force' },
+    { name: 'hurt-2', description: 'falling over' },
+    { name: 'kneeling', description: 'kneeling' },
+  ]);
+  assert.equal(parsePoses(['damaged'], 'vehicle')[0].description, 'damaged, dented and smoking');
 });
 
 test('an attack pose that names no pose is drawn in a big action pose (it was drawn standing, the blade twice)', () => {
