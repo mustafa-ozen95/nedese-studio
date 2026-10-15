@@ -80,6 +80,21 @@ test('UI: sections, training fields, video models and the language toggle work w
     await t.evaluate("location.hash = '#gallery/sprites'");
     await wait(250);
     assert.equal(await t.evaluate("document.querySelector('[data-filter=\"sprites\"]').getAttribute('aria-current')"), 'page', 'the gallery has a 2D filter');
+    // the 2D form's estimate: the first picture, a pose each (an empty field: the 5 defaults of a character), an animation each
+    const spriteEstimate = (averages, animations) => t.evaluate(`(async () => {
+      const f = document.querySelector('[data-job-form="sprites"]');
+      window.NedesePanel.status.averages = ${JSON.stringify(averages)};
+      f.kind.value = 'character';
+      f.poses.value = '';
+      f.animations.value = ${JSON.stringify(animations)};
+      f.animations.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 50));
+      return document.querySelector('[data-estimate="sprites"]').textContent;
+    })()`);
+    const measured = { 'sprites/base/qwen': 40, edit: 40, 'sprites/animation': 200 };
+    assert.equal(await spriteEstimate(measured, ''), 'Estimated time ≈ 4 min 05 s', 'first picture 40 + 5 poses × 40 + packing 5');
+    assert.equal(await spriteEstimate(measured, 'walk: walking\nidle: breathing'), 'Estimated time ≈ 10 min 45 s', 'and two animations × 200');
+    assert.equal(await spriteEstimate({ 'sprites/base/qwen': 40, edit: 40 }, 'walk: walking'), 'No measurements on this machine yet', 'no animation measured yet');
     assert.equal(await t.evaluate("Boolean(document.querySelector('[data-section=text], [data-text-form], a[href=\"#text\"]'))"), false, 'something of the Text section is left');
     // Egitim: her alan (yontem, temel listesi, ipucu, alan bloklari degisir)
     const fields = await t.evaluate(`(async () => {

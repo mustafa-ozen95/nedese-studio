@@ -3528,6 +3528,18 @@
         estimateWrite('voice', (o[`voice/${quality}`] ?? 0) * (s.text.value.length / 100));
         const mz = $('[data-job-form="music"]');
         estimateWrite('music', (o.music ?? 0) * Number(mz.duration.value || 60));
+        // Game assets: the first picture, a pose each (an empty field: the kind's defaults), an animation each; tiles: four pictures
+        const sp = $('[data-job-form="sprites"]');
+        const spCount = (v) => v.split(/[\r\n;]+/).filter((x) => x.trim()).length;
+        const spModel = sp.imageModel.value;
+        if (sp.kind.value === 'tile') estimateWrite('sprites', (o[`image/${spModel}`] ?? 0) * 4);
+        else {
+            const spBase = o[`sprites/base/${spModel}`] ?? o[`image/${spModel}`];
+            const spPoses = spCount(sp.poses.value) || { character: 5, vehicle: 5, object: 3 }[sp.kind.value];
+            const spAnimations = Math.min(4, spCount(sp.animations.value));
+            const spAnimation = o['sprites/animation'];
+            estimateWrite('sprites', (spBase ?? 0) + spPoses * (o.edit ?? 0) + 5 + spAnimations * (spAnimation ?? 0), !spBase || !o.edit || (spAnimations && !spAnimation));
+        }
         const m3 = o[`model3d/${m3Form.quality.value}`];
         const m3Blender = m3Form.intro.checked || ['fbx', 'obj', 'stl'].some((b) => m3Form[`format_${b}`].checked) ? (o.blender3d ?? 0) : 0;
         const m3Kind = m3Form.dataset.kind ?? 'text';

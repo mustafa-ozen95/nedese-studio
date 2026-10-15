@@ -116,6 +116,35 @@ export function animationSize(width, height) {
   return [on16(width), on16(height)];
 }
 
+/**
+ * The size the first picture is drawn at: about 1 MP for cells up to 512 px (the picture is cut down to the cell, Wan plays it
+ * at 640 and the edit model scales it to 1 MP anyway), the full size for larger cells. 1328 x 1328 took 55-73 s of sampling
+ * on the 12 GB card (15.10.2026).
+ */
+export function baseSize(width, height, cell) {
+  if (cell > 512) return [width, height];
+  const k = Math.sqrt((1024 * 1024) / (width * height));
+  const on16 = (n) => Math.max(16, Math.round((n * k) / 16) * 16);
+  return k < 1 ? [on16(width), on16(height)] : [width, height];
+}
+
+/**
+ * The view of a picture given from an earlier Game assets job: its first picture (drawn in profile for a side animation) or a
+ * view it was turned to; null otherwise. The chat agent made a walk again from a farmer's sprite_base.png, in profile already,
+ * and it was turned a second time (a minute, 15.10.2026).
+ */
+export function sourceView(outputRoot, source) {
+  const m = /^job\/([\w-]+)\/(?:(?:sprite_|cutout_)?base|view_(right|left|back))\.(?:png|jpe?g|webp)$/i.exec(String(source ?? ''));
+  if (!m) return null;
+  if (m[2]) return m[2].toLowerCase();
+  try {
+    const record = JSON.parse(readFileSync(join(outputRoot, m[1], 'job.json'), 'utf8'));
+    return record.type === 'sprites' ? (record.baseView ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The frames of a loop: evenly spaced, the last one left out (it is the first again). */
 export function pickFrames(total, wanted) {
   return Array.from({ length: wanted }, (_, i) => Math.min(total - 1, Math.round((i * (total - 1)) / wanted)));
@@ -199,14 +228,15 @@ async function packer(ctx, args) {
 }
 
 /** The first picture(s) drawn from the description: one request, `count` different seeds. */
-async function draw(ctx, { count, prefix, head = '', suffix, stage, range, files }) {
+async function draw(ctx, { count, prefix, head = '', suffix, stage, range, files, size, measure }) {
   const words = (part, prompt) => (typeof part === 'function' ? part(prompt) : part);
   const g = ctx.job.input;
   const prompt = await jobPrompt(ctx, g.prompt, 'image', { translate: g.translate !== false });
   const generator = ctx.mod[IMAGE_MODELS[g.imageModel].generator];
+  const [width, height] = size ?? [g.width, g.height];
   const written = g.lora?.trigger && !prompt.toLowerCase().includes(g.lora.trigger.toLowerCase()) ? `${g.lora.trigger}, ${prompt}` : prompt;
   const graphs = Array.from({ length: count }, (_, i) => {
-    const graph = generator({ text: `${words(head, prompt)}${written}. ${g.style ? `${STYLES[g.style]}. ` : ''}${words(suffix, prompt)}`, seed: g.seed + i, width: g.width, height: g.height, prefix: `panel/${ctx.job.id}/${prefix}${i + 1}` });
+    const graph = generator({ text: `${words(head, prompt)}${written}. ${g.style ? `${STYLES[g.style]}. ` : ''}${words(suffix, prompt)}`, seed: g.seed + i, width, height, prefix: `panel/${ctx.job.id}/${prefix}${i + 1}` });
     if (g.lora) addLora(graph, g.lora.file, g.lora.strength);
     return graph;
   });
@@ -215,7 +245,7 @@ async function draw(ctx, { count, prefix, head = '', suffix, stage, range, files
   const t = Date.now();
   const outputs = await ctx.runComfy(job, { stage, range });
   for (const [i, file] of files.entries()) await saveFirst(ctx, images(outputs, match[i][nodes(graphs[i], 'SaveImage')[0]]), file, `picture ${i + 1}`);
-  ctx.measure(`image/${g.imageModel}`, (Date.now() - t) / 1000 / count);
+  ctx.measure(measure ?? `image/${g.imageModel}`, (Date.now() - t) / 1000 / count);
 }
 
 // What a tile is, said first and without any "no ...": the image model has no negative prompt and draws what it is told
@@ -297,6 +327,8 @@ async function runAnimation(ctx, animation, baseFile, index) {
   const span = 35 / g.animations.length;
   const part = (from, to) => [60 + index * span + from * span, 60 + index * span + to * span];
   let loop = existsSync(loopFile) ? JSON.parse(readFileSync(loopFile, 'utf8')) : null;
+  // the whole animation timed (turn, clip, clip back, cut-outs) when it is made from the start: the 2D form's estimate
+  const startedAt = !loop && !existsSync(frameDir) ? Date.now() : null;
   if (!names.every((n) => existsSync(join(folder, `cutout_${n}.png`)))) {
     if (!loop) {
       const instruction = await jobPrompt(ctx, animation.description, 'video', { field: `animation_${animation.name}`, translate: g.translate !== false });
@@ -343,6 +375,7 @@ async function runAnimation(ctx, animation, baseFile, index) {
     const outputs = await ctx.runComfy(job, { stage: `Removing the backgrounds (${animation.name})`, range: part(0.7, 1) });
     for (const [i, n] of names.entries()) await saveFirst(ctx, images(outputs, match[i][nodes(graphs[i], 'SaveImage')[0]]), join(folder, `cutout_${n}.png`), `the cut-out ${n}`);
     rmSync(frameDir, { recursive: true, force: true });
+    if (startedAt) ctx.measure('sprites/animation', (Date.now() - startedAt) / 1000);
   }
   if (!existsSync(sheet)) {
     const fps = Math.round((g.frames / (loop.length / ANIMATION.fps)) * 10) / 10;
@@ -372,6 +405,8 @@ export async function run(ctx) {
     if (g.source) {
       const from = sourcePath(ctx.setting.outputRoot, g.source);
       copyFileSync(from, extname(from).toLowerCase() === '.png' ? base : join(folder, `base${extname(from).toLowerCase()}`));
+      ctx.job.baseView = sourceView(ctx.setting.outputRoot, g.source);
+      ctx.save();
     } else {
       // drawn in profile when an animation is seen from the side (the first one naming a side)
       let side = null;
@@ -386,7 +421,7 @@ export async function run(ctx) {
       }
       ctx.job.baseView = side;
       ctx.save();
-      await draw(ctx, { count: 1, prefix: 'base', suffix: side ? SIDE_SUFFIX(side) : BASE_SUFFIX[g.kind], stage: 'Drawing the first picture', range: range(0, 15, 25), files: [base] });
+      await draw(ctx, { count: 1, prefix: 'base', suffix: side ? SIDE_SUFFIX(side) : BASE_SUFFIX[g.kind], stage: 'Drawing the first picture', range: range(0, 15, 25), files: [base], size: baseSize(g.width, g.height, g.cell), measure: `sprites/base/${g.imageModel}` });
     }
   }
   const baseFile = existsSync(base) ? base : ['.jpg', '.jpeg', '.webp'].map((e) => join(folder, `base${e}`)).find(existsSync);

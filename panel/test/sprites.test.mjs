@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { makePng } from '../lib/media.mjs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
-import { animationSize, animationView, parseAnimations, parsePoses, pickFrames } from '../lib/jobs/sprites.mjs';
+import { animationSize, animationView, baseSize, parseAnimations, parsePoses, pickFrames } from '../lib/jobs/sprites.mjs';
 import * as comfy from '../../tools/comfy.mjs';
 
 const promptList = (p) => p.fake.status.records.filter((x) => x.path === '/prompt').map((x) => Object.values(JSON.parse(x.prompt).prompt));
@@ -50,6 +50,10 @@ test('Game assets: base picture, one edit request for the poses, one cut-out req
     assert.equal(done.status, 'done', done.error);
 
     const [draw, edits, cuts] = promptList(p);
+    // a 256 px cell: drawn at 1 MP, not 1328 x 1328 (the sampling took 55-73 s); its time measured apart from Image's
+    const latent = draw.find((d) => d.class_type === 'EmptySD3LatentImage').inputs;
+    assert.deepEqual([latent.width, latent.height], [1024, 1024]);
+    assert.ok('sprites/base/qwen' in p.queue.averages(), 'the first picture is measured on its own');
     const text = draw.find((d) => d.class_type === 'CLIPTextEncode').inputs.text;
     assert.match(text, /chibi knight with a blue sword\. One single character shown complete and whole/);
     assert.match(text, /no ground, no cast shadow/);
@@ -102,6 +106,10 @@ test('animation helpers: a loop leaves out its last frame, the size fits Wan, th
   assert.deepEqual(pickFrames(5, 12).every((i) => i >= 0 && i <= 4), true, 'fewer frames than wanted: indexes stay inside');
   assert.deepEqual(animationSize(1328, 1328), [640, 640]);
   assert.deepEqual(animationSize(1200, 800), [640, 432], 'both sides on 16');
+  assert.deepEqual(baseSize(1328, 1328, 512), [1024, 1024], 'about 1 MP for a cell up to 512');
+  assert.deepEqual(baseSize(1664, 928, 256), [1376, 768]);
+  assert.deepEqual(baseSize(1328, 1328, 1024), [1328, 1328], 'a 1024 cell keeps the full size');
+  assert.deepEqual(baseSize(800, 800, 256), [800, 800], 'never larger');
   assert.deepEqual(parseAnimations(undefined), [], 'none unless asked');
   assert.deepEqual(parseAnimations(['walk: walking in place']).map((a) => a.name), ['walk']);
   assert.throws(() => parseAnimations(Array.from({ length: 5 }, (_, i) => `a${i}: x`)), /At most 4 animations/);
@@ -146,6 +154,7 @@ test('Game assets: an animation starts from the base picture, Wan plays it, the 
     assert.equal(done.outputs[0].file, 'sheet.png', 'the pose sheet stays the main output');
     assert.equal(existsSync(join(p.setting.outputRoot, done.id, 'frames_walk')), false, 'the raw frames are removed');
     assert.ok(existsSync(join(p.setting.outputRoot, done.id, 'loop_walk.json')), 'the loop is kept: a retried job does not play the clip again');
+    assert.ok('sprites/animation' in p.queue.averages(), 'a whole animation is measured (the 2D form\'s estimate)');
   } finally {
     await p.close();
   }
@@ -166,13 +175,29 @@ test('Game assets: a side animation of a drawn character or a vehicle starts fro
   try {
     mkdirSync(join(p.setting.outputRoot, 'uploads'), { recursive: true });
     writeFileSync(join(p.setting.outputRoot, 'uploads', 'front.png'), makePng(64, 96));
+    let profile = null;
     for (const [input, edits] of [[{ prompt: 'an orc', kind: 'character', animations: ['attack: swinging an axe'] }, 0], [{ prompt: 'a red car', kind: 'vehicle', animations: ['drive: driving, seen from the side'] }, 0], [{ prompt: 'a pixel wizard', kind: 'character', animations: ['walk: walking seen from the side'] }, 0], [{ prompt: 'a pixel wizard', kind: 'character', animations: ['walk: walking away, seen from behind'] }, 1], [{ prompt: 'x', source: 'upload/front.png', kind: 'character', animations: ['walk: walking seen from the side'] }, 1]]) {
       const before = promptList(p).length;
       const job = p.queue.add('sprites', { ...input, poses: [], frames: 6, cell: 128, translate: false, seed: 3 });
       const done = await p.waitUntilDone(job.id, 90000);
       assert.equal(done.status, 'done', done.error);
       assert.equal(promptList(p).slice(before).filter((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus')).length, edits, input.prompt);
+      if (input.prompt === 'a pixel wizard' && edits === 0) profile = done.id;
     }
+    // the first picture of a job drawn in profile, given again (the chat agent made the walk again from sprite_base.png): not
+    // turned a second time; a front-facing one from the same kind of job still is
+    for (const [source, edits] of [[`job/${profile}/sprite_base.png`, 0], [`job/${profile}/base.png`, 0]]) {
+      const before = promptList(p).length;
+      const done = await p.waitUntilDone(p.queue.add('sprites', { source, kind: 'character', poses: [], animations: ['walk: walking seen from the side'], frames: 6, cell: 128, translate: false, seed: 3 }).id, 90000);
+      assert.equal(done.status, 'done', done.error);
+      assert.equal(done.baseView, 'right');
+      assert.equal(promptList(p).slice(before).filter((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus')).length, edits, source);
+    }
+    const orc = p.queue.list({ type: 'sprites' }).find((j) => j.input.prompt === 'an orc');
+    const before = promptList(p).length;
+    const again = await p.waitUntilDone(p.queue.add('sprites', { source: `job/${orc.id}/sprite_base.png`, kind: 'character', poses: [], animations: ['walk: walking seen from the side'], frames: 6, cell: 128, translate: false, seed: 3 }).id, 90000);
+    assert.equal(again.status, 'done', again.error);
+    assert.equal(promptList(p).slice(before).filter((r) => r.some((d) => d.class_type === 'TextEncodeQwenImageEditPlus')).length, 1, 'the orc was drawn facing front: turned');
   } finally {
     await p.close();
   }
