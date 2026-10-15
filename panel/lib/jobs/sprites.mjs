@@ -89,6 +89,14 @@ const HOLD = (kind) => `The ${kind} keeps holding everything it holds, in the sa
  */
 export const isRunning = (text) => /\b(run|runs|running|sprint|sprints|sprinting|jog|jogs|jogging|dash|dashes|dashing|gallop|gallops|galloping)\b/i.test(String(text ?? ''));
 
+/**
+ * An attack pose of a character (English description) that names no pose: "a sword slash" was drawn standing, the sword held
+ * low, and 6 of 16 pictures had the blade twice (two knights, a pirate, a robot; 4 seeds each). "in a big action pose: a sword
+ * slash" struck in 16 of 16 with one blade in 15, but with speed lines or glints in 8 (15.10.2026; the cut-out drops the loose ones).
+ */
+const ATTACK = /\b(attack|attacks|attacking|strike|strikes|striking|slash|slashes|slashing|swing|swings|swinging|stab|stabs|stabbing|thrust|thrusts|thrusting|punch|punches|punching|kick|kicks|kicking|hit|hits|hitting|chop|chops|chopping|smash|smashes|smashing|lunge|lunges|lunging|shoot|shoots|shooting|cast|casts|casting|throw|throws|throwing|bash|bashes|bashing|cleave|cleaves|cleaving)\b/i;
+export const actionPose = (kind, text) => (kind === 'character' && ATTACK.test(text) && !/\bpose\b/i.test(text) ? `in a big action pose: ${text}` : text);
+
 const SIDE_SUFFIX = (facing) => `One single character shown complete and whole, full body from head to toe, seen exactly from the side in profile, facing ${facing}, standing still, centered with empty space around it. The character floats on a plain, even, solid light grey background, no text.`;
 
 /**
@@ -497,7 +505,7 @@ export async function run(ctx) {
     const graphs = [];
     for (const [i, p] of todo.entries()) {
       const instruction = await jobPrompt(ctx, p.description, 'edit', { field: `pose_${p.name}`, translate: g.translate !== false });
-      const prompt = `The same ${g.kind} as in image 1, ${instruction}. ${HOLD(g.kind)} Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
+      const prompt = `The same ${g.kind} as in image 1, ${actionPose(g.kind, instruction)}. ${HOLD(g.kind)} Keep exactly the same design, colours, clothing or parts and the same art style${g.style ? ` (${STYLES[g.style]})` : ''}. Plain solid light grey background, no ground, no cast shadow, no motion lines or speed trails, nothing else in the picture.`;
       graphs.push(ctx.mod.editJob({ pictures: [picture], text: prompt, seed: g.seed + i, prefix: `panel/${ctx.job.id}/pose_${p.name}` }));
     }
     ctx.job.modelFiles = modelFiles(graphs[0]);

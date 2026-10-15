@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { makePng } from '../lib/media.mjs';
 import { join } from 'node:path';
 import { createPanel } from './env.mjs';
-import { animationSize, animationView, baseSize, parseAnimations, parsePoses, pickFrames } from '../lib/jobs/sprites.mjs';
+import { actionPose, animationSize, animationView, baseSize, parseAnimations, parsePoses, pickFrames } from '../lib/jobs/sprites.mjs';
 import * as comfy from '../../tools/comfy.mjs';
 
 const promptList = (p) => p.fake.status.records.filter((x) => x.path === '/prompt').map((x) => Object.values(JSON.parse(x.prompt).prompt));
@@ -35,6 +35,19 @@ test('poses: "name: description" lines, defaults per kind, unique file-safe name
   ]);
   assert.deepEqual(parseAnimations([{ name: 'run', description: 'running fast' }]), [{ name: 'run', description: 'running fast' }]);
   assert.throws(() => parsePoses([{ name: 'h1' }], 'character'), /name: description/);
+});
+
+test('an attack pose that names no pose is drawn in a big action pose (it was drawn standing, the blade twice)', () => {
+  assert.equal(actionPose('character', 'a sword slash'), 'in a big action pose: a sword slash');
+  assert.equal(actionPose('character', 'punching forward with one arm extended'), 'in a big action pose: punching forward with one arm extended');
+  assert.equal(actionPose('character', 'casting a fireball'), 'in a big action pose: casting a fireball');
+  // its own pose, not an attack, or not a character: as written
+  const attack = parsePoses(undefined, 'character').find((p) => p.name === 'attack').description;
+  assert.equal(actionPose('character', attack), attack);
+  assert.equal(actionPose('character', 'a fighting pose with the sword raised'), 'a fighting pose with the sword raised');
+  assert.equal(actionPose('character', 'walking seen from the side'), 'walking seen from the side');
+  assert.equal(actionPose('character', 'a hitch in the step'), 'a hitch in the step');
+  assert.equal(actionPose('vehicle', 'shooting its cannon'), 'shooting its cannon');
 });
 
 test('the cut-out graph inverts the subject mask before it becomes the alpha channel', () => {
