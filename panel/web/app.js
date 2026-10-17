@@ -312,7 +312,7 @@
     function applyRoute() {
         const parts = decodeURIComponent(location.hash.replace(/^#/, '')).split('/');
         const [b, sub = ''] = parts;
-        const section = SECTIONS.includes(b) ? b : 'image';
+        const section = SECTIONS.includes(b) ? b : 'chat';
         const changed = section !== status.section;
         status.section = section;
         $$('[data-section]').forEach((s) => {
