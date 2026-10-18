@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalLlm } from '../lib/llm.mjs';
 import { AgentManager, subAgentTitle } from '../lib/agent/agent.mjs';
+import { startProcess, allowRules } from '../lib/agent/tools.mjs';
 import { createPanel } from './env.mjs';
 
 const FAKE_LLM = fileURLToPath(new URL('./fake-llm.mjs', import.meta.url));
@@ -330,6 +331,42 @@ test('stop: a chat\'s Stop stops what it runs in the background (a sub-agent of 
     assert.equal((await o.call('/api/v1/chat/stop-all', { method: 'POST' })).json.message, 'Nothing was running.');
   } finally {
     await web.close();
+    await o.close();
+  }
+});
+
+test('time limit: a foreground command still running at its limit goes on in the background and wakes the chat with its end, not killed (18.10.2026: a content bot of 3 minutes was killed at 120 s)', async () => {
+  const o = await env();
+  try {
+    const s = await o.chat();
+    const r = await o.send(s.id, o.tool('run_command', { command: "'first'; Start-Sleep -Seconds 4; 'late'", duration_sec: 2 }));
+    assert.match(r, /^Output: \[2 s limit reached: it goes on in the background as k1; you will be told when it finishes[^\n]*\]\nfirst$/);
+    const k = o.agent.processes.get('k1');
+    assert.equal(k.code, null, 'still running');
+    await o.until(() => o.answered(s.id, /^EN: \[Background command k1 finished/), 'its end woke the chat');
+    assert.match(o.wakes(s.id)[0].content, /^\[Background command k1 finished: exit code 0, \d+ s\] [\s\S]*late$/);
+    // a command that ends within its limit stays in the foreground
+    assert.match(await o.send(s.id, o.tool('run_command', { command: "'quick'", duration_sec: 5 })), /^Output: \[exit code 0, [\d.]+ s\]\nquick$/);
+    assert.throws(() => o.agent.processes.get('k2'));
+  } finally {
+    await o.close();
+  }
+});
+
+test('ssh: a script goes on stdin as it is (no quoting); ssh inside run_command that fails gets the run_ssh hint; "Always allow" reads the script\'s programs', async () => {
+  // stdin: quotes, $, backslashes and newlines arrive unchanged
+  const text = "echo 'a' \"b\" $x App\\Models\\Post::where('status','draft')->count();\nsecond line\n";
+  const k = startProcess({ command: process.execPath, args: ['-e', 'process.stdin.pipe(process.stdout)'], input: text });
+  await k.done;
+  assert.equal(k.output, text);
+  assert.deepEqual(allowRules('run_ssh', { server: 'box', script: 'cd /var/www/app\nphp artisan about' }, [], 'change'), [{ tool: 'run_ssh', program: 'php' }]);
+  const o = await env();
+  try {
+    const s = await o.chat();
+    const r = await o.send(s.id, o.tool('run_command', { command: 'ssh -o BatchMode=yes -o ConnectTimeout=3 -p 1 nobody@127.0.0.1 "echo hi"', duration_sec: 20 }));
+    assert.match(r, /\[Hint: run_ssh with script sends the commands on stdin: no quoting through this shell\.\]$/);
+    assert.doesNotMatch(await o.send(s.id, o.tool('run_command', { command: "'no ssh here'; exit 3" })), /Hint/);
+  } finally {
     await o.close();
   }
 });

@@ -255,7 +255,7 @@ function apiRoute(routes, method, path) {
 export function allowRules(tool, input, routes, risk) {
   if (!risk || risk === 'danger') return null;
   if (COMMAND_TOOLS.has(tool)) {
-    const programs = commandPrograms(input?.command);
+    const programs = commandPrograms(input?.script ?? input?.command);
     return programs?.length ? programs.map((program) => ({ tool, program })) : null;
   }
   if (tool === 'panel_api') {
@@ -682,8 +682,11 @@ export function terminalText(s) {
     .join('\n');
 }
 
-/** Starts a command process; its output is collected. Returns the record { output, code, start, proc, done (Promise) }. */
-export function startProcess({ command, args, options = {}, cwd, env }) {
+/**
+ * Starts a command process; its output is collected. input: text written to its stdin (else stdin is closed at once).
+ * Returns the record { output, code, start, proc, done (Promise) }.
+ */
+export function startProcess({ command, args, options = {}, cwd, env, input }) {
   const record = { output: '', code: null, start: Date.now(), read: 0 };
   const s = spawn(command, args, { cwd, env: { ...process.env, ...env }, windowsHide: true, ...options });
   record.proc = s;
@@ -700,7 +703,8 @@ export function startProcess({ command, args, options = {}, cwd, env }) {
   s.stderr?.setEncoding('utf8');
   s.stdout?.on('data', add);
   s.stderr?.on('data', add);
-  s.stdin?.end();
+  s.stdin?.on('error', () => {});
+  s.stdin?.end(input ?? undefined);
   record.done = new Promise((ok) => {
     s.on('error', (e) => {
       add(`\n[could not start: ${e.message}]`);
@@ -719,22 +723,49 @@ export function startProcess({ command, args, options = {}, cwd, env }) {
   return record;
 }
 
-async function frontPlanCommand(b, record, durationSec) {
+/** Puts a running command on the chat's background list; notify: its chat is woken when it ends. Returns its id. */
+function toBackground(b, record, label, notify) {
+  const id = b.processes.add(record, label, b.chat?.id ?? null);
+  // the chat's background list shows it while it runs and how it ended
+  b.manager?.backgroundChanged?.(b.chat?.id);
+  record.done.then(() => {
+    record.ended = Date.now();
+    b.manager?.backgroundChanged?.(record.chat);
+  });
+  if (notify) b.notifyWhenDone(id, record);
+  return id;
+}
+
+/**
+ * Waits for a command up to its time limit. At the limit it goes on in the background and the chat is told when it ends
+ * (18.10.2026: a site's content bot needing 3 minutes was killed at 120 s and its posts were lost); without a background
+ * list (label) it is stopped.
+ */
+async function frontPlanCommand(b, record, durationSec, label) {
   const stop = () => record.proc.pid && killTree(record.proc.pid);
   b.signal?.addEventListener('abort', stop, { once: true });
-  let timeout = false;
-  const z = setTimeout(() => {
-    timeout = true;
-    stop();
-  }, durationSec * 1000);
+  let z;
+  const limit = new Promise((ok) => {
+    z = setTimeout(() => ok('limit'), durationSec * 1000);
+  });
   const aborted = new Promise((ok) => b.signal?.addEventListener('abort', ok, { once: true }));
-  await Promise.race([record.done, aborted]);
+  const end = await Promise.race([record.done, aborted, limit]);
   clearTimeout(z);
   b.signal?.removeEventListener('abort', stop);
   if (b.signal?.aborted) throw new Error('Stopped.');
+  if (end === 'limit' && record.code === null) {
+    const sofar = truncate(terminalText(record.output).trimEnd() || '(no output)');
+    if (label && b.processes && b.notifyWhenDone) {
+      record.read = record.output.length;
+      const id = toBackground(b, record, label, true);
+      return `[${durationSec} s limit reached: it goes on in the background as ${id}; you will be told when it finishes (do not run it again, do not poll command_output in a loop). If it waits for input (a password, an editor, a yes/no), stop it with stop_command and run it without asking: keys or tokens, --yes, -m "message"]\n${sofar}`;
+    }
+    stop();
+    await Promise.race([record.done, new Promise((ok) => setTimeout(ok, 5000))]);
+    return `[${durationSec} s limit reached, stopped. If it waited for input (a password, an editor, a yes/no), run it without asking: keys or tokens, --yes, -m "message"]\n${sofar}`;
+  }
   const duration = ((Date.now() - record.start) / 1000).toFixed(1);
-  const startedAt = timeout ? `[${durationSec} s limit reached, stopped. If it waited for input (a password, an editor, a yes/no), run it without asking: keys or tokens, --yes, -m "message"; a long task: back_plan: true]` : `[exit code ${record.code}, ${duration} s]`;
-  return `${startedAt}\n${truncate(terminalText(record.output).trimEnd() || '(no output)')}`;
+  return `[exit code ${record.code}, ${duration} s]\n${truncate(terminalText(record.output).trimEnd() || '(no output)')}`;
 }
 
 /* ── Gorsel -> data URL ───────────────────────────────────────────────── */
@@ -1128,7 +1159,7 @@ export const TOOLS = [
   {
     name: 'run_command',
     core: true,
-    description: 'Runs a shell command (PowerShell by default; cmd or bash too). Writing and running programs, tests, installs (pip/npm/winget), git, builds all go through this. For long-running ones (server, large download/setup) use back_plan: true → returns an id; you are told when it finishes (do not poll command_output in a loop).',
+    description: 'Runs a shell command (PowerShell by default; cmd or bash too). Writing and running programs, tests, installs (pip/npm/winget), git, builds all go through this. For long-running ones (server, large download/setup) use back_plan: true → returns an id; you are told when it finishes (do not poll command_output in a loop). One still running at its time limit goes on in the background the same way. Commands on another server: run_ssh with script (no quoting).',
     full: true,
     risk: (g) => commandRisk(g.command),
     params: object({ command: text('Command'), shell: { type: 'string', enum: ['powershell', 'cmd', 'bash'] }, cwd: text('Working folder'), duration_sec: integer('Time limit (default 120, max 3600)'), back_plan: logic('Run in the background'), notify: logic('With back_plan: wake this chat when it finishes (default true)') }, ['command']),
@@ -1139,13 +1170,7 @@ export const TOOLS = [
       b.writeLog?.({ tool: 'command', command: g.command, cwd });
       const record = startProcess({ command, args, options, cwd, env: commandEnv(b.setting) });
       if (g.back_plan) {
-        const id = b.processes.add(record, String(g.command), b.chat?.id ?? null);
-        // the chat's background list shows it while it runs and how it ended
-        b.manager?.backgroundChanged?.(b.chat?.id);
-        record.done.then(() => {
-          record.ended = Date.now();
-          b.manager?.backgroundChanged?.(record.chat);
-        });
+        const id = toBackground(b, record, String(g.command), false);
         await new Promise((ok) => setTimeout(ok, 1500));
         if (record.code !== null) {
           record.reported = true;
@@ -1156,7 +1181,9 @@ export const TOOLS = [
         if (notify) b.notifyWhenDone(id, record);
         return `Started in the background: ${id} (pid ${record.proc.pid}). First output:\n${truncate(terminalText(record.output), 2000) || '(none yet)'}\n${notify ? 'You will be told when it finishes: do not wait for it or poll command_output in a loop. ' : ''}Read its output with command_output, stop it with stop_command.`;
       }
-      return frontPlanCommand(b, record, Math.min(3600, Math.max(1, Number(g.duration_sec) || 120)));
+      const result = await frontPlanCommand(b, record, Math.min(3600, Math.max(1, Number(g.duration_sec) || 120)), String(g.command));
+      // 18.10.2026: ssh with PHP code inside PowerShell quotes failed the same way for 20 steps
+      return /^\s*ssh(\.exe)?\s/i.test(String(g.command)) && !result.startsWith('[exit code 0,') ? `${result}\n[Hint: run_ssh with script sends the commands on stdin: no quoting through this shell.]` : result;
     },
   },
   {
@@ -1191,15 +1218,19 @@ export const TOOLS = [
   {
     name: 'run_ssh',
     group: 'commands',
-    description: 'Runs a command on a remote server over SSH (key-based only; names from ~/.ssh/config or user@host).',
+    description: 'Runs commands on a remote server over SSH (key-based only; names from ~/.ssh/config or user@host). script: lines run by bash there, sent as they are (quotes, $, backslashes and PHP code need no escaping); command: one short command. At the time limit it goes on in the background and you are told when it ends.',
     full: true,
-    risk: (g) => commandRisk(g.command),
-    params: object({ server: text('Server name (ssh config) or user@host'), command: text('Command to run remotely'), duration_sec: integer('Time limit (default 120)') }, ['server', 'command']),
+    risk: (g) => commandRisk(String(g.script ?? g.command ?? '')),
+    params: object({ server: text('Server name (ssh config) or user@host'), script: text('Lines run by bash on the server (stdin); e.g. cd /var/www/app && php artisan about'), command: text('One remote command (when there is no script)'), duration_sec: integer('Time limit (default 120)') }, ['server']),
     async run(g, b) {
       if (!/^[\w.@-]+$/.test(String(g.server))) throw new Error('Invalid server name.');
-      b.writeLog?.({ tool: 'ssh', server: g.server, command: g.command });
-      const record = startProcess({ command: 'ssh', args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'StrictHostKeyChecking=accept-new', String(g.server), String(g.command)], cwd: b.cwd });
-      return frontPlanCommand(b, record, Math.min(3600, Math.max(1, Number(g.duration_sec) || 120)));
+      if (!g.script && !g.command) throw new Error('Give script (or command).');
+      b.writeLog?.({ tool: 'ssh', server: g.server, command: g.script ?? g.command });
+      // the script goes on stdin to bash -s: nothing of it is parsed by a local shell or by ssh's argument joining
+      const remote = g.script ? 'bash -s' : String(g.command);
+      const input = g.script ? `${String(g.script).replace(/\r\n/g, '\n')}\n` : undefined;
+      const record = startProcess({ command: 'ssh', args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'StrictHostKeyChecking=accept-new', String(g.server), remote], cwd: b.cwd, input });
+      return frontPlanCommand(b, record, Math.min(3600, Math.max(1, Number(g.duration_sec) || 120)), `ssh ${g.server}: ${String(g.script ?? g.command).split('\n')[0].slice(0, 200)}`);
     },
   },
   {

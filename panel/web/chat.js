@@ -653,8 +653,12 @@
             l.thinking = { ...thinkingBlock('', { open: true }), text: '', folded: false };
             l.box.prepend(l.thinking.details);
         }
+        // the open block scrolls by itself (max-height): it follows the new lines unless the reader scrolled up in it
+        const body = l.thinking.body;
+        const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
         l.thinking.text += text;
-        l.thinking.body.textContent = l.thinking.text;
+        body.textContent = l.thinking.text;
+        if (atEnd) body.scrollTop = body.scrollHeight;
         if (!l.attached) {
             append(l.box);
             l.attached = true;
@@ -2509,8 +2513,13 @@
         const run = c?.runUsage;
         const total = c?.usage;
         const sum = (u) => (u ? (u.input ?? 0) + (u.output ?? 0) : 0);
-        // While running the exact number, so that it visibly counts up as the model writes (8.5k would hide it)
-        const usage = running && sum(run) ? el('span', { class: 'chat__usage', title: `This turn: ${run.input} input, ${run.output} output tokens. Chat total: ${sum(total)} tokens.`, text: `${sum(run).toLocaleString(document.documentElement.lang || 'en')} tokens` })
+        // While running: how full the context is (auto compact keeps it below the model's room) and the exact count the
+        // model wrote this turn, so that it visibly counts up. 18.10.2026: the line showed every step's input added up
+        // (785,675 tokens for a 23k context) and read as if auto compact had not worked.
+        const ctx = c?.context;
+        const fill = ctx?.size && ctx.used ? `Context ${Math.min(100, Math.round((ctx.used / ctx.size) * 100))}% (${formatTokens(ctx.used)} / ${formatTokens(ctx.size)})` : '';
+        const wrote = run?.output ? `${run.output.toLocaleString(document.documentElement.lang || 'en')} written` : '';
+        const usage = running && (fill || wrote) ? el('span', { class: 'chat__usage', title: `Context: the conversation the model reads now; auto compact summarizes it when it fills up. This turn: ${run?.input ?? 0} input tokens processed over all steps, ${run?.output ?? 0} output. Chat total: ${sum(total)} tokens.`, text: [fill, wrote].filter(Boolean).join(' · ') })
             : !running && sum(total) ? el('span', { class: 'chat__usage', title: `${total.input} input, ${total.output} output tokens`, text: `Spent in this chat: ${formatTokens(sum(total))} tokens` }) : null;
         const counts = backgroundCounts(shownBackground(c));
         backgroundToggle.hidden = !counts.length;
@@ -3171,6 +3180,7 @@
             } else if (e.type === 'context') {
                 c.context = { used: e.used, size: e.size };
                 renderContext();
+                renderStatus();
             } else if (e.type === 'update') {
                 Object.assign(c, e.summary);
                 setStatus(c);
