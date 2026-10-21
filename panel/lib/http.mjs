@@ -166,7 +166,16 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
    * When a model trained in the panel is active, the request is brought to the training format: shortened prompts
    * (guide -> marker), a length note and no thinking (the training data had none). null when not trained (the request as it is).
    */
-  const trainingProfile = () => trainedModelProfile(setting.aiRoot, llm?.info?.file);
+  const trainingProfile = (file = llm?.info?.file) => trainedModelProfile(setting.aiRoot, file);
+  /**
+   * The text model a /llm/v1 request names (model: a file in llm\models or its name without .gguf); null = the default.
+   * Any other name (a bot still sending "deepseek-chat") keeps the default model, as before.
+   */
+  const requestedModel = (name) => {
+    if (typeof name !== 'string' || !name) return null;
+    const m = (llm.models?.() ?? []).find((x) => x.file === name || x.name === name);
+    return (m && m.file !== llm.info?.file && llm.modelInfo?.(m.file)) || null;
+  };
   const textAdapt = (s, p) => applyAbbreviations(String(s ?? '').replace(`\n\n${LENGTH_NOTE}`, ''), p.abbreviations);
   // Content with images (the OpenAI array shape: text + image_url): only the text parts are adapted, the images go as they are
   const messagesAdapt = (messages, p) => messages.map((m) => ({ ...m, content: Array.isArray(m.content) ? m.content.map((c) => (c?.type === 'text' ? { ...c, text: textAdapt(c.text, p) } : c)) : textAdapt(m.content, p) }));
@@ -215,7 +224,7 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
    * events are relayed as they come, then [DONE]. An error before the first event is the usual JSON error; a client
    * that goes away stops the generation.
    */
-  async function streamCompletion(response, body) {
+  async function streamCompletion(response, body, info = null) {
     const control = new AbortController();
     response.on('close', () => {
       if (!response.writableFinished) control.abort();
@@ -224,6 +233,7 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
     try {
       const r = await llm.req('/v1/chat/completions', body, {
         signal: control.signal,
+        info,
         onEvent: (j) => {
           if (!opened) response.writeHead(200, SSE_HEADERS);
           opened = true;
@@ -308,39 +318,43 @@ export function createPanelServer({ setting, queue, comfy, mod, settingFile = nu
     try {
       if (req.method === 'GET' && sub === '/models') {
         // image: whether the chosen model reads images (mmproj); outside clients can check before sending an image
-        return rawJson(response, 200, { object: 'list', data: [{ id: llm.info.name, object: 'model', owned_by: 'local', image: llm.understandsImages }, ...(agent ? [{ id: 'nedese-agent', object: 'model', owned_by: 'local', description: 'Panel agent: works with tools and returns the final answer (see /api/documents › Chat)' }] : [])] });
+        // the default first (clients that take data[0]), then the other model files a request can name
+        const others = (llm.models?.() ?? []).filter((m) => m.file !== llm.info.file).map((m) => ({ id: m.name, object: 'model', owned_by: 'local', image: Boolean(m.image) }));
+        return rawJson(response, 200, { object: 'list', data: [{ id: llm.info.name, object: 'model', owned_by: 'local', image: llm.understandsImages }, ...others, ...(agent ? [{ id: 'nedese-agent', object: 'model', owned_by: 'local', description: 'Panel agent: works with tools and returns the final answer (see /api/documents › Chat)' }] : [])] });
       }
       if (req.method === 'POST' && sub === '/chat/completions') {
         const g = await readJson(req);
         if (g.model === 'nedese-agent') return g.stream === true ? await streamAgent(response, g, full) : rawJson(response, 200, await completeAgent(g, full));
-        const p = trainingProfile();
+        const info = requestedModel(g.model);
+        const p = trainingProfile(info?.file);
         if (p && Array.isArray(g.messages)) g.messages = messagesAdapt(g.messages, p);
-        if (g.stream === true) return await streamCompletion(response, { chat_template_kwargs: { enable_thinking: false }, ...g, stream: true });
-        const r = await llm.req('/v1/chat/completions', { chat_template_kwargs: { enable_thinking: false }, ...g, stream: false });
+        if (g.stream === true) return await streamCompletion(response, { chat_template_kwargs: { enable_thinking: false }, ...g, stream: true }, info);
+        const r = await llm.req('/v1/chat/completions', { chat_template_kwargs: { enable_thinking: false }, ...g, stream: false }, { info });
         return rawJson(response, r.code, r.json);
       }
       if (req.method === 'POST' && sub === '/responses') {
         const g = await readJson(req);
         // The bot's original article request (metadata.sectioned): a plan + section by section (lib/article.mjs), one JSON back.
-        const p = trainingProfile();
+        const info = requestedModel(g.model);
+        const p = trainingProfile(info?.file);
         // A trained model learned to write the article in one call: the sectioned flow only with ready models.
-        if (g.metadata?.sectioned && !p) return rawJson(response, 200, await sectionedResponse(g));
+        if (g.metadata?.sectioned && !p && !info) return rawJson(response, 200, await sectionedResponse(g));
         let chat = responsesToChat(g);
         if (p) {
           const { thinking_budget_tokens: _b, ...clean } = chat;
           chat = { ...clean, messages: messagesAdapt(chat.messages, p), chat_template_kwargs: { enable_thinking: false }, max_tokens: g.max_output_tokens };
         }
-        let r = await llm.req('/v1/chat/completions', { ...chat, stream: false });
+        let r = await llm.req('/v1/chat/completions', { ...chat, stream: false }, { info });
         // Output that slipped into another script on the way (see foreignScript): once more without thinking; if that is broken too the first stays.
         const input = chat.messages.map((m) => m.content).join('\n');
         const text = r.code === 200 && foreignScript(input, r.json.choices?.[0]?.message?.content ?? '');
         if (text) {
           console.log(`[text model] ${text} text leaked into the output; retrying without thinking`);
           const { thinking_budget_tokens: _, ...withoutThinking } = chat;
-          const r2 = await llm.req('/v1/chat/completions', { ...withoutThinking, chat_template_kwargs: { enable_thinking: false }, max_tokens: g.max_output_tokens, stream: false });
+          const r2 = await llm.req('/v1/chat/completions', { ...withoutThinking, chat_template_kwargs: { enable_thinking: false }, max_tokens: g.max_output_tokens, stream: false }, { info });
           if (r2.code === 200 && !foreignScript(input, r2.json.choices?.[0]?.message?.content ?? '')) r = r2;
         }
-        return r.code === 200 ? rawJson(response, 200, chatToResponses(r.json, llm.info.name)) : rawJson(response, r.code, r.json);
+        return r.code === 200 ? rawJson(response, 200, chatToResponses(r.json, (info ?? llm.info).name)) : rawJson(response, r.code, r.json);
       }
       return llmError(response, 404, `Unsupported endpoint: ${req.method} /llm/v1${sub} (chat/completions, responses, models)`, 'invalid_request_error');
     } catch (e) {

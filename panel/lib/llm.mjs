@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import { request } from 'node:http';
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { freemem } from 'node:os';
 import { killTree } from './process.mjs';
 import { fineSetting } from './fine-settings.mjs';
 import { CancelError } from './errors.mjs';
@@ -254,7 +255,24 @@ export function ggufMetadata(file) {
     const kvHeadTotal = Array.isArray(kvHeads) ? kvHeads.reduce((a, b) => a + b, 0) : kvHeads * Math.ceil(layer / every);
     const defaultHeadSize = get('embedding_length') && headCount ? get('embedding_length') / headCount : null;
     const headSize = (get('attention.key_length') ?? defaultHeadSize) + (get('attention.value_length') ?? get('attention.key_length') ?? defaultHeadSize);
-    const result = { architecture: m ?? null, layer: layer ?? null, expert: get('expert_count') ?? 0, kvByte: Number.isFinite(kvHeadTotal * headSize) ? kvHeadTotal * headSize * 2 : null, contextLength: get('context_length') ?? null, slidingWindow: get('attention.sliding_window') ?? null, ...(every > 1 ? { attentionEvery: every } : {}) };
+    let kvByte = Number.isFinite(kvHeadTotal * headSize) ? kvHeadTotal * headSize * 2 : null;
+    // Sliding-window layers (gemma4: 5 of every 6) keep only the last window of tokens, so their KV does not grow with
+    // the context: swaByte is their KV per token, counted up to the window only (Omni-31B, a dense gemma4: counting all
+    // 60 layers in full gave 13.9 GiB of KV at 16k and 0 layers on the GPU; it then swapped to disk at 0.14 token/s)
+    const pattern = get('attention.sliding_window_pattern');
+    let swaByte = null;
+    if (Array.isArray(pattern) && pattern.length === layer && get('attention.sliding_window') > 0 && kvByte !== null) {
+      const heads = (l) => (Array.isArray(kvHeads) ? kvHeads[l] : kvHeads);
+      const swaKey = get('attention.key_length_swa') ?? get('attention.key_length') ?? defaultHeadSize;
+      const swaHeadSize = swaKey + (get('attention.value_length_swa') ?? swaKey);
+      kvByte = 0;
+      swaByte = 0;
+      pattern.forEach((sliding, l) => {
+        if (sliding) swaByte += heads(l) * swaHeadSize * 2;
+        else kvByte += heads(l) * headSize * 2;
+      });
+    }
+    const result = { architecture: m ?? null, layer: layer ?? null, expert: get('expert_count') ?? 0, kvByte, contextLength: get('context_length') ?? null, slidingWindow: get('attention.sliding_window') ?? null, ...(every > 1 ? { attentionEvery: every } : {}), ...(swaByte ? { swaByte } : {}) };
     ggufCache.set(key, result);
     return result;
   } catch {
@@ -298,7 +316,7 @@ export function llamaConfig(info, context = 32768, { budget = VRAM_BUDGET, mmpro
     const mmGpu = !mmprojProcessor && mm > 0;
     return { ngl: 99, moe: moeLayers(gib + (mmGpu ? mm : 0), budget), context, kv: 'f16', mmprojGpu: mmGpu };
   }
-  const kvGib = (b, kv) => (u.kvByte * b * (kv === 'q8_0' ? 34 / 64 : 1)) / 2 ** 30;
+  const kvGib = (b, kv) => kvCacheGib(u, b, kv);
   // a hybrid model's KV is small: 64k when it fits (Bonsai 2 27B wrote as fast at 64k as at 32k, 64.7 tokens/s)
   const want = u.attentionEvery > 1 ? Math.max(context, Math.min(65536, u.contextLength ?? 65536)) : context;
   const tries = [[want, 'f16'], [want, 'q8_0'], [32768, 'f16'], [32768, 'q8_0'], [16384, 'f16'], [16384, 'q8_0'], [8192, 'q8_0']];
@@ -310,6 +328,27 @@ export function llamaConfig(info, context = 32768, { budget = VRAM_BUDGET, mmpro
   const b = Math.min(context, 16384);
   const layerGib = gib / ((u.layer ?? 40) + 1);
   return { ngl: Math.max(0, Math.floor((budget - WORK_SHARE - kvGib(b, 'q8_0')) / layerGib) - 1), moe: 0, context: b, kv: 'q8_0', mmprojGpu: false };
+}
+
+/** KV cache size (GiB) for a context: full-attention layers grow with it, sliding-window layers stop at the window
+ * (llama.cpp keeps window + one 512-token batch for them). */
+function kvCacheGib(u, context, kv) {
+  const tokens = u.kvByte * context + (u.swaByte ?? 0) * Math.min(context, (u.slidingWindow ?? 0) + 512);
+  return (tokens * (kv === 'q8_0' ? 34 / 64 : 1)) / 2 ** 30;
+}
+
+/**
+ * The RAM (GiB) a text model needs beyond the GPU with llamaConfig's setting a: the layers (and their KV) left on the
+ * CPU, or the MoE expert layers moved to RAM (~0.4 GiB each, see moeLayers). 0 when everything is on the GPU.
+ */
+export function ramNeedGib(info, a) {
+  const gib = info.gib ?? 0;
+  if (a.moe) return a.moe * 0.4;
+  const u = info.model ? ggufMetadata(info.model) : null;
+  const layers = (u?.layer ?? 40) + 1;
+  if (a.ngl >= layers) return 0;
+  const cpuShare = (layers - a.ngl) / layers;
+  return gib * cpuShare + (u?.kvByte ? kvCacheGib(u, a.context, a.kv) * cpuShare : 0);
 }
 
 export class LlmError extends Error {
@@ -327,8 +366,8 @@ export class LocalLlm {
    */
   /** keepFor(): seconds idle before the model leaves memory, read on every request (setting); 0 = keep it loaded. */
   /** gpuJob(): the job holding the GPU while a request waits ({ typeName, percent }), shown in the wait (null: none). */
-  constructor({ info, port = 8091, context = 32768, idleSec = 300, keepFor = null, waitSec = 330, readySec = 180, switchGraceMs = 2000, gpuBusy = () => false, gpuJob = () => null, flushGpu = async () => {}, gpuTotalMb = async () => null, log = () => {}, logFile = null }) {
-    Object.assign(this, { info, port, context, idleSec, keepFor, waitSec, readySec, switchGraceMs, gpuBusy, gpuJob, flushGpu, gpuTotalMb, log, logFile });
+  constructor({ info, port = 8091, context = 32768, idleSec = 300, keepFor = null, waitSec = 330, readySec = 180, switchGraceMs = 2000, gpuBusy = () => false, gpuJob = () => null, flushGpu = async () => {}, gpuTotalMb = async () => null, freeRamGib = () => freemem() / 2 ** 30, log = () => {}, logFile = null }) {
+    Object.assign(this, { info, port, context, idleSec, keepFor, waitSec, readySec, switchGraceMs, gpuBusy, gpuJob, flushGpu, gpuTotalMb, freeRamGib, log, logFile });
     this.proc = null;
     this.loaded = null; // info of the model the running llama-server holds
     this.startup = null;
@@ -473,14 +512,27 @@ export class LocalLlm {
       this.budget = vramBudget(choice, choice === 'oto' ? await this.gpuTotalMb().catch(() => null) : null);
       const { command, args } = this.command(info);
       const a = info.command ? null : this.lastSetting;
+      if (a) {
+        // What does not fit on the GPU goes to RAM; past the free RAM Windows pages the model to disk and every token
+        // waits on it (Omni-31B on 16 GB: 0.14 token/s, the chat stalled for minutes), so the model is not opened
+        const need = ramNeedGib(info, a) + (info.mmproj && !a.mmprojGpu ? (info.mmprojGib ?? 0) : 0);
+        const free = this.freeRamGib();
+        if (need > free) {
+          this.loaded = null;
+          throw new LlmError(`Text model ${info.name} does not fit: about ${need.toFixed(1)} GB of it would go to RAM beyond the GPU, but only ${free.toFixed(1)} GB of RAM is free, so it would swap to disk and stall. Choose a smaller model (or quantization) in Settings › Text model, or close other programs.`, 507);
+        }
+      }
       this.log(`Loading text model: ${info.name}${a ? ` (context ${a.context / 1024}k, KV ${a.kv}${a.moe ? `, ${a.moe} expert layers in RAM` : ''}${a.ngl < 99 ? `, ${a.ngl} layers on the GPU` : ''}${info.mmproj ? `, vision encoder ${a.mmprojGpu ? 'on the GPU' : 'on the CPU'}` : ''})` : ''}`);
       const startedAt = Date.now();
       const proc = spawn(command, args, { windowsHide: true, stdio: 'ignore' });
       this.proc = proc;
       this.loaded = info;
-      proc.on('exit', () => {
+      const gone = () => {
         if (this.proc === proc) this.proc = null;
-      });
+      };
+      proc.on('exit', gone);
+      // a missing llama-server.exe: the start fails below ("could not start") instead of an unhandled error closing the panel
+      proc.on('error', gone);
       while (Date.now() - startedAt < this.readySec * 1000) {
         if (!this.proc) throw new LlmError('Text model could not start (llama-server closed; GPU memory may be insufficient).', 503);
         if (await this.healthy()) {

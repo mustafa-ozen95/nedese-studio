@@ -8,7 +8,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LENGTH_NOTE, LocalLlm, ggufMetadata, llamaConfig, chatToResponses, responsesToChat } from '../lib/llm.mjs';
+import { LENGTH_NOTE, LocalLlm, ggufMetadata, llamaConfig, ramNeedGib, chatToResponses, responsesToChat } from '../lib/llm.mjs';
 import { CancelError } from '../lib/errors.mjs';
 import { createPanel } from './env.mjs';
 
@@ -63,10 +63,39 @@ test('text model settings from GGUF metadata: dense 14B 16k q8_0 KV, MoE as befo
   assert.deepEqual(ggufMetadata(bonsai), { architecture: 'qwen35', layer: 64, expert: 0, kvByte: 65536, contextLength: 262144, slidingWindow: null, attentionEvery: 4 });
   assert.deepEqual(llamaConfig({ model: bonsai, gib: 6.71, mmprojGib: 0.87 }), { ngl: 99, moe: 0, context: 65536, kv: 'q8_0', mmprojGpu: true });
   assert.deepEqual(llamaConfig({ model: bonsai, gib: 8.5 }), { ngl: 99, moe: 0, context: 32768, kv: 'q8_0', mmprojGpu: false }, 'a larger hybrid steps down to 32k');
+  // Sliding-window layers (dense gemma4, Omni-31B: 50 of 60 layers keep a 1024-token window): their KV stops at the
+  // window, so 47 layers go on the GPU and ~2.9 GB to RAM (counting them in full gave 0 layers on the GPU)
+  const omni = gemma4Dense(join(k, 'omni.gguf'));
+  assert.deepEqual(ggufMetadata(omni), { architecture: 'gemma4', layer: 60, expert: 0, kvByte: 81920, contextLength: 262144, slidingWindow: 1024, swaByte: 819200 });
+  const omniSetting = llamaConfig({ model: omni, gib: 11.25 });
+  assert.deepEqual(omniSetting, { ngl: 47, moe: 0, context: 16384, kv: 'q8_0', mmprojGpu: false });
+  assert.ok(Math.abs(ramNeedGib({ model: omni, gib: 11.25 }, omniSetting) - 2.9) < 0.1, `RAM beyond the GPU: ${ramNeedGib({ model: omni, gib: 11.25 }, omniSetting)}`);
+  assert.equal(ramNeedGib({ model: q14, gib: 8.4 }, llamaConfig({ model: q14, gib: 8.4 })), 0, 'all on the GPU: nothing in RAM');
+  assert.ok(Math.abs(ramNeedGib({ model: moe, gib: 13.45 }, llamaConfig({ model: moe, gib: 13.45 })) - 4.4) < 0.01, 'MoE: 11 expert layers x 0.4 GiB');
   // GGUF degilse eski davranis
   writeFileSync(join(k, 'bozuk.gguf'), 'merhaba');
   assert.equal(ggufMetadata(join(k, 'bozuk.gguf')), null);
   assert.deepEqual(llamaConfig({ model: join(k, 'bozuk.gguf'), gib: 13.45 }), { ngl: 99, moe: 11, context: 32768, kv: 'f16', mmprojGpu: false });
+});
+
+/** A dense gemma4 GGUF header like Omni-31B's: 60 layers, every 6th full attention (4 KV heads x 512), the rest a
+ * 1024-token sliding window (16 KV heads x 256). */
+function gemma4Dense(file) {
+  const sliding = Array.from({ length: 60 }, (_, l) => ((l + 1) % 6 ? 1 : 0));
+  return ggufYaz(file, { 'general.architecture': [8, 'gemma4'], 'gemma4.block_count': [4, 60], 'gemma4.context_length': [4, 262144], 'gemma4.embedding_length': [4, 5376], 'gemma4.attention.head_count': [4, 32], 'gemma4.attention.head_count_kv': [9, [4, sliding.map((s) => (s ? 16 : 4))]], 'gemma4.attention.key_length': [4, 512], 'gemma4.attention.value_length': [4, 512], 'gemma4.attention.sliding_window': [4, 1024], 'gemma4.attention.sliding_window_pattern': [9, [4, sliding]], 'gemma4.attention.key_length_swa': [4, 256], 'gemma4.attention.value_length_swa': [4, 256] });
+}
+
+test('a text model whose GPU overflow does not fit in the free RAM is not opened (it would swap to disk and stall)', async () => {
+  const k = mkdtempSync(join(tmpdir(), 'gguf-'));
+  const model = gemma4Dense(join(k, 'big.gguf'));
+  const logs = [];
+  const llm = new LocalLlm({ info: { name: 'big', file: 'big.gguf', model, gib: 17.4, bin: join(k, 'no-llama-server.exe') }, freeRamGib: () => 6, log: (m) => logs.push(m) });
+  await assert.rejects(llm.prepare(), (e) => e.code === 507 && /does not fit: about \d+\.\d GB .* only 6\.0 GB of RAM is free/.test(e.message));
+  assert.equal(llm.proc, null, 'llama-server was not started');
+  assert.equal(logs.length, 0);
+  // With enough free RAM it goes on to start llama-server (a missing binary here: the start error, not the RAM one or a crash)
+  const ok = new LocalLlm({ info: { name: 'big', file: 'big.gguf', model, gib: 11.25, bin: join(k, 'no-llama-server.exe') }, freeRamGib: () => 6, readySec: 5 });
+  await assert.rejects(ok.prepare(), (e) => e.code === 503);
 });
 
 test('sectioned article helpers: single heading, repetition ratio', async () => {

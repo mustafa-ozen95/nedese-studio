@@ -147,7 +147,7 @@ words and instruments stay. `voice\sing.py` drives **YingMusic-SVC** (GiantAILab
   - Stops it after 5 min idle.
   - An external request arriving while a job is running waits until the job finishes (at most ~5.5 min, then 503; the nedese bot then falls back to DeepSeek).
   - In a job that uses the text model itself (data collection, image description: `textModelShares`) external requests do not wait; the same model is shared in turn.
-- OpenAI-compatible address: `http://<this-computer>:1071/llm/v1` (`/responses`, `/chat/completions`, `/models`).
+- OpenAI-compatible address: `http://<this-computer>:1071/llm/v1` (`/responses`, `/chat/completions`, `/models`). `model` picks the text model: a file in `llmmodels` or its name without `.gguf` (`/models` lists them, the default first); any other name uses Settings > Text model.
   - Key: the panel API key (Bearer).
   - `/responses` works internally by forcing the JSON format (DeepSeekClient format).
   - `/responses` thinks first (default 3072 tokens; `reasoning.effort`: none/low/medium/high).

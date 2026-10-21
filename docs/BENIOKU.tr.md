@@ -146,7 +146,7 @@ için **3 tohum** üretir, her adayı ölçer ve hedefe en uyanı seçer (`--can
   - 5 dk boşta kalınca kapatır.
   - İş sürerken gelen dış istek iş bitene kadar bekler (en çok ~5,5 dk, sonra 503; nedese botu o zaman DeepSeek yedeğine düşer).
   - Yazı modelini kendisi kullanan işte (veri toplama, görsel betimleme: `textModelShares`) dış istek beklemez, aynı modeli sırayla paylaşır.
-- OpenAI uyumlu adres: `http://<bu-bilgisayar>:1071/llm/v1` (`/responses`, `/chat/completions`, `/models`).
+- OpenAI uyumlu adres: `http://<bu-bilgisayar>:1071/llm/v1` (`/responses`, `/chat/completions`, `/models`). `model` yazı modelini seçer: `llmmodels` içindeki dosya ya da `.gguf`suz adı (`/models` listeler, varsayılan ilk sırada); başka bir ad Ayarlar > Yazı modeli'ni kullanır.
   - Anahtar: panel API anahtarı (Bearer).
   - `/responses` içeride JSON biçimi zorlanarak çalışır (DeepSeekClient biçimi).
   - `/responses` önce düşünür (varsayılan 3072 token; `reasoning.effort`: none/low/medium/high).

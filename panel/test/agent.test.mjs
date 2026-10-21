@@ -865,6 +865,38 @@ test('agent resources: MCP server, skill, memory, scheduling, sub-agent, image v
   }
 });
 
+// The model a /llm/v1 request names (21.10.2026: cisimcik-4b was asked for by name and Bonsai answered): a file in
+// llmmodels or its name picks that model; an unknown name (a bot still sending "deepseek-chat") keeps the default
+test('/llm/v1: the model a request names picks the text model (file or name); an unknown name uses the default; /models lists them', async () => {
+  const o = await agentEnv();
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${o.p.settingFile.apiKey}` };
+  // the fake answers "which model" with its file under the agent's system prompt
+  const SYS = 'You are the assistant and agent of Nedese Studio.';
+  const ask = async (model, extra = {}) => {
+    const r = await fetch(`${o.p.address}/llm/v1/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model, messages: [{ role: 'system', content: SYS }, { role: 'user', content: 'which model' }], ...extra }) });
+    assert.equal(r.status, 200);
+    if (!extra.stream) return (await r.json()).choices[0].message.content;
+    // streamed: the content pieces of the events joined
+    return (await r.text()).split('\n\n').filter((b) => b.startsWith('data: {')).map((b) => JSON.parse(b.slice(6)).choices?.[0]?.delta?.content ?? '').join('');
+  };
+  try {
+    assert.equal(await ask('b.gguf'), 'Model: b.gguf');
+    assert.equal(await ask('a'), 'Model: a.gguf');
+    assert.equal(await ask('b'), 'Model: b.gguf', 'the name without .gguf');
+    assert.equal(await ask('deepseek-chat'), 'Model: a.gguf', 'unknown name: the default');
+    assert.equal(await ask(undefined), 'Model: a.gguf');
+    assert.equal(await ask('b.gguf', { stream: true }), 'Model: b.gguf', 'streaming too');
+    const r = await fetch(`${o.p.address}/llm/v1/responses`, { method: 'POST', headers, body: JSON.stringify({ model: 'b', instructions: SYS, input: 'which model' }) });
+    const j = await r.json();
+    assert.equal(j.model, 'b');
+    assert.match(JSON.stringify(j.output), /Model: b.gguf/);
+    const models = (await (await fetch(`${o.p.address}/llm/v1/models`, { headers })).json()).data.map((m) => m.id);
+    assert.deepEqual(models.slice(0, 2), ['fake-model', 'b'], 'the default first, then the other files');
+  } finally {
+    await o.close();
+  }
+});
+
 test('/llm/v1 streaming: stream: true relays the model\'s events (plain completions) and streams the agent\'s text as chunks (nedese-agent); without stream the answers are as before', async () => {
   // the fake model writes in real time (a client can leave in the middle)
   process.env.FAKE_LLM_STREAM_MS = '20';
