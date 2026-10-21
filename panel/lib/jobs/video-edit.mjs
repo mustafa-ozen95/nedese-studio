@@ -28,6 +28,8 @@ const X264 = ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 
 const TEXT_TYPE = process.platform === 'win32' ? 'C\\:/Windows/Fonts/arial.ttf' : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 // The text position: top | middle | bottom.
 const TEXT_Y = { top: 'h*0.07', middle: '(h-th)/2', bottom: 'h-th-h*0.08' };
+// The plan's music level (light | middle | distinct) as the mix level (low | medium | high).
+const PLAN_MUSIC_LEVEL = { light: 'low', middle: 'medium', distinct: 'high' };
 
 export function validate(g, { setting }) {
   if (!hasText() && !setting.editPlan) throw new UserError('The instruction interpreter (text model) is not on this machine; video editing is unavailable.');
@@ -150,7 +152,7 @@ function separateStepArgs(a, b, { input, output, music }) {
       return ['-i', input, '-c:v', 'copy', ...(hasVoice ? ['-af', `volume=${a.factor}`, '-c:a', 'aac', '-b:a', '192k'] : []), output];
     case 'music': {
       // The music under the video: looped for the length, at its level; speech stays on top.
-      const level = MUSIC_LEVEL[a.level] ?? MUSIC_LEVEL.middle;
+      const level = MUSIC_LEVEL[PLAN_MUSIC_LEVEL[a.level]] ?? MUSIC_LEVEL.medium;
       const mix = hasVoice
         ? `[1:a]volume=${level * 2.5},aloop=loop=-1:size=2e9[m];[0:a][m]amix=inputs=2:duration=first:dropout_transition=2[a]`
         : `[1:a]volume=${level * 4},aloop=loop=-1:size=2e9,atrim=0:${b.duration.toFixed(2)}[a]`;
@@ -276,10 +278,11 @@ export async function run(ctx) {
       }
       const b = await videoInfo(ctx.setting.ffprobe, current);
       if (gc.chain) {
-        // Without enough memory ffmpeg must not die halfway or push the machine into swap: a clear error before the start (2 GB left for the system)
+        // Without enough memory ffmpeg must not die halfway or push the machine into swap: a clear error before the start (2 GB left for the system).
+        // Only reverse holds the frames; a chain without it needs no memory check.
         const required = reverseMemory(gc.steps, b);
         const free = (ctx.setting.freeMemory ?? freemem)();
-        if (required > free - 2 * 2 ** 30) {
+        if (required > 0 && required > free - 2 * 2 ** 30) {
           const gb = (x) => (x / 2 ** 30).toFixed(1);
           throw new UserError(`Reverse playback loads every frame into memory: this video needs ~${gb(required)} GB, free memory is ${gb(free)} GB. Shorten or downscale the video first (e.g. "take the first 10 seconds, make it 720p, then reverse").`);
         }

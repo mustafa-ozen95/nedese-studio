@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -98,6 +98,41 @@ test('reverse playback job: clear error before ffmpeg starts when memory is insu
     await run(ctx(3 * 2 ** 30));
     assert.equal(outputs.length, 1);
     assert.ok(Math.abs(outputs[0].duration - 3) < 0.15, `duration ≈ 3 s (${outputs[0].duration})`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('chain without reverse runs with little free memory; the plan\'s music level is the mix level', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'vd-root-'));
+  const setting = loadSettings({ aiRoot: root });
+  try {
+    const trial = join(setting.outputRoot, 'trial');
+    mkdirSync(trial, { recursive: true });
+    execFileSync(setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=320x240:r=30:d=3', '-c:v', 'libx264', '-preset', 'ultrafast', join(trial, 'input.mp4')]);
+    execFileSync(setting.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=f=440:d=3', join(trial, 'music.wav')]);
+    const meanVolume = (path) => {
+      const r = spawnSync(setting.ffmpeg, ['-hide_banner', '-i', path, '-af', 'volumedetect', '-f', 'null', '-']).stderr.toString();
+      return Number(r.match(/mean_volume: (-?[\d.]+) dB/)?.[1] ?? NaN);
+    };
+    const outputs = [];
+    const folder = join(setting.outputRoot, 'job');
+    mkdirSync(folder, { recursive: true });
+    // 27B metin modeli yukluyken bos bellek ~1,4 GB: ters oynatma yoksa bu engel olmamali
+    await run({
+      job: { input: { source: 'job/trial/input.mp4', instruction: 'siyah beyaz yap, muzik ekle', music: 'job/trial/music.wav' } },
+      setting: { ...setting, editPlan: async () => ({ steps: [{ operation: 'blackWhite' }, { operation: 'music', level: 'middle' }], description: 'black and white + music', impossible: '' }), freeMemory: () => 1.4 * 2 ** 30 },
+      folder,
+      signal: new AbortController().signal,
+      progress: () => {},
+      log: () => {},
+      save: () => {},
+      addOutput: (c) => outputs.push(c),
+    });
+    assert.equal(outputs.length, 1);
+    // Ses yokken muzik medium x 4 = 0,8 ile girer: -1,9 dB
+    const change = meanVolume(join(folder, 'edited.mp4')) - meanVolume(join(trial, 'music.wav'));
+    assert.ok(Math.abs(change - 20 * Math.log10(0.8)) < 0.5, `music at medium level (${change.toFixed(2)} dB)`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
