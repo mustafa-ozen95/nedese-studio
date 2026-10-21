@@ -9,7 +9,7 @@ import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Updater, blobSha, localVersion, SETUP_FILE } from '../lib/update.mjs';
+import { Updater, blobSha, localVersion, SETUP_FILE, newerNode } from '../lib/update.mjs';
 import { SettingsFile } from '../lib/settings-file.mjs';
 import { createPanel } from './env.mjs';
 import { Queue } from '../lib/queue.mjs';
@@ -40,7 +40,7 @@ async function fakeGithub({ sha = NEW, files = NEW_FILES, compare = ['panel/serv
       return y.end('{"message":"no"}');
     }
     if (i.url === '/repos/owner/repo/commits/main') return json({ sha, commit: { message: 'New feature\n\ndetail line', committer: { date: '2026-10-06T01:00:00Z' } } });
-    if (i.url.startsWith('/repos/owner/repo/compare/')) return json({ files: compare.map((filename) => ({ filename })) });
+    if (i.url.startsWith('/repos/owner/repo/compare/')) return json({ files: compare.map((f) => (typeof f === 'string' ? { filename: f } : f)) });
     if (i.url === `/repos/owner/repo/git/trees/${sha}?recursive=1`) return json({ sha, truncated: false, tree: Object.entries(files).map(([path, v]) => ({ path, type: 'blob', mode: '100644', sha: blobSha(Buffer.from(v)), size: v.length })) });
     const raw = decodeURIComponent(i.url).match(new RegExp(`^/owner/repo/${sha}/(.+)$`));
     if (raw && files[raw[1]] !== undefined) {
@@ -311,6 +311,27 @@ test('setup again: only when a Python environment lock or vendored code changes,
   const not = ['setup/setup.ps1', 'setup/tools.json', 'setup/download-models.mjs', 'setup/voice-models.py', 'setup.bat', 'panel/server.mjs', 'docs/setup/lock.md'];
   assert.deepEqual(required.filter((f) => !SETUP_FILE.test(f)), []);
   assert.deepEqual(not.filter((f) => SETUP_FILE.test(f)), []);
+});
+
+// The bundled Node is replaced only by setup: a tool list with a newer Node (a security release) asks for setup, an
+// unchanged or older one does not.
+test('setup again: when the tool list brings a newer Node than the one running the panel', async () => {
+  const node = (v, sign = '+') => [{ filename: 'setup/tools.json', patch: `@@ -1 +1 @@\n-  "file": "node-v24.19.0-win-x64.zip",\n${sign}  "file": "node-v${v}-win-x64.zip",` }];
+  assert.equal(newerNode(node('24.22.1'), '24.19.0'), true);
+  assert.equal(newerNode(node('25.0.0'), '24.22.1'), true);
+  assert.equal(newerNode(node('24.22.1'), '24.22.1'), false);
+  assert.equal(newerNode(node('24.10.0'), '24.19.0'), false);
+  assert.equal(newerNode(node('24.22.1', ' '), '24.19.0'), false, 'an unchanged line is not a new version');
+  assert.equal(newerNode([{ filename: 'setup/tools.json', patch: '+  "file": "ffmpeg-9.0.3-essentials_build.zip",' }], '24.19.0'), false);
+  assert.equal(newerNode([{ filename: 'panel/server.mjs' }]), false);
+  const gh = await fakeGithub({ compare: ['panel/server.mjs', ...node('99.0.0')] });
+  const { root, settingFile } = setupSetup();
+  try {
+    const g = new Updater({ setting: setting(root, gh.api), settingFile, queue: freeQueue() });
+    assert.equal((await g.check()).setupRequired, true);
+  } finally {
+    gh.close();
+  }
 });
 
 test('an applied update: a job added before the restart waits for the new panel (one started and was cut off as interrupted)', async () => {

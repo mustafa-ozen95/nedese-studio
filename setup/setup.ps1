@@ -2,7 +2,7 @@
 # finished steps are skipped, an interrupted model download resumes where it stopped.
 #
 # Versions are pinned (the setup that runs on the development machine, 04.10.2026): ComfyUI 0.37.0 portable (Python 3.13,
-# torch 2.13 cu130) + custom nodes at fixed commits, Node 24.19.0, ffmpeg 9.0.2, uv 0.12.20, Python environments from
+# torch 2.13 cu130) + custom nodes at fixed commits, Node 24.22.1, ffmpeg 9.0.2, uv 0.12.20, Python environments from
 # setup\lock\*.txt. Nothing is installed system-wide and nothing installed on the computer is used (a different Python,
 # Node or ffmpeg there does not matter); everything lives inside this folder.
 #
@@ -171,12 +171,21 @@ function Install-Zip($name, $file, $innerFolder, $target, $check) {
     Remove-Item $zip -Force
     Done "$name installed."
 }
-Install-Zip 'Node 24.19.0' 'node-v24.19.0-win-x64.zip' 'node-v24.19.0-win-x64' 'node' 'node\node.exe'
+# A bundled Node of another version is replaced (security releases): the folder is moved aside first, which fails
+# while the panel runs on it, and removed once the new one is in place.
+$nodeExe0 = Join-Path $Root 'node\node.exe'
+if ((Test-Path $nodeExe0) -and ((& $nodeExe0 -v) -ne 'v24.22.1')) {
+    $nodeOld = "node.old-$(Get-Date -Format yyyyMMddHHmmss)"
+    try { Rename-Item (Join-Path $Root 'node') $nodeOld -ErrorAction Stop }
+    catch { Stop-Setup 'Node is being updated: close Nedese Studio (tray icon > Exit) and run setup again.' }
+}
+Install-Zip 'Node 24.22.1' 'node-v24.22.1-win-x64.zip' 'node-v24.22.1-win-x64' 'node' 'node\node.exe'
 Install-Zip 'ffmpeg 9.0.2' 'ffmpeg-9.0.2-essentials_build.zip' 'ffmpeg-9.0.2-essentials_build' 'ffmpeg' 'ffmpeg\bin\ffmpeg.exe'
 Install-Zip 'uv 0.12.20' 'uv-x86_64-pc-windows-msvc.zip' $null 'uv' 'uv\uv.exe'
 # Python for the assistant's commands (portable, pinned: no version trouble with what is installed on the computer)
 Install-Zip 'Python 3.12.15' 'cpython-3.12.15+20261003-x86_64-pc-windows-msvc-install_only_stripped.tar.gz' 'python' 'python' 'python\python.exe'
 $Node = Join-Path $Root 'node\node.exe'
+Get-ChildItem $Root -Directory -Filter 'node.old-*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 $Uv = Join-Path $Root 'uv\uv.exe'
 $env:PATH = "$(Join-Path $Root 'ffmpeg\bin');$(Join-Path $Root 'node');$env:PATH"
 

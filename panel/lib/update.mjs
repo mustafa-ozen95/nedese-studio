@@ -29,6 +29,17 @@ const SHA = /^[0-9a-f]{40}$/;
 // "bu bir hata değil mi"); a new environment always comes with its own lock file.
 export const SETUP_FILE = /^setup\/(lock|vendor)\/|(^|\/)(uv\.lock|pyproject\.toml|requirements[^/]*\.txt)$/;
 
+/** Whether the new tool list brings a newer bundled Node than the one running the panel (a security release): only setup
+ *  replaces node\\, so setup must run again then, and only then. `files` are the compare API's entries (with `patch`). */
+export function newerNode(files, running = process.versions.node) {
+  const patch = (files ?? []).find((x) => x.filename === 'setup/tools.json')?.patch ?? '';
+  const m = patch.match(/^\+\s*"file": "node-v(\d+)\.(\d+)\.(\d+)-win-x64\.zip"/m);
+  if (!m) return false;
+  const [a, b] = [m.slice(1).map(Number), running.split('.').map(Number)];
+  const i = a.findIndex((x, k) => x !== b[k]);
+  return i >= 0 && a[i] > b[i];
+}
+
 /** The installation's version: { sha, dateText, message?, source: 'git' | 'pkg' | 'unknown', files? } */
 export function localVersion(aiRoot) {
   if (existsSync(join(aiRoot, '.git'))) {
@@ -183,7 +194,7 @@ export class Updater {
     if (fresh && local.sha) {
       try {
         const f = await (await this.req(`/repos/${this.repo}/compare/${local.sha}...${remote.sha}`)).json();
-        setupRequired = (f.files ?? []).some((x) => SETUP_FILE.test(x.filename ?? ''));
+        setupRequired = (f.files ?? []).some((x) => SETUP_FILE.test(x.filename ?? '')) || newerNode(f.files);
       } catch {}
     }
     this.last = { dateText: new Date().toISOString(), local: { sha: local.sha, dateText: local.dateText, source: local.source }, remote, fresh, setupRequired };

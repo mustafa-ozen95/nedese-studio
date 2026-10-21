@@ -40,9 +40,9 @@
   "sha256": "48b12d825155991c4f1a21ce26bf01b037b061f2e2a5b716e1cf2bb73b6fb9cb"
  },
  {
-  "file": "node-v24.19.0-win-x64.zip",
-  "size": 37304352,
-  "sha256": "57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73"
+  "file": "node-v24.22.1-win-x64.zip",
+  "size": 37748064,
+  "sha256": "d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5"
  },
  {
   "file": "python/20260924/cpython-3.11.16+20260924-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
