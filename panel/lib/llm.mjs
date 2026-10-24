@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import { request } from 'node:http';
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { freemem } from 'node:os';
+import { cpus, freemem } from 'node:os';
 import { killTree } from './process.mjs';
 import { fineSetting } from './fine-settings.mjs';
 import { CancelError } from './errors.mjs';
@@ -236,8 +236,11 @@ export function ggufMetadata(file) {
       else if (type === 9) {
         const item = number(4);
         const count = number(10);
-        if (item === 8) for (let j = 0; j < count; j++) skip(number(10));
-        else if (!READ_GGUF[item]) throw new Error('GGUF nested array');
+        if (item === 8) {
+          // the vocabulary size picks a draft model of the same family (speculative decoding needs the same tokens)
+          if (name === 'tokenizer.ggml.tokens') parent.vocab = count;
+          for (let j = 0; j < count; j++) skip(number(10));
+        } else if (!READ_GGUF[item]) throw new Error('GGUF nested array');
         else if (count <= 4096) parent[name] = Array.from({ length: count }, () => number(item));
         else skip(count * GGUF_SIZE[item]);
       } else parent[name] = number(type);
@@ -272,7 +275,7 @@ export function ggufMetadata(file) {
         else kvByte += heads(l) * headSize * 2;
       });
     }
-    const result = { architecture: m ?? null, layer: layer ?? null, expert: get('expert_count') ?? 0, kvByte, contextLength: get('context_length') ?? null, slidingWindow: get('attention.sliding_window') ?? null, ...(every > 1 ? { attentionEvery: every } : {}), ...(swaByte ? { swaByte } : {}) };
+    const result = { architecture: m ?? null, layer: layer ?? null, expert: get('expert_count') ?? 0, kvByte, contextLength: get('context_length') ?? null, slidingWindow: get('attention.sliding_window') ?? null, ...(every > 1 ? { attentionEvery: every } : {}), ...(swaByte ? { swaByte } : {}), ...(parent.vocab ? { vocab: parent.vocab } : {}) };
     ggufCache.set(key, result);
     return result;
   } catch {
@@ -308,13 +311,26 @@ export function vramBudget(choice = 'oto', totalMb = null) {
  * belirtec/sn, gorselli yanit 4,4 sn; CPU'da yazi degismiyor (51,5), gorselli yanit ~18 sn. MoE'de CPU (ince ayar
  * mmprojIslemci kapaliysa ekran kartinda: kodlayici kadar uzman katmani daha RAM'e gider). butce: vramButcesi().
  */
-export function llamaConfig(info, context = 32768, { budget = VRAM_BUDGET, mmprojProcessor = true } = {}) {
+export function llamaConfig(info, context = 32768, { budget = VRAM_BUDGET, mmprojProcessor = true, disk = false } = {}) {
   const gib = info.gib ?? 0;
   const mm = info.mmprojGib ?? 0;
   const u = info.model ? ggufMetadata(info.model) : null;
   if (!u || u.expert > 0 || !u.kvByte) {
     const mmGpu = !mmprojProcessor && mm > 0;
     return { ngl: 99, moe: moeLayers(gib + (mmGpu ? mm : 0), budget), context, kv: 'f16', mmprojGpu: mmGpu };
+  }
+  const layerGib = gib / ((u.layer ?? 40) + 1);
+  if (disk) {
+    // The CPU share does not fit in RAM either: Windows pages it from disk and every forward pass re-reads it (Llama 3.3
+    // 70B Q4_K_M, 42.5 GB on 16 GB RAM, measured 25.10.2026: ~30 s per pass whatever the setting, 0.03 token/s). A pass
+    // costs the same for 1 or 24 tokens, so a small draft model of the same family drafts up to 24 tokens that one pass
+    // verifies (DRAFT_MAX; Llama-3.2-1B Q8_0 draft: 25 of 105 accepted, 4.6 tokens a pass, 0.19 token/s with all 12
+    // threads, 0.13 with 6: each thread faults its own pages in, see command). 4k context: the freed VRAM holds more
+    // layers, long contexts are unusable at this speed.
+    const draft = draftModel(info, u);
+    const b = Math.min(context, 4096);
+    const reserved = WORK_SHARE + kvCacheGib(u, b, 'q8_0') + (draft ? draft.gib + 0.2 : 0);
+    return { ngl: Math.max(0, Math.floor((budget - reserved) / layerGib) - 1), moe: 0, context: b, kv: 'q8_0', mmprojGpu: false, draft: draft?.model ?? null };
   }
   const kvGib = (b, kv) => kvCacheGib(u, b, kv);
   // a hybrid model's KV is small: 64k when it fits (Bonsai 2 27B wrote as fast at 64k as at 32k, 64.7 tokens/s)
@@ -326,8 +342,25 @@ export function llamaConfig(info, context = 32768, { budget = VRAM_BUDGET, mmpro
     if (required <= budget) return { ngl: 99, moe: 0, context: b, kv, mmprojGpu: mm > 0 && required + mm <= budget };
   }
   const b = Math.min(context, 16384);
-  const layerGib = gib / ((u.layer ?? 40) + 1);
   return { ngl: Math.max(0, Math.floor((budget - WORK_SHARE - kvGib(b, 'q8_0')) / layerGib) - 1), moe: 0, context: b, kv: 'q8_0', mmprojGpu: false };
+}
+
+/** Tokens the draft model proposes per pass (llama-server --spec-draft-n-max); a disk-bound pass verifies them all. */
+export const DRAFT_MAX = 24;
+
+/**
+ * The smallest other model in llm\models of the same family as info (same architecture and vocabulary, at most a tenth
+ * of its size, e.g. Llama-3.2-1B-Instruct for Llama-3.3-70B-Instruct) for speculative decoding; null if there is none.
+ */
+export function draftModel(info, u = info.model ? ggufMetadata(info.model) : null) {
+  if (!u?.vocab || !info.folder) return null;
+  const candidates = (info.models ?? []).filter((m) => m.file !== info.file && m.gib > 0 && m.gib <= (info.gib ?? 0) / 10).sort((a, b) => a.gib - b.gib);
+  for (const m of candidates) {
+    const model = join(info.folder, m.file);
+    const d = ggufMetadata(model);
+    if (d && d.architecture === u.architecture && d.vocab === u.vocab && !d.expert) return { model, gib: m.gib };
+  }
+  return null;
 }
 
 /** KV cache size (GiB) for a context: full-attention layers grow with it, sliding-window layers stop at the window
@@ -423,13 +456,15 @@ export class LocalLlm {
     return { installed: this.installed, model: this.info?.name ?? null, file: this.info?.file ?? null, models: this.models(), loaded: this.loaded?.file ?? null, running: Boolean(this.proc), loading: Boolean(this.startup), ongoing: this.ongoing, lastUsage: this.lastUsage };
   }
 
-  command(info = this.info) {
+  /** disk: the CPU share of the model does not fit in the free RAM either (prepare), see llamaConfig; all logical cores
+   * then read pages from disk in parallel (-t 12 vs the default 6 physical: 0.19 vs 0.13 token/s on the 70B). */
+  command(info = this.info, disk = false) {
     if (info.command) return info.command(this.port, info);
-    const a = llamaConfig(info, this.context, { budget: this.budget ?? VRAM_BUDGET, mmprojProcessor: fineSetting('mmprojProcessor') });
+    const a = llamaConfig(info, this.context, { budget: this.budget ?? VRAM_BUDGET, mmprojProcessor: fineSetting('mmprojProcessor'), disk });
     this.lastSetting = a;
     return {
       command: info.bin,
-      args: ['-m', info.model, ...(info.mmproj ? ['--mmproj', info.mmproj, ...(a.mmprojGpu ? [] : ['--no-mmproj-offload'])] : []), '-ngl', String(a.ngl), ...(a.moe ? ['--n-cpu-moe', String(a.moe)] : []), '-c', String(a.context), ...(a.kv !== 'f16' ? ['-ctk', a.kv, '-ctv', a.kv] : []), '--parallel', '1', '-fa', 'on', '--jinja', '--reasoning-budget-message', THINKING_END, ...(this.logFile ? ['--log-file', this.logFile] : []), '--host', '127.0.0.1', '--port', String(this.port)],
+      args: ['-m', info.model, ...(info.mmproj ? ['--mmproj', info.mmproj, ...(a.mmprojGpu ? [] : ['--no-mmproj-offload'])] : []), '-ngl', String(a.ngl), ...(a.moe ? ['--n-cpu-moe', String(a.moe)] : []), '-c', String(a.context), ...(a.kv !== 'f16' ? ['-ctk', a.kv, '-ctv', a.kv] : []), ...(a.draft ? ['--spec-type', 'draft-simple', '-md', a.draft, '-ngld', '99', '--spec-draft-n-max', String(DRAFT_MAX), '--spec-draft-n-min', '1'] : []), ...(disk ? ['-t', String(cpus().length)] : []), '--parallel', '1', '-fa', 'on', '--jinja', '--reasoning-budget-message', THINKING_END, ...(this.logFile ? ['--log-file', this.logFile] : []), '--host', '127.0.0.1', '--port', String(this.port)],
     };
   }
 
@@ -510,16 +545,19 @@ export class LocalLlm {
       // VRAM butcesi her yuklemede (ince ayar degisince sonraki acilis yeni butceyle)
       const choice = fineSetting('llmVram');
       this.budget = vramBudget(choice, choice === 'oto' ? await this.gpuTotalMb().catch(() => null) : null);
-      const { command, args } = this.command(info);
-      const a = info.command ? null : this.lastSetting;
+      let { command, args } = this.command(info);
+      let a = info.command ? null : this.lastSetting;
       if (a) {
         // What does not fit on the GPU goes to RAM; past the free RAM Windows pages the model to disk and every token
-        // waits on it (Omni-31B on 16 GB: 0.14 token/s, the chat stalled for minutes), so the model is not opened
+        // waits on it (Omni-31B on 16 GB: 0.14 token/s; Llama 3.3 70B Q4_K_M: 0.03 token/s, ~30 s a token). The user
+        // wants to see such a model run anyway (25.10.2026), so it is opened with the disk setting (llamaConfig) and a
+        // warning instead of being refused.
         const need = ramNeedGib(info, a) + (info.mmproj && !a.mmprojGpu ? (info.mmprojGib ?? 0) : 0);
         const free = this.freeRamGib();
         if (need > free) {
-          this.loaded = null;
-          throw new LlmError(`Text model ${info.name} does not fit: about ${need.toFixed(1)} GB of it would go to RAM beyond the GPU, but only ${free.toFixed(1)} GB of RAM is free, so it would swap to disk and stall. Choose a smaller model (or quantization) in Settings › Text model, or close other programs.`, 507);
+          ({ command, args } = this.command(info, true));
+          a = this.lastSetting;
+          this.log(`Warning: text model ${info.name} overflows the RAM: about ${need.toFixed(1)} GB of it goes beyond the GPU but only ${free.toFixed(1)} GB of RAM is free, so Windows pages it from disk; expect well under 1 token/s (every token re-reads the model)${a.draft ? `, draft model ${a.draft.split(/[\\/]/).pop()} speeds it up` : ''}.`);
         }
       }
       this.log(`Loading text model: ${info.name}${a ? ` (context ${a.context / 1024}k, KV ${a.kv}${a.moe ? `, ${a.moe} expert layers in RAM` : ''}${a.ngl < 99 ? `, ${a.ngl} layers on the GPU` : ''}${info.mmproj ? `, vision encoder ${a.mmprojGpu ? 'on the GPU' : 'on the CPU'}` : ''})` : ''}`);

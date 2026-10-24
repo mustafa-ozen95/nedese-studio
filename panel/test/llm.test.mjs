@@ -5,10 +5,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpus, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LENGTH_NOTE, LocalLlm, ggufMetadata, llamaConfig, ramNeedGib, chatToResponses, responsesToChat } from '../lib/llm.mjs';
+import { DRAFT_MAX, LENGTH_NOTE, LocalLlm, draftModel, ggufMetadata, llamaConfig, ramNeedGib, chatToResponses, responsesToChat } from '../lib/llm.mjs';
 import { CancelError } from '../lib/errors.mjs';
 import { createPanel } from './env.mjs';
 
@@ -41,7 +41,7 @@ test('text model settings from GGUF metadata: dense 14B 16k q8_0 KV, MoE as befo
   const dictionary = { 'tokenizer.ggml.tokens': [9, [8, Array.from({ length: 70000 }, (_, i) => `belirtec-${i}-xxxxx`)]], 'tokenizer.ggml.scores': [9, [6, Array.from({ length: 300000 }, () => 0.5)]] };
   const dense = (name, layer, kvBas) => ggufYaz(join(k, name), { 'general.architecture': [8, 'qwen3'], ...dictionary, 'qwen3.block_count': [4, layer], 'qwen3.attention.head_count': [4, 40], 'qwen3.attention.head_count_kv': [4, kvBas], 'qwen3.attention.key_length': [4, 128], 'qwen3.attention.value_length': [4, 128], 'qwen3.embedding_length': [4, 5120] });
   const q14 = dense('q14.gguf', 40, 8);
-  assert.deepEqual(ggufMetadata(q14), { architecture: 'qwen3', layer: 40, expert: 0, kvByte: 163840, contextLength: null, slidingWindow: null });
+  assert.deepEqual(ggufMetadata(q14), { architecture: 'qwen3', layer: 40, expert: 0, kvByte: 163840, contextLength: null, slidingWindow: null, vocab: 70000 });
   assert.deepEqual(llamaConfig({ model: q14, gib: 8.4 }), { ngl: 99, moe: 0, context: 16384, kv: 'q8_0', mmprojGpu: false }, '14B Q4_K_M: 32k f16 KV (~5 GiB) does not fit');
   assert.deepEqual(llamaConfig({ model: dense('q8.gguf', 36, 8), gib: 4.7 }), { ngl: 99, moe: 0, context: 32768, kv: 'f16', mmprojGpu: false }, '8B: 32k fits');
   // Gorsel kodlayici: secilen ayarla butceye sigarsa ekran kartinda; 14B'de sigmaz -> CPU (baglam kuculmez)
@@ -80,22 +80,41 @@ test('text model settings from GGUF metadata: dense 14B 16k q8_0 KV, MoE as befo
 
 /** A dense gemma4 GGUF header like Omni-31B's: 60 layers, every 6th full attention (4 KV heads x 512), the rest a
  * 1024-token sliding window (16 KV heads x 256). */
-function gemma4Dense(file) {
+function gemma4Dense(file, extra = {}) {
   const sliding = Array.from({ length: 60 }, (_, l) => ((l + 1) % 6 ? 1 : 0));
-  return ggufYaz(file, { 'general.architecture': [8, 'gemma4'], 'gemma4.block_count': [4, 60], 'gemma4.context_length': [4, 262144], 'gemma4.embedding_length': [4, 5376], 'gemma4.attention.head_count': [4, 32], 'gemma4.attention.head_count_kv': [9, [4, sliding.map((s) => (s ? 16 : 4))]], 'gemma4.attention.key_length': [4, 512], 'gemma4.attention.value_length': [4, 512], 'gemma4.attention.sliding_window': [4, 1024], 'gemma4.attention.sliding_window_pattern': [9, [4, sliding]], 'gemma4.attention.key_length_swa': [4, 256], 'gemma4.attention.value_length_swa': [4, 256] });
+  return ggufYaz(file, { ...extra, 'general.architecture': [8, 'gemma4'], 'gemma4.block_count': [4, 60], 'gemma4.context_length': [4, 262144], 'gemma4.embedding_length': [4, 5376], 'gemma4.attention.head_count': [4, 32], 'gemma4.attention.head_count_kv': [9, [4, sliding.map((s) => (s ? 16 : 4))]], 'gemma4.attention.key_length': [4, 512], 'gemma4.attention.value_length': [4, 512], 'gemma4.attention.sliding_window': [4, 1024], 'gemma4.attention.sliding_window_pattern': [9, [4, sliding]], 'gemma4.attention.key_length_swa': [4, 256], 'gemma4.attention.value_length_swa': [4, 256] });
 }
 
-test('a text model whose GPU overflow does not fit in the free RAM is not opened (it would swap to disk and stall)', async () => {
+test('a text model whose GPU overflow does not fit in the free RAM is opened with the disk setting and a warning (paged from disk, slow)', async () => {
   const k = mkdtempSync(join(tmpdir(), 'gguf-'));
-  const model = gemma4Dense(join(k, 'big.gguf'));
+  const tokens = (n) => ({ 'tokenizer.ggml.tokens': [9, [8, Array.from({ length: n }, (_, i) => `t${i}`)]] });
+  const model = gemma4Dense(join(k, 'big.gguf'), tokens(1000));
+  // the draft model: the smallest other model of the same architecture and vocabulary, at most a tenth of the size
+  ggufYaz(join(k, 'small.gguf'), { ...tokens(1000), 'general.architecture': [8, 'gemma4'], 'gemma4.block_count': [4, 4], 'gemma4.attention.head_count': [4, 8], 'gemma4.attention.head_count_kv': [4, 2], 'gemma4.embedding_length': [4, 1024] });
+  ggufYaz(join(k, 'other.gguf'), { ...tokens(999), 'general.architecture': [8, 'gemma4'], 'gemma4.block_count': [4, 4], 'gemma4.attention.head_count': [4, 8], 'gemma4.attention.head_count_kv': [4, 2], 'gemma4.embedding_length': [4, 1024] });
+  const models = [{ file: 'big.gguf', gib: 17.4 }, { file: 'small.gguf', gib: 1.2 }, { file: 'other.gguf', gib: 0.5 }];
+  const info = { name: 'big', file: 'big.gguf', model, gib: 17.4, folder: k, models, bin: join(k, 'no-llama-server.exe') };
+  assert.deepEqual(draftModel(info), { model: join(k, 'small.gguf'), gib: 1.2 });
+  assert.equal(draftModel({ ...info, models: models.slice(0, 1) }), null);
+  // Disk setting: 4k q8_0 context, the draft model on the GPU with the layers that fit beside it (17.4 GiB / 61 layers)
+  const disk = llamaConfig(info, 32768, { disk: true });
+  assert.deepEqual(disk, { ngl: 27, moe: 0, context: 4096, kv: 'q8_0', mmprojGpu: false, draft: join(k, 'small.gguf') });
+  assert.equal(llamaConfig({ ...info, models: [] }, 32768, { disk: true }).ngl, 31, 'without a draft model its VRAM holds layers');
   const logs = [];
-  const llm = new LocalLlm({ info: { name: 'big', file: 'big.gguf', model, gib: 17.4, bin: join(k, 'no-llama-server.exe') }, freeRamGib: () => 6, log: (m) => logs.push(m) });
-  await assert.rejects(llm.prepare(), (e) => e.code === 507 && /does not fit: about \d+\.\d GB .* only 6\.0 GB of RAM is free/.test(e.message));
-  assert.equal(llm.proc, null, 'llama-server was not started');
-  assert.equal(logs.length, 0);
-  // With enough free RAM it goes on to start llama-server (a missing binary here: the start error, not the RAM one or a crash)
-  const ok = new LocalLlm({ info: { name: 'big', file: 'big.gguf', model, gib: 11.25, bin: join(k, 'no-llama-server.exe') }, freeRamGib: () => 6, readySec: 5 });
+  // an unused port: the panel's own llama-server on 8091 would answer the health check
+  const llm = new LocalLlm({ info, port: 18091, freeRamGib: () => 6, log: (m) => logs.push(m), readySec: 5 });
+  // the start goes on (a missing binary here: the start error, not a refusal) with the warning and the disk setting
+  await assert.rejects(llm.prepare(), (e) => e.code === 503);
+  assert.match(logs[0], /^Warning: text model big overflows the RAM: about \d+\.\d GB .* only 6\.0 GB of RAM is free.*disk.*draft model small\.gguf/);
+  assert.match(logs[1], /Loading text model: big \(context 4k, KV q8_0, 27 layers on the GPU\)/);
+  assert.ok(llm.command(info, true).args.join(' ').includes(`--spec-type draft-simple -md ${join(k, 'small.gguf')} -ngld 99 --spec-draft-n-max ${DRAFT_MAX} --spec-draft-n-min 1`));
+  assert.ok(llm.command(info, true).args.join(' ').includes(` -t ${cpus().length} `), 'all logical cores page the model in');
+  assert.ok(!llm.command(info).args.includes('-md') && !llm.command(info).args.includes('-t'), 'no draft model when the RAM holds the overflow');
+  // With enough free RAM: the usual setting, no warning
+  const ok = new LocalLlm({ info: { ...info, gib: 11.25 }, freeRamGib: () => 6, readySec: 5, log: (m) => logs.push(m) });
+  logs.length = 0;
   await assert.rejects(ok.prepare(), (e) => e.code === 503);
+  assert.match(logs[0], /^Loading text model: big \(context 16k/);
 });
 
 test('sectioned article helpers: single heading, repetition ratio', async () => {
