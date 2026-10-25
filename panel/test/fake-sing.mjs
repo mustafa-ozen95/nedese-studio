@@ -8,6 +8,9 @@ import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeWav } from '../lib/media.mjs';
 import { expectArgs, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const SCRIPT = 'voice/sing.py';
 const argv = process.argv.slice(2);

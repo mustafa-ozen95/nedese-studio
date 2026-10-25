@@ -11,6 +11,9 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } fr
 import { join } from 'node:path';
 import { makePng } from '../lib/media.mjs';
 import { expectArgs, expectKeys, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const script = process.argv[process.argv.indexOf('-P') + 1] ?? '';
 const a = process.argv.slice(process.argv.indexOf('--') + 1);

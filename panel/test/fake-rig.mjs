@@ -5,6 +5,9 @@
  */
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { expectArgs, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const SCRIPT = 'tools/rig/infer.py';
 const argv = process.argv.slice(2);

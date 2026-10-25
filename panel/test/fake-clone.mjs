@@ -9,6 +9,9 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path';
 import { makeWav } from '../lib/media.mjs';
 import { expectArgs, expectKeys, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const [stage, ...args] = process.argv.slice(2);
 const script = `voice/clone/${stage}.py`;

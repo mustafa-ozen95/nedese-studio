@@ -4,6 +4,9 @@
  * included, gets "EN: <last user message>".
  */
 import { createServer } from 'node:http';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const port = Number(process.argv[2]);
 // Model file the fake was started with (a chat can use its own text model)

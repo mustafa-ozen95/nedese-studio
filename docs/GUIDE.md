@@ -125,9 +125,10 @@ words and instruments stay. `voice\sing.py` drives **YingMusic-SVC** (GiantAILab
 ## Local text model (`llm\`, llama.cpp)
 
 - `llm\bin\`: llama.cpp `llama-server` (ggml-org/llama.cpp b11392, Windows CUDA 13.4).
-- `llm\bin-prism\`: PrismML's llama.cpp build (PrismML-Eng/llama.cpp prism-b10754-2459f68, Windows CUDA 12.4); the PQ2_0 and PTQ1_0 quantizations load only here, the panel picks this server for them.
-- `llm\models\Ternary-Bonsai-2-27B-PQ2_0.gguf`: PrismML Ternary Bonsai 2 27B, PQ2_0 (6.71 GiB), **the default** when nothing is chosen in Settings > Text model; its vision encoder (BF16) is `mmproj-Ternary-Bonsai-2-27B-PQ2_0.gguf`. Measured 08.10.2026: 65 tokens/s on the 12 GB card.
-- `llm\models\gemma-4-26B-qat-q4_0.gguf`: Google Gemma 4 26B-A4B, official QAT Q4_0 (Apache 2.0, 13.45 GiB).
+- `llm\bin-prism\`: PrismML's llama.cpp build (PrismML-Eng/llama.cpp prism-b10754-2459f68, Windows CUDA 12.4); the PQ2_0 and PTQ1_0 quantizations load only here, the panel picks this server for them. Setup no longer installs it (25.10.2026); copy it here to use a Bonsai model.
+- `llm\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf`: Qwen3.6 35B-A3B (Apache 2.0, unsloth UD-Q4_K_XL, 20.8 GiB), **the default** when nothing is chosen in Settings > Text model and the only text model setup downloads (since 25.10.2026); its vision encoder (F16, 0.84 GiB) is `mmproj-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf`. Mixture of experts with ~3B active parameters; measured 25.10.2026 on the 12 GB card with 16 GB RAM: 30-35 tokens/s warm.
+- `llm\models\Ternary-Bonsai-2-27B-PQ2_0.gguf`: PrismML Ternary Bonsai 2 27B, PQ2_0 (6.71 GiB), the default 08-25.10.2026 (still preferred over the others when Qwen3.6 is missing), no longer downloaded; its vision encoder (BF16) is `mmproj-Ternary-Bonsai-2-27B-PQ2_0.gguf`. Measured 08.10.2026: 65 tokens/s on the 12 GB card.
+- `llm\models\gemma-4-26B-qat-q4_0.gguf`: Google Gemma 4 26B-A4B, official QAT Q4_0 (Apache 2.0, 13.45 GiB); no longer downloaded by setup (25.10.2026).
   - Mixture of experts; the expert layers that do not fit on the card stay in RAM (`--n-cpu-moe`, from the file size).
   - Can be changed under Settings > Text model.
 - `llm\models\mmproj-gemma-4-26B-qat-q4_0.gguf`: Gemma's image encoder (official, 1.11 GiB). If `mmproj-<name>` sits next to the model file, the model "understands images": llama-server is started with `--mmproj`, and the `image_url` part of a `/llm/v1/chat/completions` request is read. If it is deleted, the model reads text only.

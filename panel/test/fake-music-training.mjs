@@ -6,6 +6,9 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expectArgs, expectKeys, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const SCRIPT = 'training/music.py';
 const [command, ...args] = process.argv.slice(2);

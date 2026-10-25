@@ -17,13 +17,13 @@ const freePort = () => new Promise((ok) => { const s = createServer().listen(0, 
 const fakeLlm = async (options = {}) => new LocalLlm({ info: { name: 'fake-model', command: (port) => ({ command: process.execPath, args: [FAKE, String(port)] }) }, port: await freePort(), readySec: 20, ...options });
 
 /** En kucuk GGUF: baslik + anahtar-deger (tur 4 u32, 8 metin, 9 dizi [oge turu, liste]); tensor yok. */
-function ggufYaz(file, kv) {
+function ggufYaz(file, kv, tensors = []) {
   const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v); return b; };
   const u64 = (v) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(v)); return b; };
   const f32 = (v) => { const b = Buffer.alloc(4); b.writeFloatLE(v); return b; };
   const str = (s) => { const b = Buffer.from(s, 'utf8'); return Buffer.concat([u64(b.length), b]); };
   const value = (type, v) => (type === 8 ? str(v) : type === 6 ? f32(v) : u32(v));
-  const p = [Buffer.from('GGUF'), u32(3), u64(0), u64(Object.keys(kv).length)];
+  const p = [Buffer.from('GGUF'), u32(3), u64(tensors.length), u64(Object.keys(kv).length)];
   for (const [name, [type, v]] of Object.entries(kv)) {
     p.push(str(name), u32(type));
     if (type === 9) {
@@ -31,6 +31,13 @@ function ggufYaz(file, kv) {
       for (const x of v[1]) p.push(value(v[0], x));
     } else p.push(value(type, v));
   }
+  // tensors: [name, bytes]; info = name, 1 dim, type F32, offset; the data (zeros) follows the header
+  let offset = 0;
+  for (const [name, bytes] of tensors) {
+    p.push(str(name), u32(1), u64(bytes), u32(0), u64(offset));
+    offset += bytes;
+  }
+  p.push(Buffer.alloc(offset));
   writeFileSync(file, Buffer.concat(p));
   return file;
 }
@@ -52,6 +59,14 @@ test('text model settings from GGUF metadata: dense 14B 16k q8_0 KV, MoE as befo
   assert.ok(tooLarge.ngl > 0 && tooLarge.ngl < 40, `14B Q8_0: some layers in RAM (${tooLarge.ngl})`);
   const moe = ggufYaz(join(k, 'moe.gguf'), { 'general.architecture': [8, 'gemma4'], 'gemma4.block_count': [4, 30], 'gemma4.expert_count': [4, 128], 'gemma4.attention.head_count': [4, 16], 'gemma4.attention.head_count_kv': [4, 8], 'gemma4.embedding_length': [4, 2816] });
   assert.deepEqual(llamaConfig({ model: moe, gib: 13.45 }), { ngl: 99, moe: 11, context: 32768, kv: 'f16', mmprojGpu: false }, 'MoE: uzmanlar RAM\'de, 32k');
+  // With tensor sizes in the header (a real file): expert layers from the file's expert share (4 layers, 80 % experts
+  // -> 4 GiB a layer at 20 GiB), what exceeds the budget with the KV cache (0.69 GiB at 32k) goes to RAM, plus one layer
+  const sized = ggufYaz(join(k, 'sized.gguf'), { 'general.architecture': [8, 'gemma4'], 'gemma4.block_count': [4, 4], 'gemma4.expert_count': [4, 128], 'gemma4.attention.head_count': [4, 16], 'gemma4.attention.head_count_kv': [4, 8], 'gemma4.embedding_length': [4, 2816] }, [[`token_embd.weight`, 2 ** 18], ...[0, 1, 2, 3].flatMap((l) => [[`blk.${l}.attn_q.weight`, 2 ** 16], [`blk.${l}.ffn_up_exps.weight`, 2 ** 19], [`blk.${l}.ffn_down_exps.weight`, 2 ** 19]]), ['output.weight', 2 ** 19]]);
+  assert.equal(ggufMetadata(sized).expertShare, 0.8);
+  assert.equal(llamaConfig({ model: sized, gib: 20 }).moe, 3, '20 + 0.69 + 0.6 - 10.8 = 10.5 GiB over 4 GiB layers: 3');
+  assert.equal(llamaConfig({ model: sized, gib: 12 }).moe, 2, '2.5 GiB over 2.4 GiB layers: 2');
+  assert.equal(llamaConfig({ model: sized, gib: 5 }).moe, 0, 'fits: nothing in RAM');
+  assert.ok(Math.abs(ramNeedGib({ model: sized, gib: 12 }, llamaConfig({ model: sized, gib: 12 })) - 4.8) < 0.01, '2 layers x 2.4 GiB');
   // MoE + gorsel kodlayici: kodlayici CPU'da, uzman katmani artmaz (olculdu: yazi hizi degismiyor)
   assert.deepEqual(llamaConfig({ model: moe, gib: 13.45, mmprojGib: 1.11 }), { ngl: 99, moe: 11, context: 32768, kv: 'f16', mmprojGpu: false });
   // Katman basina KV basi dizisi (karma mimari) toplanir
@@ -110,8 +125,13 @@ test('a text model whose GPU overflow does not fit in the free RAM is opened wit
   assert.ok(llm.command(info, true).args.join(' ').includes(`--spec-type draft-simple -md ${join(k, 'small.gguf')} -ngld 99 --spec-draft-n-max ${DRAFT_MAX} --spec-draft-n-min 1`));
   assert.ok(llm.command(info, true).args.join(' ').includes(` -t ${cpus().length} `), 'all logical cores page the model in');
   assert.ok(!llm.command(info).args.includes('-md') && !llm.command(info).args.includes('-t'), 'no draft model when the RAM holds the overflow');
+  // a MoE paged from disk: 2048-token prompt batches, all cores, no draft model (it slowed Qwen3-Next: 13 % accepted)
+  const moeInfo = { name: 'moe', file: 'moe.gguf', model: ggufYaz(join(k, 'moe.gguf'), { 'general.architecture': [8, 'gemma4'], 'gemma4.block_count': [4, 30], 'gemma4.expert_count': [4, 128], 'gemma4.attention.head_count': [4, 16], 'gemma4.attention.head_count_kv': [4, 8], 'gemma4.embedding_length': [4, 2816] }), gib: 45, folder: k, models, bin: info.bin };
+  const moeArgs = llm.command(moeInfo, true).args.join(' ');
+  assert.ok(moeArgs.includes('--n-cpu-moe 30 -c 32768') && moeArgs.includes(` -t ${cpus().length} -b 2048 -ub 2048 `) && !moeArgs.includes('-md'), moeArgs);
+  assert.ok(!llm.command(moeInfo).args.includes('-ub'), 'in RAM: default batches');
   // With enough free RAM: the usual setting, no warning
-  const ok = new LocalLlm({ info: { ...info, gib: 11.25 }, freeRamGib: () => 6, readySec: 5, log: (m) => logs.push(m) });
+  const ok = new LocalLlm({ info: { ...info, gib: 11.25 }, port: 18091, freeRamGib: () => 6, readySec: 5, log: (m) => logs.push(m) });
   logs.length = 0;
   await assert.rejects(ok.prepare(), (e) => e.code === 503);
   assert.match(logs[0], /^Loading text model: big \(context 16k/);
@@ -183,8 +203,10 @@ test('text model list: models trained in the panel come last, the ready-made mod
   assert.equal(findLlm(root, 'Ternary-Bonsai-2-27B-PQ2_0.gguf').bin, join(root, 'llm', 'bin-prism', exe));
   assert.equal(new LocalLlm({ info: findLlm(root, 'Ternary-Bonsai-2-27B-PQ2_0.gguf') }).command().command, join(root, 'llm', 'bin-prism', exe));
   assert.equal(findLlm(root, 'gemma-4-26B-qat-q4_0.gguf').bin, join(root, 'llm', 'bin', exe));
-  // with no choice Bonsai is the default (the user's choice; setup downloads it); a choice still wins
+  // with no choice an older install's Bonsai stays the default over Gemma; Qwen3.6 (setup downloads it) comes first; a choice still wins
   assert.deepEqual([findLlm(root, '').file, findLlm(root, 'nothing.gguf').file], ['Ternary-Bonsai-2-27B-PQ2_0.gguf', 'Ternary-Bonsai-2-27B-PQ2_0.gguf']);
+  writeFileSync(join(root, 'llm', 'models', 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf'), 'x');
+  assert.equal(findLlm(root, '').file, 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf');
   assert.equal(findLlm(root, '').models.at(-1).file, 'adim-trained-20261005-022841-q8_0.gguf', 'trained models stay last');
   assert.equal(findLlm(root, 'gemma-4-26B-qat-q4_0.gguf').file, 'gemma-4-26B-qat-q4_0.gguf');
 });

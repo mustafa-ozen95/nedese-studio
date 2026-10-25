@@ -8,6 +8,9 @@
  */
 import { createServer } from 'node:http';
 import { appendFileSync } from 'node:fs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const port = Number(process.argv[2]);
 const SAME = { automobile: 'car', araba: 'car', otomobil: 'car', vehicle: 'car', arac: 'car', revenue: 'income', gelir: 'income', gelirler: 'income', earnings: 'income', kazanc: 'income' };

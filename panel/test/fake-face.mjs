@@ -6,6 +6,9 @@
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import { expectArgs, expectKeys, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const SCRIPT = 'tools/face_points.py';
 const a = process.argv.slice(2);

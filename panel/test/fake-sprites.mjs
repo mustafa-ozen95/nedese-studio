@@ -6,6 +6,9 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expectArgs, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const SCRIPT = 'tools/sprites.py';
 expectArgs(SCRIPT, process.argv.slice(2));

@@ -10,6 +10,9 @@
 import { appendFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
+// not-a-test.mjs inline: a test copies this file alone into a project folder (an MCP server of its own)
+if (process.env.NODE_TEST_CONTEXT && process.execArgv.some((a) => a.startsWith('--test'))) process.exit(0);
+
 const slowTools = process.argv.includes('--slow');
 const option = (name) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : null);
 const dataSite = option('--data');

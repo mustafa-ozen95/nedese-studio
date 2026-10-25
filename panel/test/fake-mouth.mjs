@@ -7,6 +7,9 @@
 import { appendFileSync, copyFileSync } from 'node:fs';
 import { wavDuration } from '../lib/media.mjs';
 import { expectArgs, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const SCRIPT = 'lip/mouth.py';
 expectArgs(SCRIPT, process.argv.slice(2));

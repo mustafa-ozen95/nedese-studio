@@ -146,8 +146,9 @@ export function findLlm(aiRoot, preference = '') {
   if ((!existsSync(mainBin) && !existsSync(prismBin)) || !existsSync(folder)) return null;
   // Models trained in the panel (Model training, "-trained-") go last: with no choice the ready model stays the default.
   const trained = (d) => (/-trained-/i.test(d) ? 1 : 0);
-  // With no choice Bonsai 2 27B is the default (user's choice since 08.10.2026), then the others by name
-  const preferred = (d) => (/^Ternary-Bonsai-2-27B/i.test(d) ? 0 : 1);
+  // With no choice Qwen3.6 35B-A3B is the default (setup downloads it since 25.10.2026; 30-35 tokens/s on a 12 GB card),
+  // then Bonsai 2 27B (the default 08-25.10.2026, so older installs keep it), then the others by name
+  const preferred = (d) => (/^Qwen3\.6-35B-A3B/i.test(d) ? 0 : /^Ternary-Bonsai-2-27B/i.test(d) ? 1 : 2);
   const files = readdirSync(folder).filter((d) => d.toLowerCase().endsWith('.gguf') && !/^mmproj|^mtp-/i.test(d)).sort((a, b) => trained(a) - trained(b) || preferred(a) - preferred(b) || a.localeCompare(b));
   if (!files.length) return null;
   // Gorsel kodlayici (Model egitimi > Genel ya da elle): ayni klasorde mmproj-<model dosyasi> -> llama-server --mmproj
@@ -226,7 +227,7 @@ export function ggufMetadata(file) {
     if (buffer.toString('latin1', 0, 4) !== 'GGUF') return null;
     i = 4;
     if (number(4) < 2) return null; // surum 1: 32 bit sayaclar
-    number(10); // tensor sayisi
+    const tensorCount = number(10);
     const kvCount = number(10);
     const parent = {};
     for (let k = 0; k < kvCount; k++) {
@@ -244,6 +245,26 @@ export function ggufMetadata(file) {
         else if (count <= 4096) parent[name] = Array.from({ length: count }, () => number(item));
         else skip(count * GGUF_SIZE[item]);
       } else parent[name] = number(type);
+    }
+    // Tensor sizes from the data offsets (consecutive): the share of the file in expert tensors (blk.N.ffn_*_exps), so
+    // llamaConfig fits a MoE whose expert layers are not ~0.4 GiB (Gemma 4 26B: 0.40 GiB a layer, 89 %; Qwen3-Next 80B
+    // Q4_K_M: 0.91 GiB, 96.5 %; Qwen3.6 35B-A3B: 0.46 GiB, 88 %; read 25.10.2026)
+    const tensors = [];
+    for (let t = 0; t < tensorCount; t++) {
+      const name = text();
+      skip(number(4) * 8); // dims
+      number(4); // type
+      tensors.push({ name, offset: number(10) });
+    }
+    let expertShare = null;
+    if (tensors.length) {
+      tensors.sort((a, b) => a.offset - b.offset);
+      const dataSize = size - (position - buffer.length + i); // header end ~ data start (alignment padding ignored)
+      let experts = 0;
+      tensors.forEach((t, j) => {
+        if (/^blk\.\d+\..*_exps\./.test(t.name)) experts += (j + 1 < tensors.length ? tensors[j + 1].offset : dataSize) - t.offset;
+      });
+      if (experts > 0) expertShare = Math.round((experts / dataSize) * 10000) / 10000;
     }
     const m = parent['general.architecture'];
     const get = (k) => parent[`${m}.${k}`];
@@ -275,7 +296,7 @@ export function ggufMetadata(file) {
         else kvByte += heads(l) * headSize * 2;
       });
     }
-    const result = { architecture: m ?? null, layer: layer ?? null, expert: get('expert_count') ?? 0, kvByte, contextLength: get('context_length') ?? null, slidingWindow: get('attention.sliding_window') ?? null, ...(every > 1 ? { attentionEvery: every } : {}), ...(swaByte ? { swaByte } : {}), ...(parent.vocab ? { vocab: parent.vocab } : {}) };
+    const result = { architecture: m ?? null, layer: layer ?? null, expert: get('expert_count') ?? 0, kvByte, contextLength: get('context_length') ?? null, slidingWindow: get('attention.sliding_window') ?? null, ...(every > 1 ? { attentionEvery: every } : {}), ...(swaByte ? { swaByte } : {}), ...(parent.vocab ? { vocab: parent.vocab } : {}), ...(expertShare ? { expertShare } : {}) };
     ggufCache.set(key, result);
     return result;
   } catch {
@@ -317,7 +338,16 @@ export function llamaConfig(info, context = 32768, { budget = VRAM_BUDGET, mmpro
   const u = info.model ? ggufMetadata(info.model) : null;
   if (!u || u.expert > 0 || !u.kvByte) {
     const mmGpu = !mmprojProcessor && mm > 0;
-    return { ngl: 99, moe: moeLayers(gib + (mmGpu ? mm : 0), budget), context, kv: 'f16', mmprojGpu: mmGpu };
+    const onGpu = gib + (mmGpu ? mm : 0);
+    let moe = Math.min(u?.layer ?? Infinity, moeLayers(onGpu, budget));
+    if (u?.expertShare && u.layer) {
+      // Expert layers from the file's own sizes: what exceeds the budget with the KV cache goes to RAM (Gemma 26B at 32k:
+      // 11, as measured; Qwen3-Next 80B at 8k: 41 of 48 -> 9.8 GB VRAM, 6.4-11 tokens/s, all 48 on the CPU 4.2-8.3;
+      // measured 25.10.2026)
+      const need = onGpu + (u.kvByte ? kvCacheGib(u, context, 'f16') : 0) + WORK_SHARE - budget;
+      moe = Math.min(u.layer, Math.max(0, Math.ceil(need / expertLayerGib(info, u))));
+    }
+    return { ngl: 99, moe, context, kv: 'f16', mmprojGpu: mmGpu };
   }
   const layerGib = gib / ((u.layer ?? 40) + 1);
   if (disk) {
@@ -363,6 +393,11 @@ export function draftModel(info, u = info.model ? ggufMetadata(info.model) : nul
   return null;
 }
 
+/** GiB of one layer's expert tensors: from the file's expert share when the header gave it, else the ~0.4 of moeLayers. */
+function expertLayerGib(info, u) {
+  return u?.expertShare && u.layer ? ((info.gib ?? 0) * u.expertShare) / u.layer : 0.4;
+}
+
 /** KV cache size (GiB) for a context: full-attention layers grow with it, sliding-window layers stop at the window
  * (llama.cpp keeps window + one 512-token batch for them). */
 function kvCacheGib(u, context, kv) {
@@ -376,8 +411,8 @@ function kvCacheGib(u, context, kv) {
  */
 export function ramNeedGib(info, a) {
   const gib = info.gib ?? 0;
-  if (a.moe) return a.moe * 0.4;
   const u = info.model ? ggufMetadata(info.model) : null;
+  if (a.moe) return a.moe * expertLayerGib(info, u);
   const layers = (u?.layer ?? 40) + 1;
   if (a.ngl >= layers) return 0;
   const cpuShare = (layers - a.ngl) / layers;
@@ -457,14 +492,16 @@ export class LocalLlm {
   }
 
   /** disk: the CPU share of the model does not fit in the free RAM either (prepare), see llamaConfig; all logical cores
-   * then read pages from disk in parallel (-t 12 vs the default 6 physical: 0.19 vs 0.13 token/s on the 70B). */
+   * then read pages from disk in parallel (-t 12 vs the default 6 physical: 0.19 vs 0.13 token/s on the 70B). A MoE
+   * reads its whole expert set once per prompt batch: 2048-token batches (Qwen3-Next 80B, 591-token prompt: 11.9
+   * tokens/s against 5.0 with 512; 4096 gained nothing and overfilled the VRAM, measured 25.10.2026). */
   command(info = this.info, disk = false) {
     if (info.command) return info.command(this.port, info);
     const a = llamaConfig(info, this.context, { budget: this.budget ?? VRAM_BUDGET, mmprojProcessor: fineSetting('mmprojProcessor'), disk });
     this.lastSetting = a;
     return {
       command: info.bin,
-      args: ['-m', info.model, ...(info.mmproj ? ['--mmproj', info.mmproj, ...(a.mmprojGpu ? [] : ['--no-mmproj-offload'])] : []), '-ngl', String(a.ngl), ...(a.moe ? ['--n-cpu-moe', String(a.moe)] : []), '-c', String(a.context), ...(a.kv !== 'f16' ? ['-ctk', a.kv, '-ctv', a.kv] : []), ...(a.draft ? ['--spec-type', 'draft-simple', '-md', a.draft, '-ngld', '99', '--spec-draft-n-max', String(DRAFT_MAX), '--spec-draft-n-min', '1'] : []), ...(disk ? ['-t', String(cpus().length)] : []), '--parallel', '1', '-fa', 'on', '--jinja', '--reasoning-budget-message', THINKING_END, ...(this.logFile ? ['--log-file', this.logFile] : []), '--host', '127.0.0.1', '--port', String(this.port)],
+      args: ['-m', info.model, ...(info.mmproj ? ['--mmproj', info.mmproj, ...(a.mmprojGpu ? [] : ['--no-mmproj-offload'])] : []), '-ngl', String(a.ngl), ...(a.moe ? ['--n-cpu-moe', String(a.moe)] : []), '-c', String(a.context), ...(a.kv !== 'f16' ? ['-ctk', a.kv, '-ctv', a.kv] : []), ...(a.draft ? ['--spec-type', 'draft-simple', '-md', a.draft, '-ngld', '99', '--spec-draft-n-max', String(DRAFT_MAX), '--spec-draft-n-min', '1'] : []), ...(disk ? ['-t', String(cpus().length)] : []), ...(disk && a.moe ? ['-b', '2048', '-ub', '2048'] : []), '--parallel', '1', '-fa', 'on', '--jinja', '--reasoning-budget-message', THINKING_END, ...(this.logFile ? ['--log-file', this.logFile] : []), '--host', '127.0.0.1', '--port', String(this.port)],
     };
   }
 

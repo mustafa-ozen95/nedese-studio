@@ -15,6 +15,9 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { makeWav, wavDuration } from '../lib/media.mjs';
 import { expectArgs, expectKeys, expectKeysInAny, expectSource } from './script-contract.mjs';
+import { exitIfRunAsTest } from './not-a-test.mjs';
+
+exitIfRunAsTest(import.meta.url);
 
 const a = process.argv.slice(2);
 const value = (name) => {

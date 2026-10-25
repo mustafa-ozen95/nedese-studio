@@ -395,18 +395,6 @@ if (Test-Path (Join-Path $LlmBin 'llama-server.exe')) { Done 'llama.cpp (text mo
     }
     Done 'llama.cpp (text model server) installed.'
 }
-# PrismML's llama.cpp build (llm\bin-prism): the default text model Bonsai 2 27B is PrismML's PQ2_0 quantization,
-# which stock llama.cpp cannot read (PrismML-Eng/llama.cpp prism-b10754-2459f68, Windows CUDA 12.4)
-$PrismBin = Join-Path $Root 'llm\bin-prism'
-if (Test-Path (Join-Path $PrismBin 'llama-server.exe')) { Done 'PrismML llama.cpp (Bonsai server) ready.' } else {
-    New-Item -ItemType Directory -Force $PrismBin | Out-Null
-    foreach ($name in @('llama-prism-b10754-2459f68-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip')) {
-        $zip = Get-Tool $name
-        Invoke-Step $Tar @('-xf', $zip, '-C', $PrismBin) "Extracting $name"
-        Remove-Item $zip -Force
-    }
-    Done 'PrismML llama.cpp (Bonsai server) installed.'
-}
 
 # -- 5. Models (optional) ------------------------------------------------------
 Title 'Models'
@@ -446,43 +434,27 @@ if ($choice -eq 'none') {
         }
         $y = Read-Host '   Download the voice models (Chatterbox, VoxCPM2, Whisper, Qwen3-TTS; ~17 GB)? [Y/n]'
         if ($y -match '^[nN]') { $voiceModels = $false }
-        $y = Read-Host '   Download the text models Bonsai 2 27B (default, ~8 GB) and Gemma 4 26B-A4B QAT (~15 GB)? [Y/n]'
+        $y = Read-Host '   Download the text model Qwen3.6 35B-A3B (reads images too, ~22 GB)? [Y/n]'
         if ($y -match '^[nN]') { $textModel = $false }
     }
-    # The text models (Settings > Text model; /llm/v1). The default: PrismML's Ternary Bonsai 2 27B (PQ2_0, 6.7 GiB, runs
-    # on llm\bin-prism; the panel picks it when nothing is chosen) with its vision encoder (BF16) saved as mmproj-<model>
+    # The text model (Settings > Text model; /llm/v1): Qwen3.6 35B-A3B (Apache 2.0, unsloth's UD-Q4_K_XL GGUF, 20.8 GiB).
+    # A MoE with ~3B active parameters: the panel keeps the expert layers that do not fit the card in RAM (measured
+    # 25.10.2026 on a 12 GB card with 16 GB RAM: 30-35 tokens/s). Its vision encoder (F16) is saved as mmproj-<model>, so
+    # one model writes and reads images; Bonsai 2 27B and Gemma 4 26B are no longer downloaded (any GGUF copied into
+    # llm\models is still a choice).
     if ($textModel) {
-        $bonsai = Join-Path $Root 'llm\models\Ternary-Bonsai-2-27B-PQ2_0.gguf'
-        New-Item -ItemType Directory -Force (Split-Path $bonsai) | Out-Null
-        if (Test-Path $bonsai) { Done 'Text model (Bonsai 2 27B) ready.' } else {
-            Info 'Downloading the text model Bonsai 2 27B PQ2_0 (~7 GB)...'
-            Fetch 'https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf/resolve/main/Ternary-Bonsai-2-27B-PQ2_0.gguf' "$bonsai.part" '3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1'
-            Move-Item "$bonsai.part" $bonsai
-            Done 'Text model (Bonsai 2 27B) downloaded.'
+        $qwen = Join-Path $Root 'llm\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf'
+        New-Item -ItemType Directory -Force (Split-Path $qwen) | Out-Null
+        if (Test-Path $qwen) { Done 'Text model (Qwen3.6 35B-A3B) ready.' } else {
+            Info 'Downloading the text model Qwen3.6 35B-A3B UD-Q4_K_XL (~21 GB)...'
+            Fetch 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf' "$qwen.part" '707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450'
+            Move-Item "$qwen.part" $qwen
+            Done 'Text model (Qwen3.6 35B-A3B) downloaded.'
         }
-        $bonsaiVision = Join-Path $Root 'llm\models\mmproj-Ternary-Bonsai-2-27B-PQ2_0.gguf'
-        if (-not (Test-Path $bonsaiVision)) {
-            Fetch 'https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf/resolve/main/Ternary-Bonsai-2-27B-mmproj-BF16.gguf' "$bonsaiVision.part" 'e287342d92332fa3577ed1d42e921dac9370c08da58ba9337fa450f6cc76cfd7'
-            Move-Item "$bonsaiVision.part" $bonsaiVision
-            Done 'Bonsai''s vision encoder downloaded.'
-        }
-    }
-    # The second text model (a choice in Settings > Text model): Google's official Gemma 4 QAT Q4_0 GGUF (Apache 2.0)
-    if ($textModel) {
-        $gemma = Join-Path $Root 'llm\models\gemma-4-26B-qat-q4_0.gguf'
-        New-Item -ItemType Directory -Force (Split-Path $gemma) | Out-Null
-        if (Test-Path $gemma) { Done 'Text model (Gemma 4 26B) ready.' } else {
-            Info 'Downloading the text model Gemma 4 26B-A4B QAT Q4_0 (~14 GB)...'
-            $part = "$gemma.part"
-            Fetch 'https://huggingface.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf/resolve/main/gemma-4-26B_q4_0-it.gguf' $part '3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d'
-            Move-Item $part $gemma
-            Done 'Text model (Gemma 4 26B) downloaded.'
-        }
-        # The vision encoder (official, 1.19 GB): the text model reads images too; the panel runs it on the CPU for MoE models (the writing speed does not change)
-        $gemmaVision = Join-Path $Root 'llm\models\mmproj-gemma-4-26B-qat-q4_0.gguf'
-        if (-not (Test-Path $gemmaVision)) {
-            Fetch 'https://huggingface.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf/resolve/main/gemma-4-26B-it-mmproj.gguf' "$gemmaVision.part" 'a359953a076b877db30c31dbbb4c6d93b4a6e017ee5db5784247e4d4c0dd4f3b'
-            Move-Item "$gemmaVision.part" $gemmaVision
+        $qwenVision = Join-Path $Root 'llm\models\mmproj-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf'
+        if (-not (Test-Path $qwenVision)) {
+            Fetch 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf' "$qwenVision.part" '8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f'
+            Move-Item "$qwenVision.part" $qwenVision
             Done 'The text model''s vision encoder downloaded.'
         }
     }
