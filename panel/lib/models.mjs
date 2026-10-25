@@ -27,7 +27,19 @@ export const FOLDERS = {
   latentsync: 'Mouth correction (LatentSync)',
   singing: 'Singing voice (YingMusic-SVC)',
   rigging: 'Character skeleton (Make-It-Animatable)',
+  llm: 'Text models (llm\\models: Settings > Text model, chat)',
 };
+
+// The text models are not under the model root: llama-server (llm.mjs findLlm) reads <install>\llm\models.
+let llmFolder = null;
+/** Sets the text model folder (server.mjs: <aiRoot>\llm\models); unset, it is next to the default model root. */
+export function setLlmFolder(path) {
+  llmFolder = path;
+}
+/** A model folder's path: <modelRoot>\<folder>, the text models' own folder for 'llm'. */
+export function folderDir(modelRoot, folder) {
+  return folder === 'llm' ? (llmFolder ?? resolve(modelRoot, '..', 'llm', 'models')) : join(modelRoot, folder);
+}
 
 const MODEL_FIELDS = { unet_name: 'diffusion_models', ckpt_name: 'checkpoints', lora_name: 'loras', clip_name: 'text_encoders', clip_name1: 'text_encoders', clip_name2: 'text_encoders', vae_name: 'vae', bg_removal_name: 'background_removal', audio_encoder_name: 'audio_encoders' };
 // Ayni alan adi farkli klasorde: CLIPVisionLoader'in clip_name'i clip_vision'dan okur.
@@ -88,7 +100,7 @@ export function diskStatus(path) {
 export function installedModels(modelRoot, mod) {
   const user = usedFiles(mod);
   const folders = Object.entries(FOLDERS).map(([name, description]) => {
-    const path = join(modelRoot, name);
+    const path = folderDir(modelRoot, name);
     const files = [];
     if (existsSync(path)) {
       for (const d of readdirSync(path).sort((a, b) => a.localeCompare(b, 'tr'))) {
@@ -118,8 +130,8 @@ export function checkModelExtension(file) {
 export function modelPath(modelRoot, folder, file) {
   if (!FOLDERS[folder]) throw new UserError(`Invalid model folder: ${folder}`);
   if (!FILE_NAME.test(String(file)) || file === '.' || file === '..') throw new UserError('Invalid file name (letters, digits, dot, hyphen, underscore only).');
-  const path = resolve(modelRoot, folder, file);
-  if (!path.startsWith(resolve(modelRoot, folder) + sep)) throw new UserError('The file is outside the model folder.');
+  const path = resolve(folderDir(modelRoot, folder), file);
+  if (!path.startsWith(resolve(folderDir(modelRoot, folder)) + sep)) throw new UserError('The file is outside the model folder.');
   return path;
 }
 
@@ -146,6 +158,13 @@ export async function deleteModel({ modelRoot, mod, folder, file, force = false,
  */
 const HF = 'https://huggingface.co';
 export const CATALOG = [
+  // Text models (llama.cpp; Settings > Text model, chat and agent): huihui-ai's uncensored (abliterated) Qwen builds in
+  // mradermacher's Q4_K_M GGUF, the ones setup downloads (25.10.2026). Mixture of experts with ~3B active parameters:
+  // the expert layers that do not fit the card stay in RAM (12 GB card + 16 GB RAM: 35B 39-44 tokens/s, 80B 8-13).
+  // The vision encoder is saved as mmproj-<model>, so the 35B reads images too.
+  { id: 'text-qwen36-35b', group: 'Text models (chat, agent)', name: 'Qwen3.6 35B-A3B uncensored Q4_K_M (default, reads images)', folder: 'llm', file: 'Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf', url: `${HF}/mradermacher/Huihui-Qwen3.6-35B-A3B-abliterated-GGUF/resolve/main/Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf`, size: 21166758784, sha256: 'fbaa4eb3e2365abffd495c5efa7df88c2b2a5088ba32cd2895973d130991e92b' },
+  { id: 'text-qwen36-35b-vision', group: 'Text models (chat, agent)', name: 'Qwen3.6 35B-A3B vision encoder (F16)', folder: 'llm', file: 'mmproj-Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf', urlFile: 'Huihui-Qwen3.6-35B-A3B-abliterated.mmproj-f16.gguf', url: `${HF}/mradermacher/Huihui-Qwen3.6-35B-A3B-abliterated-GGUF/resolve/main/Huihui-Qwen3.6-35B-A3B-abliterated.mmproj-f16.gguf`, size: 899283616, sha256: '284a01871fea0abae77672967576d53717cf7fa465ba3eb9d6deb98521f943a6' },
+  { id: 'text-qwen3next-80b', group: 'Text models (chat, agent)', name: 'Qwen3-Next 80B-A3B uncensored Q4_K_M (harder questions, slower)', folder: 'llm', file: 'Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated.Q4_K_M.gguf', url: `${HF}/mradermacher/Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated-GGUF/resolve/main/Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated.Q4_K_M.gguf`, size: 48410989216, sha256: 'fc21ad98215cafb548d0386439cbc6dfeadc540f3fec9333f70b596c2504cd5e' },
   // Qwen-Image (gorsel)
   { id: 'qwen-q4', group: 'Qwen-Image (image)', name: 'Qwen-Image-2512 Q4_K_M', folder: 'diffusion_models', file: 'qwen-image-2512-Q4_K_M.gguf', url: `${HF}/unsloth/Qwen-Image-2512-GGUF/resolve/main/qwen-image-2512-Q4_K_M.gguf`, size: 13244758560, sha256: 'b2a5f6249eb58ee10c9e2ce8cb1114b89897db23de2fdf7dc49140800aa928fc', note: 'Default (12 GB card, 16 GB RAM).' },
   { id: 'qwen-q4-0', variant: true, group: 'Qwen-Image (image)', name: 'Qwen-Image-2512 Q4_0', folder: 'diffusion_models', file: 'qwen-image-2512-Q4_0.gguf', url: `${HF}/unsloth/Qwen-Image-2512-GGUF/resolve/main/qwen-image-2512-Q4_0.gguf`, size: 11852773920, sha256: '0b2d5468d9e85a2b1d0310dbf0ac056386302406129a5bb258ce4a7422e2f3fe', note: 'Less RAM.' },
@@ -225,7 +244,7 @@ export const CATALOG = [
 /** Katalog + kurulu mu bilgisi. */
 export function catalogStatus(modelRoot) {
   return CATALOG.map((k) => {
-    const path = join(modelRoot, k.folder, k.file);
+    const path = join(folderDir(modelRoot, k.folder), k.file);
     let installed = false;
     let sizeMismatch = false;
     if (existsSync(path)) {

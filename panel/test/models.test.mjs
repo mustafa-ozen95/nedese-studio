@@ -43,6 +43,30 @@ test('catalog: every entry is complete (url, bytes, sha256), ids are unique, fil
   }
 });
 
+test('catalog: the text models are listed, downloaded and deleted in llm\\models, where llama-server reads them', async () => {
+  const { folderDir, setLlmFolder, catalogStatus } = await import('../lib/models.mjs');
+  const text = CATALOG.filter((k) => k.folder === 'llm').map((k) => k.file);
+  assert.deepEqual(text, ['Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf', 'mmproj-Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf', 'Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated.Q4_K_M.gguf']);
+  const root = mkdtempSync(join(tmpdir(), 'llm-catalog-'));
+  try {
+    const modelRoot = join(root, 'models');
+    // unset: next to the default model root (<install>\models -> <install>\llm\models)
+    assert.equal(folderDir(modelRoot, 'llm'), join(root, 'llm', 'models'));
+    assert.equal(folderDir(modelRoot, 'vae'), join(modelRoot, 'vae'));
+    setLlmFolder(join(root, 'elsewhere', 'llm', 'models'));
+    assert.equal(modelPath(modelRoot, 'llm', text[0]), join(root, 'elsewhere', 'llm', 'models', text[0]));
+    assert.throws(() => modelPath(modelRoot, 'llm', '..'), UserError);
+    mkdirSync(join(root, 'elsewhere', 'llm', 'models'), { recursive: true });
+    writeFileSync(join(root, 'elsewhere', 'llm', 'models', text[1]), 'x');
+    assert.deepEqual(installedModels(modelRoot, {}).folders.find((f) => f.name === 'llm').files.map((f) => f.file), [text[1]]);
+    const status = catalogStatus(modelRoot).find((k) => k.file === text[1]);
+    assert.deepEqual([status.installed, status.sizeMismatch], [true, true]);
+  } finally {
+    setLlmFolder(null);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('installed models: workflow that uses them, quantization options, deletion rules', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ai-panel-model-'));
   try {

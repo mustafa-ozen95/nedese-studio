@@ -37,6 +37,7 @@ const used = usedFiles(comfy);
 const list = [];
 for (const k of CATALOG) {
   if (!isDefaultModel(k)) continue;
+  if (k.folder === 'llm') continue; // the text models: setup.ps1 downloads them (its own question)
   const generators = used[`${k.folder}/${k.file}`];
   if (generators && generators.every((u) => skip.has(u))) continue;
   list.push({ name: k.name, target: join(MODEL_ROOT, k.folder, k.file), url: k.url, size: k.size, sha256: k.sha256 });

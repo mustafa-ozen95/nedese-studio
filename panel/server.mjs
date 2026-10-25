@@ -21,6 +21,7 @@ import { LocalLlm, findLlm } from './lib/llm.mjs';
 import { setPromptTranslation, setTextModel } from './lib/prompt-translate.mjs';
 import { Updater } from './lib/update.mjs';
 import { fineSetting, bindFineSettings } from './lib/fine-settings.mjs';
+import { setLlmFolder } from './lib/models.mjs';
 import { measureGpu } from './lib/gpu.mjs';
 import { Database } from './lib/database.mjs';
 import { createComfyProxy } from './lib/comfy-proxy.mjs';
@@ -89,6 +90,8 @@ migrateLegacyData({ dataRoot: setting.dataRoot, outputRoot: setting.outputRoot, 
 const settingFile = new SettingsFile(join(setting.dataRoot, DATA_FILES.settings));
 // Ayarlar > "İstemleri İngilizceye çevir" (kapaliysa istemler modele yazildigi gibi gider)
 setPromptTranslation(() => settingFile.translatePrompt);
+// Settings > Models lists and downloads the text models where llama-server reads them
+setLlmFolder(join(setting.aiRoot, 'llm', 'models'));
 // Ayarlar > Ince ayarlar (donanima gore): kullanan kod her seferinde ayar dosyasindan okur
 bindFineSettings(() => settingFile.fineSettings);
 setting.selectVoiceEngine = () => settingFile.voiceEngine;

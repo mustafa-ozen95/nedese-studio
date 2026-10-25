@@ -11,7 +11,7 @@ import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, 
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { UserError } from './errors.mjs';
-import { CATALOG, FOLDERS, diskStatus, checkModelExtension, modelPath } from './models.mjs';
+import { CATALOG, FOLDERS, diskStatus, checkModelExtension, modelPath, folderDir } from './models.mjs';
 import { bytesDone, fetchSegments } from './segments.mjs';
 
 const FILE_NAME = /^[\w.-]+$/;
@@ -177,7 +177,7 @@ export class Downloader {
   }
 
   partialPath(i) {
-    return `${join(this.modelRoot, i.folder, i.file)}.downloading`;
+    return `${join(folderDir(this.modelRoot, i.folder), i.file)}.downloading`;
   }
 
   /**
@@ -251,7 +251,7 @@ export class Downloader {
       record = { name: g.name ? String(g.name).slice(0, 120) : file, url: url.href, folder, file, expected, sha256, catalog: null };
     }
     modelPath(this.modelRoot, record.folder, record.file);
-    const target = join(this.modelRoot, record.folder, record.file);
+    const target = join(folderDir(this.modelRoot, record.folder), record.file);
     if (existsSync(target)) {
       const size = statSync(target).size;
       if (!record.expected || size === record.expected) throw new UserError(`${record.file} is already installed.`);
@@ -313,7 +313,7 @@ export class Downloader {
   }
 
   async forwardLocal(i, signal) {
-    const target = join(this.modelRoot, i.folder, i.file);
+    const target = join(folderDir(this.modelRoot, i.folder), i.file);
     const partial = this.partialPath(i);
     mkdirSync(dirname(target), { recursive: true });
     i.status = 'downloading';
@@ -395,7 +395,7 @@ export class Downloader {
     const other = this.enabledRecord(i.folder, i.file, i);
     if (other) throw new UserError(`There is another entry for ${i.file} (${statusLabel(other.status)}); finish or delete it first.`, 'inUse');
     // Bu arada baska kayitla (ya da yuklemeyle) kurulduysa uzerine yeniden indirme
-    if (existsSync(join(this.modelRoot, i.folder, i.file)) && !(i.type === 'local' && i.writeOnto)) throw new UserError(`${i.file} is already installed.`, 'inUse');
+    if (existsSync(join(folderDir(this.modelRoot, i.folder), i.file)) && !(i.type === 'local' && i.writeOnto)) throw new UserError(`${i.file} is already installed.`, 'inUse');
     i.status = 'queued';
     i.error = null;
     i.downloaded = i.type === 'local' ? 0 : this.partialSize(i);
@@ -475,7 +475,7 @@ export class Downloader {
   }
 
   async download(i, signal) {
-    const target = join(this.modelRoot, i.folder, i.file);
+    const target = join(folderDir(this.modelRoot, i.folder), i.file);
     const partial = this.partialPath(i);
     mkdirSync(dirname(target), { recursive: true });
     i.status = 'downloading';

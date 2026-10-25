@@ -15,7 +15,7 @@ import { addVoice, listVoices, voicePath } from './voices.mjs';
 import { moveToRecycleBin } from './deletion.mjs';
 import { closeComfy } from './comfy-process.mjs';
 import { freePath, writeBody, stamp } from './request.mjs';
-import { diskStatus, catalogStatus, isDefaultModel, installedModels, deleteModel, checkModelExtension, modelPath } from './models.mjs';
+import { diskStatus, catalogStatus, isDefaultModel, installedModels, deleteModel, checkModelExtension, modelPath, folderDir } from './models.mjs';
 import { FAMILIES, checkQuantization, quantizationOptions } from './quantization.mjs';
 import { IMAGE_MODELS, QUALITY, MUSIC_EXTENSIONS, RATIOS, VIDEO_MODELS, text, number, choice, slug, generatorStatus } from './jobs/common.mjs';
 import { writeScenes } from './scene-writer.mjs';
@@ -933,7 +933,7 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       };
       check();
       const expected = Number(req.headers['content-length'] ?? 0) || null;
-      mkdirSync(join(setting.modelRoot, String(folder)), { recursive: true });
+      mkdirSync(folderDir(setting.modelRoot, String(folder)), { recursive: true });
       const partial = `${target}.uploading`;
       const height = await writeBody(req, partial, Infinity);
       if (expected && height !== expected) {
