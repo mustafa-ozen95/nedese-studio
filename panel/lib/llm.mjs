@@ -758,6 +758,19 @@ const THINKING_END = 'Enough thinking; writing the final answer now.';
  * "ibret", "doğrudur" -> "doğrud습니다"; 7 denemenin 4'unde); 0.3'te 6 denemede hic, kararlar ayni (04.10.2026).
  */
 export const TEMPERATURE_CAP = 0.3;
+
+/**
+ * Sampling for a local Qwen model (file name), Qwen's own recommendation: thinking temperature 1.0, top_p 0.95; without
+ * thinking (and the Instruct models, which never think) 0.7 and 0.8; both top_k 20, min_p 0, presence_penalty 1.5.
+ * Measured 25.10.2026 on the uncensored Qwen3.6 35B-A3B (3 reasoning prompts x 2, 3072 thinking tokens): repeated
+ * sentences in the thinking 0.5 a run against 1.83 at the old 0.3 (whose one looping run hit max_tokens), same speed;
+ * copying a Turkish text 5 times corrupted no word (the cap above was set for Gemma). null for other models.
+ */
+export function modelSampling(file, thinking) {
+  if (!/qwen/i.test(String(file ?? ''))) return null;
+  const think = thinking && !/instruct/i.test(file);
+  return { temperature: think ? 1.0 : 0.7, top_p: think ? 0.95 : 0.8, top_k: 20, min_p: 0, presence_penalty: 1.5 };
+}
 /**
  * Sistem istemine eklenen not. Gemma uzunluk/adet talimatini alt sinirin altinda tutuyordu (bolum yazici
  * "2 bolum, 3-4 paragraf" icin ~260 kelime, bir kez 49; DeepSeek ~550); notla ~350-390 (04.10.2026).

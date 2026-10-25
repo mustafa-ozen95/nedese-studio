@@ -8,7 +8,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { cpus, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DRAFT_MAX, LENGTH_NOTE, LocalLlm, draftModel, ggufMetadata, llamaConfig, ramNeedGib, chatToResponses, responsesToChat } from '../lib/llm.mjs';
+import { DRAFT_MAX, LENGTH_NOTE, LocalLlm, draftModel, ggufMetadata, llamaConfig, ramNeedGib, chatToResponses, responsesToChat, modelSampling } from '../lib/llm.mjs';
 import { CancelError } from '../lib/errors.mjs';
 import { createPanel } from './env.mjs';
 
@@ -410,4 +410,12 @@ test('/llm/v1: key required; responses in DeepSeek format and JSON; chat/complet
     await llm.close();
     await p.close();
   }
+});
+
+test('sampling: a local Qwen gets its own (thinking 1.0 / 0.95, otherwise and Instruct 0.7 / 0.8, presence 1.5); other models none', () => {
+  assert.deepEqual(modelSampling('Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf', true), { temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0, presence_penalty: 1.5 });
+  assert.deepEqual(modelSampling('Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf', false), { temperature: 0.7, top_p: 0.8, top_k: 20, min_p: 0, presence_penalty: 1.5 });
+  assert.equal(modelSampling('Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated.Q4_K_M.gguf', true).temperature, 0.7, 'an Instruct model never thinks');
+  assert.equal(modelSampling('gemma-4-26B-qat-q4_0.gguf', true), null);
+  assert.equal(modelSampling(undefined, true), null);
 });

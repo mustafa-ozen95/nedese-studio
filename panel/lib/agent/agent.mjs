@@ -24,7 +24,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import { basename, dirname, join, resolve } from 'node:path';
 import { hostname, tmpdir } from 'node:os';
 import { CancelError, UserError } from '../errors.mjs';
-import { LlmError, TEMPERATURE_CAP, THINKING_BUDGET } from '../llm.mjs';
+import { LlmError, TEMPERATURE_CAP, THINKING_BUDGET, modelSampling } from '../llm.mjs';
 import { REMOTE_MODEL, remoteContext, remoteReadsImages, remoteRequest } from '../remote-llm.mjs';
 import { APPROVAL_MODES, TOOLS, Processes, WebBrowser, allowRules, allowedBy, cleanRule, planAllows, fileStream, mcpInstructions, mcpTool, messageLanguage, needsApproval, parsePath, sameRule, searchFold, searchWords, sourcePath, terminalText, truncate } from './tools.mjs';
 import { McpManager, nativeMcpTools } from './mcp.mjs';
@@ -558,7 +558,10 @@ export class AgentManager {
     const remote = this.remoteFor(s);
     if (remote) return remoteRequest(remote, body, { signal: options.signal, onChunk: options.onChunk });
     // the remote model's entry never goes to llama-server (Settings changed while this call was being prepared)
-    return this.llm.req('/v1/chat/completions', body, options.info?.remote ? { ...options, info: this.localInfo(s) } : options);
+    const local = options.info?.remote ? { ...options, info: this.localInfo(s) } : options;
+    // a local Qwen gets its own sampling (modelSampling: the old 0.3 looped in its thinking, user report 25.10.2026)
+    const sampling = modelSampling(local.info?.file ?? this.llm?.info?.file, body.chat_template_kwargs?.enable_thinking === true);
+    return this.llm.req('/v1/chat/completions', sampling ? { ...body, ...sampling } : body, local);
   }
 
   /** temporary: never saved (memory only, gone when deleted or when the panel restarts; user request 08.10.2026). */
