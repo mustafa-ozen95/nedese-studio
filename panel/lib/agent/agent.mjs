@@ -2771,11 +2771,13 @@ ${project.instructions}` : ''}`);
   }
 
   /**
-   * Room of the conversation: from the empty chat to the point where auto compact starts (the context window less the
-   * answer's reserve and the fixed part: instructions, tools, summary). The gauge shows the conversation against it.
+   * Room of the conversation: the context window less the fixed part (instructions, tools, summary). The gauge shows
+   * the conversation against it; auto compact starts earlier, at contextBudget (the answer's reserve). It was measured
+   * against that budget until 25.10.2026: a long answer then read 22.2k / 21.0k on a 32k window (user: "Context kısmı
+   * doğru değil").
    */
   conversationRoom(s) {
-    return Math.max(1024, this.contextBudget(s) - (s.fixedTokens ?? this.baseTokens ?? 2000));
+    return Math.max(1024, this.contextSize(s) - (s.fixedTokens ?? this.baseTokens ?? 2000));
   }
 
   contextBudget(s = null) {
