@@ -207,6 +207,9 @@ test('text model list: models trained in the panel come last, the ready-made mod
   assert.deepEqual([findLlm(root, '').file, findLlm(root, 'nothing.gguf').file], ['Ternary-Bonsai-2-27B-PQ2_0.gguf', 'Ternary-Bonsai-2-27B-PQ2_0.gguf']);
   writeFileSync(join(root, 'llm', 'models', 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf'), 'x');
   assert.equal(findLlm(root, '').file, 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf');
+  // the uncensored build setup downloads since 25.10.2026 comes before the official one
+  writeFileSync(join(root, 'llm', 'models', 'Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf'), 'x');
+  assert.equal(findLlm(root, '').file, 'Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf');
   assert.equal(findLlm(root, '').models.at(-1).file, 'adim-trained-20261005-022841-q8_0.gguf', 'trained models stay last');
   assert.equal(findLlm(root, 'gemma-4-26B-qat-q4_0.gguf').file, 'gemma-4-26B-qat-q4_0.gguf');
 });

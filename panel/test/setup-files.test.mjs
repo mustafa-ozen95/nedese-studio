@@ -2,7 +2,8 @@
  * Setup (setup\setup.ps1 + setup\tools.json): every tool it extracts is listed with its size and SHA-256, and the text
  * model it downloads is the one the panel picks when nothing is chosen (user 10.10.2026: the fresh install had only
  * Gemma, "Bonsai varsayılan yapmıştık"). Since 25.10.2026 that is Qwen3.6 35B-A3B alone: Bonsai, its PrismML server and
- * Gemma are no longer downloaded (user: "gereksiz model indirmesin kullanıcılar").
+ * Gemma are no longer downloaded (user: "gereksiz model indirmesin kullanıcılar"); later that day the uncensored builds
+ * of Qwen3.6 35B-A3B and Qwen3-Next 80B-A3B (user: "İkisini de varsayılan koyalım insin otomatik").
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +15,7 @@ import { findLlm } from '../lib/llm.mjs';
 
 const setup = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'setup');
 
-test('setup: the tools it extracts are in tools.json; only Qwen3.6 35B-A3B (with its encoder) is downloaded and it is the default', () => {
+test('setup: the tools it extracts are in tools.json; the text models are Qwen3.6 35B-A3B (with its encoder, the default) and Qwen3-Next 80B-A3B', () => {
   const script = readFileSync(join(setup, 'setup.ps1'), 'utf8');
   const tools = JSON.parse(readFileSync(join(setup, 'tools.json'), 'utf8'));
   const named = [...script.matchAll(/'([\w.+-]+\.(?:zip|7z|tar\.gz|exe))'/g)].map((m) => m[1]).filter((n) => !/^llama-server\.exe$/.test(n));
@@ -24,9 +25,9 @@ test('setup: the tools it extracts are in tools.json; only Qwen3.6 35B-A3B (with
     assert.ok(t && t.size > 0 && /^[0-9a-f]{64}$/.test(t.sha256), `tools.json lists ${n}`);
   }
   assert.doesNotMatch(script, /bin-prism/);
-  // the text model setup saves: Qwen3.6 with its encoder
-  const models = [...script.matchAll(/'llm\\models\\([\w.-]+\.gguf)'/g)].map((m) => m[1]);
-  assert.deepEqual(models, ['Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf', 'mmproj-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf']);
+  // the text models setup saves, each with its SHA-256: Qwen3.6 with its encoder, Qwen3-Next 80B
+  const models = [...script.matchAll(/file = '([\w.-]+\.gguf)'; url = "[^"]+"; sha = '[0-9a-f]{64}'/g)].map((m) => m[1]);
+  assert.deepEqual(models, ['Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf', 'mmproj-Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf', 'Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated.Q4_K_M.gguf']);
   // next to an older install's Bonsai and Gemma, with nothing chosen, the panel opens Qwen3.6 on the stock server
   const root = mkdtempSync(join(tmpdir(), 'setup-models-'));
   const exe = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server';

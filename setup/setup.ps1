@@ -434,28 +434,33 @@ if ($choice -eq 'none') {
         }
         $y = Read-Host '   Download the voice models (Chatterbox, VoxCPM2, Whisper, Qwen3-TTS; ~17 GB)? [Y/n]'
         if ($y -match '^[nN]') { $voiceModels = $false }
-        $y = Read-Host '   Download the text model Qwen3.6 35B-A3B (reads images too, ~22 GB)? [Y/n]'
+        $y = Read-Host '   Download the text models Qwen3.6 35B-A3B (reads images too, ~22 GB) and Qwen3-Next 80B-A3B (~48 GB)? [Y/n]'
         if ($y -match '^[nN]') { $textModel = $false }
     }
-    # The text model (Settings > Text model; /llm/v1): Qwen3.6 35B-A3B (Apache 2.0, unsloth's UD-Q4_K_XL GGUF, 20.8 GiB).
-    # A MoE with ~3B active parameters: the panel keeps the expert layers that do not fit the card in RAM (measured
-    # 25.10.2026 on a 12 GB card with 16 GB RAM: 30-35 tokens/s). Its vision encoder (F16) is saved as mmproj-<model>, so
-    # one model writes and reads images; Bonsai 2 27B and Gemma 4 26B are no longer downloaded (any GGUF copied into
-    # llm\models is still a choice).
+    # The text models (Settings > Text model; /llm/v1), huihui-ai's abliterated (uncensored) Qwen builds in mradermacher's
+    # Q4_K_M GGUF, both MoE with ~3B active parameters: the panel keeps the expert layers that do not fit the card in RAM.
+    # Measured 25.10.2026 on a 12 GB card with 16 GB RAM: Qwen3.6 35B-A3B 39-44 tokens/s (the default; its vision encoder
+    # is saved as mmproj-<model>, so it reads images too), Qwen3-Next 80B-A3B 8-13 (harder questions). The MTP build was
+    # no faster (its draft passes run the CPU experts again). Bonsai 2 27B and Gemma 4 26B are no longer downloaded (any
+    # GGUF copied into llm\models is still a choice).
     if ($textModel) {
-        $qwen = Join-Path $Root 'llm\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf'
-        New-Item -ItemType Directory -Force (Split-Path $qwen) | Out-Null
-        if (Test-Path $qwen) { Done 'Text model (Qwen3.6 35B-A3B) ready.' } else {
-            Info 'Downloading the text model Qwen3.6 35B-A3B UD-Q4_K_XL (~21 GB)...'
-            Fetch 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf' "$qwen.part" '707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450'
-            Move-Item "$qwen.part" $qwen
-            Done 'Text model (Qwen3.6 35B-A3B) downloaded.'
-        }
-        $qwenVision = Join-Path $Root 'llm\models\mmproj-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf'
-        if (-not (Test-Path $qwenVision)) {
-            Fetch 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf' "$qwenVision.part" '8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f'
-            Move-Item "$qwenVision.part" $qwenVision
-            Done 'The text model''s vision encoder downloaded.'
+        $hf = 'https://huggingface.co/mradermacher'
+        $texts = @(
+            @{ name = 'Qwen3.6 35B-A3B'; file = 'Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf'; url = "$hf/Huihui-Qwen3.6-35B-A3B-abliterated-GGUF/resolve/main/Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf"; sha = 'fbaa4eb3e2365abffd495c5efa7df88c2b2a5088ba32cd2895973d130991e92b'; gb = 22 },
+            @{ name = 'Qwen3.6 35B-A3B vision encoder'; file = 'mmproj-Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf'; url = "$hf/Huihui-Qwen3.6-35B-A3B-abliterated-GGUF/resolve/main/Huihui-Qwen3.6-35B-A3B-abliterated.mmproj-f16.gguf"; sha = '284a01871fea0abae77672967576d53717cf7fa465ba3eb9d6deb98521f943a6'; gb = 1 },
+            @{ name = 'Qwen3-Next 80B-A3B'; file = 'Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated.Q4_K_M.gguf'; url = "$hf/Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated-GGUF/resolve/main/Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated.Q4_K_M.gguf"; sha = 'fc21ad98215cafb548d0386439cbc6dfeadc540f3fec9333f70b596c2504cd5e'; gb = 49 }
+        )
+        New-Item -ItemType Directory -Force (Join-Path $Root 'llm\models') | Out-Null
+        foreach ($t in $texts) {
+            $target = Join-Path $Root "llm\models\$($t.file)"
+            if (Test-Path $target) { Done "Text model ($($t.name)) ready."; continue }
+            # The 80B does not stop setup on a small drive: it is skipped (setup.bat later downloads it)
+            $freeGb = [math]::Round((Get-PSDrive -Name (Split-Path -Qualifier $Root).TrimEnd(':')).Free / 1GB)
+            if ($freeGb -lt $t.gb + 5) { Info "Skipped the text model $($t.name): it needs $($t.gb) GB, $freeGb GB is free (run setup.bat again after freeing space)."; continue }
+            Info "Downloading the text model $($t.name) (~$($t.gb) GB)..."
+            Fetch $t.url "$target.part" $t.sha
+            Move-Item "$target.part" $target
+            Done "Text model ($($t.name)) downloaded."
         }
     }
     $arguments = @((Join-Path $PSScriptRoot 'download-models.mjs'))

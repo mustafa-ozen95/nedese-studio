@@ -146,9 +146,10 @@ export function findLlm(aiRoot, preference = '') {
   if ((!existsSync(mainBin) && !existsSync(prismBin)) || !existsSync(folder)) return null;
   // Models trained in the panel (Model training, "-trained-") go last: with no choice the ready model stays the default.
   const trained = (d) => (/-trained-/i.test(d) ? 1 : 0);
-  // With no choice Qwen3.6 35B-A3B is the default (setup downloads it since 25.10.2026; 30-35 tokens/s on a 12 GB card),
-  // then Bonsai 2 27B (the default 08-25.10.2026, so older installs keep it), then the others by name
-  const preferred = (d) => (/^Qwen3\.6-35B-A3B/i.test(d) ? 0 : /^Ternary-Bonsai-2-27B/i.test(d) ? 1 : 2);
+  // With no choice Qwen3.6 35B-A3B is the default (setup downloads it since 25.10.2026, the uncensored Huihui- build first
+  // by name; 39-44 tokens/s on a 12 GB card, the Qwen3-Next 80B setup also downloads 8-13), then Bonsai 2 27B (the
+  // default 08-25.10.2026, so older installs keep it), then the others by name
+  const preferred = (d) => (/Qwen3\.6-35B-A3B/i.test(d) ? 0 : /^Ternary-Bonsai-2-27B/i.test(d) ? 1 : 2);
   const files = readdirSync(folder).filter((d) => d.toLowerCase().endsWith('.gguf') && !/^mmproj|^mtp-/i.test(d)).sort((a, b) => trained(a) - trained(b) || preferred(a) - preferred(b) || a.localeCompare(b));
   if (!files.length) return null;
   // Gorsel kodlayici (Model egitimi > Genel ya da elle): ayni klasorde mmproj-<model dosyasi> -> llama-server --mmproj
