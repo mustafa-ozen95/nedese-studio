@@ -10,7 +10,7 @@ Commands (the line protocol of train.py: "progress <percent> <text>", "result <j
       chats with images ({"messages": [...], "images": [...]} or {"image", "prompt", "response"}); text, Q&A, code and .zip
       (the train.py formats). -> data.jsonl (+ images/) + summary.json
   fine   --data <folder> --base Qwen/Qwen3.5-4B --output <model folder> [--epoch 2] [--ratio 2e-4] [--context 2048]
-         [--lora-r 16] [--image-pixels 262144] [--previous-adaptor <folder>] [--full-precision] [--no-gradient]
+         [--lora-r 16] [--accumulation 8] [--warmup 0.05] [--eval-share 0] [--image-pixels 262144] [--previous-adaptor <folder>] [--full-precision] [--no-gradient]
          (goes on from the checkpoint; the train.py loop)
   mmproj --hf <merged folder> --output <mmproj-<name>.gguf>
   example --hf <merged folder> [--prompt <text>]... [--image <file> --image-prompt <text>] [--length 200]
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import shutil
 import subprocess
@@ -268,6 +269,7 @@ def prepare_examples(examples: list[dict], processor, data: Path, context: int) 
     """Each sample -> {'ids', 'lab', 'extra'} (extra: pixel_values, image_grid_thw, mm_token_type_ids; on the CPU).
     In a chat only the last assistant answer is taught (the prefix is run apart with the same images, so the token counts
     match). Plain text is taught whole in context-long slices. Returns (samples, skipped)."""
+    import torch
     from PIL import Image
 
     tok = processor.tokenizer
@@ -278,7 +280,7 @@ def prepare_examples(examples: list[dict], processor, data: Path, context: int) 
             for i in range(0, len(ids), context):
                 part = ids[i:i + context]
                 if len(part) > 16:
-                    ready.append({'ids': part, 'lab': list(part), 'extra': {}})
+                    ready.append({'ids': torch.tensor(part, dtype=torch.int32), 'prefix': 0, 'extra': {}})
             continue
         messages = o['messages']
         if messages[-1]['role'] != 'assistant':
@@ -289,17 +291,26 @@ def prepare_examples(examples: list[dict], processor, data: Path, context: int) 
         prefix = processor.apply_chat_template(messages[:-1], tokenize=False, add_generation_prompt=True, enable_thinking=False)
         inputs = processor(text=[full], images=images, return_tensors='pt')
         prefix_length = processor(text=[prefix], images=images, return_tensors='pt').input_ids.shape[1]
-        ids = inputs.input_ids[0].tolist()
-        if prefix_length >= context or prefix_length >= len(ids):
-            skipped += 1  # the question (image tokens included) does not fit the context
+        ids = inputs.input_ids[0]
+        # A sample longer than the context is skipped, not cut: a cut answer (a half tool call, a sentence without its end)
+        # would be taught as a whole one
+        if len(ids) > context or prefix_length >= len(ids):
+            skipped += 1
             continue
-        ids = ids[:context]
-        lab = [-100] * prefix_length + ids[prefix_length:]
         extra = {k: v for k, v in inputs.items() if k in ('pixel_values', 'image_grid_thw', 'mm_token_type_ids')}
-        if 'mm_token_type_ids' in extra:
-            extra['mm_token_type_ids'] = extra['mm_token_type_ids'][:, :len(ids)]
-        ready.append({'ids': ids, 'lab': lab, 'extra': extra})
+        # Compact: int32 ids + the prefix length (the labels are made at the step); 90k samples fit in 16 GB RAM
+        ready.append({'ids': ids.to(torch.int32), 'prefix': prefix_length, 'extra': extra})
     return ready, skipped
+
+
+def sample_tensors(o: dict):
+    """A prepared sample -> (ids, labels) on the GPU; the question part of a chat is not taught (-100)."""
+    import torch
+
+    ids = torch.as_tensor(o['ids'], dtype=torch.long).unsqueeze(0).to('cuda')
+    lab = ids.clone()
+    lab[:, :o.get('prefix', 0)] = -100
+    return ids, lab
 
 
 def command_fine(a) -> None:
@@ -322,8 +333,18 @@ def command_fine(a) -> None:
         examples = train.read_data(data)
         progress(2, f'Turning {len(examples)} samples into tokens')
         ready, skipped = prepare_examples(examples, processor, data, a.context)
+        del examples
         if not ready:
             error('No training sample came out of the data (empty answers or the context is too short).')
+        # Held-out samples (--eval-share): never trained on; their loss after training shows learning, not memorizing.
+        # The same split on every run (fixed seed), so a checkpoint goes on with the same training set.
+        held = []
+        if a.eval_share > 0 and len(ready) >= 20:
+            order = list(range(len(ready)))
+            random.Random(4321).shuffle(order)
+            cut = set(order[:max(1, int(len(ready) * a.eval_share))])
+            held = [o for i, o in enumerate(ready) if i in cut]
+            ready = [o for i, o in enumerate(ready) if i not in cut]
         tokens = sum(len(o['ids']) for o in ready)
         if skipped:
             progress(3, f'{skipped} samples skipped, longer than the context ({a.context} tokens)')
@@ -348,15 +369,24 @@ def command_fine(a) -> None:
 
         def compute_loss(group):
             o = group[0]
-            ids = torch.tensor([o['ids']], device='cuda')
-            lab = torch.tensor([o['lab']], device='cuda')
+            ids, lab = sample_tensors(o)
             extra = {k: v.to('cuda') for k, v in o['extra'].items()}
             return train.chunked_loss(model, ids, torch.ones_like(ids), lab, extra=extra)
 
         ckpt = output / 'checkpoint.pt'
-        info = train.training_loop(model, ready, epoch=a.epoch, ratio=a.ratio, batch=1, accumulation=8,
+        info = train.training_loop(model, ready, epoch=a.epoch, ratio=a.ratio, batch=1, accumulation=a.accumulation,
                                    params=[p for p in model.parameters() if p.requires_grad], start_pct=8, end_pct=80, tag='fine',
-                                   ckpt=ckpt, compute_loss=compute_loss, tokens=tokens)
+                                   warmup=a.warmup, ckpt=ckpt, compute_loss=compute_loss, tokens=tokens)
+        if held:
+            progress(80, f'Held-out loss: {len(held)} samples')
+            model.eval()
+            total = 0.0
+            with torch.no_grad(), torch.autocast('cuda', dtype=torch.bfloat16):
+                for o in held:
+                    total += float(compute_loss([o]))
+            info['evalLoss'] = round(total / len(held), 4)
+            info['evalSamples'] = len(held)
+            progress(81, f'Held-out loss {info["evalLoss"]} (last training loss {info["losses"][-1] if info.get("losses") else "-"})')
         # Written beside it first, then renamed in one move: a half written LoRA must not pass as finished
         fresh = output / 'adaptor.writing'
         shutil.rmtree(fresh, ignore_errors=True)
@@ -448,6 +478,9 @@ def main() -> None:
     i.add_argument('--ratio', type=float, default=2e-4)
     i.add_argument('--context', type=int, default=2048)
     i.add_argument('--lora-r', type=int, default=16)
+    i.add_argument('--accumulation', type=int, default=8, help='samples per optimizer step (gradient accumulation)')
+    i.add_argument('--warmup', type=float, default=0.05, help='share of the steps the learning rate warms up')
+    i.add_argument('--eval-share', type=float, default=0.0, help='share of the samples held out for a loss check after training')
     i.add_argument('--image-pixels', type=int, default=262144)
     i.add_argument('--previous-adaptor', default='')
     i.add_argument('--full-precision', action='store_true', help='bf16 LoRA instead of 4-bit (large card)')

@@ -1432,7 +1432,7 @@
                                 <div class="field" data-training-fine>
                                     <label class="field__label" for="eg-temel">Base model</label>
                                     <select class="select" id="eg-temel" name="base"></select>
-                                    <span class="field__hint">A ready model is downloaded from Hugging Face the first time. If you pick a model you trained here, it is improved with the new data. For another text model, type "org/model".</span>
+                                    <span class="field__hint">A ready model is downloaded from Hugging Face the first time. If you pick a model you trained here, it is improved with the new data. For another text model, type "org/model"; for a general model, a Qwen3.5 model folder on this computer works too (e.g. C:\models\qwen35-9b-heretic).</span>
                                     <input type="text" class="input" name="baseCustom" placeholder="org/model (optional)" translate="no" hidden data-training-base-custom>
                                 </div>
                                 <div class="stack" data-training-image hidden>
@@ -1597,6 +1597,25 @@
                                         <label class="field__label" for="eg-gorsel-istem">Image question</label>
                                         <input type="text" class="input" id="eg-gorsel-istem" name="imagePrompt" maxlength="300" placeholder="Describe this image in detail.">
                                         <span class="field__hint">The question asked for images that have a same-name .txt answer (the answer is the text in the .txt).</span>
+                                    </div>
+                                    <div class="form-grid" data-training-general hidden>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-lora-r">LoRA rank</label>
+                                            <input type="number" class="input" id="eg-lora-r" name="loraR" min="4" max="128" step="4" placeholder="16 (large data: 32)">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-birikim">Gradient accumulation</label>
+                                            <input type="number" class="input" id="eg-birikim" name="accumulation" min="1" max="64" step="1" placeholder="8 (large data: 16)">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-isinma">Warmup share</label>
+                                            <input type="number" class="input" id="eg-isinma" name="warmup" min="0" max="0.5" step="0.01" placeholder="0.05">
+                                        </div>
+                                        <div class="field">
+                                            <label class="field__label" for="eg-ayri">Held-out share</label>
+                                            <input type="number" class="input" id="eg-ayri" name="evalShare" min="0" max="0.2" step="0.01" placeholder="0 (large data: 0.02)">
+                                            <span class="field__hint">Never trained on; its loss after training shows real learning.</span>
+                                        </div>
                                     </div>
                                     </div>
                                 </details>

@@ -1110,7 +1110,7 @@
         lang: 'Language', name: 'Name', train: 'Training', instruction: 'Instruction', printHeight: 'Print height', from: 'From the web',
         style: 'Style', lyrics: 'Lyrics', bpm: 'Tempo (BPM)', strength: 'How much should it change?',
         priority: 'Production priority', lip: 'Lip sync', musicMode: 'Music', musicStyle: 'Music style', characterSource: 'Character source',
-        field: 'Field', description: 'General description', imagePrompt: 'Image question', rank: 'LoRA size', trigger: 'Trigger word',
+        field: 'Field', description: 'General description', imagePrompt: 'Image question', loraR: 'LoRA rank', accumulation: 'Gradient accumulation', warmup: 'Warmup share', evalShare: 'Held-out share', rank: 'LoRA size', trigger: 'Trigger word',
         topic: 'Topic', target: 'Target article count (topic; 0 unlimited)', durationMin: 'Time limit (min, 0 unlimited)', depth: 'In-site crawl depth',
         parallel: 'Sites in parallel', browser: 'Browser (Edge/Chrome)', extract: 'Extraction and labeling', media: 'Images, video, audio',
         minAccuracy: 'Min accuracy (1-5)', minQuality: 'Minimum quality (1-5)', minFit: 'Minimum topic fit (1-5)', minWord: 'Minimum words',
@@ -1867,7 +1867,7 @@
                 const body = { type: 'training', name, field: (form.field?.value || 'text') || 'text', method: form.method.value, dataItems };
                 if (form.method.value === 'fine') body.base = base;
                 else body.size = form.size.value;
-                const fields = isImage() ? ['trigger', 'description', 'resolution', 'step', 'rank'] : isMusic() || isVideo() ? [] : isGeneral() ? ['epoch', 'context', 'ratio', 'quantization', 'examplePrompt', 'imagePrompt'] : ['epoch', 'context', 'ratio', 'quantization', 'examplePrompt'];
+                const fields = isImage() ? ['trigger', 'description', 'resolution', 'step', 'rank'] : isMusic() || isVideo() ? [] : isGeneral() ? ['epoch', 'context', 'ratio', 'quantization', 'examplePrompt', 'imagePrompt', 'loraR', 'accumulation', 'warmup', 'evalShare'] : ['epoch', 'context', 'ratio', 'quantization', 'examplePrompt'];
                 for (const k of fields) if (form[k]?.value?.trim()) body[k] = form[k].value.trim();
                 // Muzik alanlari ayri adlarla (gorselle cakismasin): mTetik -> tetik ...
                 if (isMusic()) for (const [k, a] of [['mTrigger', 'trigger'], ['mDescription', 'description'], ['mLanguage', 'lang'], ['mEpoch', 'epoch'], ['mRank', 'rank']]) if (form[k]?.value?.trim()) body[a] = form[k].value.trim();

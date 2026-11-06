@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createPanel } from './env.mjs';
 import { makePng, makeWav } from '../lib/media.mjs';
@@ -332,6 +332,15 @@ test('general model training: image + text -> GGUF and image encoder into llm\\m
     const load = async (name, body) => (await loadData(p, name, body)).json.data.source;
     const dataItems = [await load('kedi.png', makePng(32, 32)), await load('kedi.txt', 'Turuncu bir kedi.'), await load('sorular.jsonl', '{"prompt":"Nedese nedir?","response":"Oyun sitesi."}\n')];
     assert.throws(() => p.queue.add('training', { name: 'x', field: 'general', dataItems, base: 'Qwen/Qwen3-14B' }), /Base for the general model/);
+    // a model folder on this computer (e.g. a Heretic copy): only with config.json; the large-data settings are checked
+    const folder = mkdtempSync(join(tmpdir(), 'genel-temel-'));
+    assert.throws(() => p.queue.add('training', { name: 'x', field: 'general', dataItems, base: folder }), /config\.json missing/);
+    writeFileSync(join(folder, 'config.json'), '{}');
+    assert.throws(() => p.queue.add('training', { name: 'x', field: 'general', dataItems, base: folder, loraR: 512 }), /LoRA rank/);
+    const local = p.queue.add('training', { name: 'Yerel', field: 'general', dataItems, base: folder, loraR: 32, accumulation: 16, warmup: 0.03, evalShare: 0.02, quantization: 'Q8_0' });
+    assert.deepEqual([local.input.base, local.input.loraR, local.input.accumulation, local.input.warmup, local.input.evalShare], [folder, 32, 16, 0.03, 0.02]);
+    assert.match(local.summary.detail, new RegExp(`· ${basename(folder)} ·`));
+    p.queue.cancel?.(local.id);
     const job = p.queue.add('training', { name: 'Nedese genel', field: 'general', dataItems, imagePrompt: 'Ne görüyorsun?' });
     assert.deepEqual([job.input.base, job.input.method, job.input.quantization, job.input.epoch], ['Qwen/Qwen3.5-4B', 'fine', 'Q4_K_M', 2]);
     assert.match(job.summary.detail, /^General \(image \+ text\) · Qwen3\.5 4B · 3 data files/);
@@ -341,6 +350,8 @@ test('general model training: image + text -> GGUF and image encoder into llm\\m
     assert.deepEqual(arg.map((a) => a[0]), ['prepare', 'fine', 'example', 'mmproj', 'gguf'], 'image encoder before the text GGUF');
     assert.equal(arg[0][arg[0].indexOf('--prompt') + 1], 'Ne görüyorsun?');
     assert.equal(arg[1][arg[1].indexOf('--base') + 1], 'Qwen/Qwen3.5-4B');
+    // defaults of the large-data settings reach the script
+    assert.deepEqual(['--lora-r', '--accumulation', '--warmup', '--eval-share'].map((k) => arg[1][arg[1].indexOf(k) + 1]), ['16', '8', '0.05', '0']);
     assert.equal(arg[2][arg[2].indexOf('--image-prompt') + 1], 'Ne görüyorsun?');
     const c = last.outputs.find((x) => x.type === 'training');
     assert.match(c.gguf, /^nedese-genel-trained-\d{8}-\d{6}-q4_k_m\.gguf$/);

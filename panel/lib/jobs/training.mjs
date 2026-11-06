@@ -12,7 +12,7 @@
  * kapanirken yarida kalan ya da elektrigi kesilen egitim son tamamlanan adimdan surer.
  */
 import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname, join, resolve, sep } from 'node:path';
+import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { execFile } from 'node:child_process';
 import { run as runProcess } from '../process.mjs';
 import { CancelError, UserError } from '../errors.mjs';
@@ -98,6 +98,8 @@ export const BASE_MODELS = {
   'wan22-5b': { name: 'Wan 2.2 TI2V 5B (video LoRA; motion, style, character)', downloadGib: 0, field: 'video', lora: true },
   // Genel (cok kipli): Qwen3.5 gorsel + metin (Apache 2.0), egitim\genel.py QLoRA; sonuc yazi modeli GGUF + gorsel
   // kodlayici (mmproj). Olculdu 05.10.2026: 4B 19 ornek 3 devir 56 sn, tepe 5,8 GB.
+  // 9B: 4-bit QLoRA fits a 12 GB card (Heretic measured 7.4 GB loaded, 07.11.2026); slower, the best quality of the three
+  'Qwen/Qwen3.5-9B': { name: 'Qwen3.5 9B (image + text, best quality; 12 GB card)', downloadGib: 19, field: 'general' },
   'Qwen/Qwen3.5-4B': { name: 'Qwen3.5 4B (image + text, recommended)', downloadGib: 9, field: 'general' },
   'Qwen/Qwen3.5-2B': { name: 'Qwen3.5 2B (image + text, fast)', downloadGib: 5, field: 'general' },
 };
@@ -466,8 +468,11 @@ function validateGeneral(g, setting, dataItems) {
   const base = String(g.base ?? '').trim() || 'Qwen/Qwen3.5-4B';
   if (base.startsWith('trained:')) {
     if (!trainedModels(setting.aiRoot).some((m) => m.id === base.slice('trained:'.length) && m.field === 'general')) throw new UserError('The general model to improve was not found (it may have been deleted).');
+  } else if (isAbsolute(base)) {
+    // A Qwen3.5 model folder on this computer (e.g. an uncensored copy made with Heretic): it must be a full HF folder
+    if (!existsSync(join(base, 'config.json'))) throw new UserError(`No model in the folder (config.json missing): ${base}`);
   } else if (BASE_MODELS[base]?.field !== 'general') {
-    throw new UserError(`Base for the general model: ${Object.entries(BASE_MODELS).filter(([, m]) => m.field === 'general').map(([k]) => k).join(', ')} or a general model trained here.`);
+    throw new UserError(`Base for the general model: ${Object.entries(BASE_MODELS).filter(([, m]) => m.field === 'general').map(([k]) => k).join(', ')}, a Qwen3.5 model folder on this computer or a general model trained here.`);
   }
   return {
     name: text(g.name, 'Model name', { max: 60 }),
@@ -478,6 +483,11 @@ function validateGeneral(g, setting, dataItems) {
     epoch: number(g.epoch, 'Epochs', { min: 0.1, max: 50, defaultValue: 2 }),
     context: number(g.context, 'Context length', { min: 256, max: 8192, full: true, defaultValue: 2048 }),
     ratio: number(g.ratio, 'Learning rate', { min: 0, max: 0.01, defaultValue: 0 }),
+    // Large data (tens of thousands of samples): a larger LoRA, more accumulation, a held-out share to see real learning
+    loraR: number(g.loraR, 'LoRA rank', { min: 4, max: 128, full: true, defaultValue: 16 }),
+    accumulation: number(g.accumulation, 'Gradient accumulation', { min: 1, max: 64, full: true, defaultValue: 8 }),
+    warmup: number(g.warmup, 'Warmup share', { min: 0, max: 0.5, defaultValue: 0.05 }),
+    evalShare: number(g.evalShare, 'Held-out share', { min: 0, max: 0.2, defaultValue: 0 }),
     quantization: choice(g.quantization, 'Quantization', QUANTIZATIONS, 'Q4_K_M'),
     examplePrompt: text(g.examplePrompt, 'Sample prompt', { required: false, max: 500 }),
     imagePrompt: text(g.imagePrompt, 'Image question', { required: false, max: 300 }),
@@ -546,7 +556,7 @@ function dataText(dataItems, unit = 'file') {
 }
 
 export function summary(g) {
-  if (g.field === 'general') return { title: g.name, detail: `General (image + text) · ${BASE_MODELS[g.base]?.name?.replace(/ \(.*$/, '') ?? 'improve'} · ${dataText(g.dataItems, 'data file')} · ${plural(g.epoch, 'epoch')}` };
+  if (g.field === 'general') return { title: g.name, detail: `General (image + text) · ${BASE_MODELS[g.base]?.name?.replace(/ \(.*$/, '') ?? (isAbsolute(String(g.base ?? '')) ? basename(g.base) : 'improve')} · ${dataText(g.dataItems, 'data file')} · ${plural(g.epoch, 'epoch')}` };
   if (g.field === 'video') return { title: g.name, detail: `Video LoRA · Wan 2.2 5B · trigger "${g.trigger}" · ${dataText(g.dataItems)} · ${g.resolution} · ${g.frame} frames${g.step ? ` · ${g.step} steps` : ''}` };
   if (g.field === 'music') return { title: g.name, detail: `Music LoRA · ACE-Step 1.5 · trigger "${g.trigger}" · ${dataText(g.dataItems)} · ${g.lang}${g.epoch ? ` · ${plural(g.epoch, 'epoch')}` : ''}` };
   if (g.field === 'image') return { title: g.name, detail: `Image LoRA · ${BASE_MODELS[g.base]?.name?.replace(/ \(.*$/, '') ?? 'FLUX.2 klein 4B'} · trigger "${g.trigger}" · ${dataText(g.dataItems)} · ${g.resolution} px${g.step ? ` · ${g.step} steps` : ''}` };
@@ -1060,7 +1070,10 @@ async function runGeneral(ctx) {
   if (!existsSync(gguf) || !existsSync(mmproj)) {
     // Egitim (betik biten alt asamalari atlar: LoRA varsa egitim, birlesik model varsa birlestirme)
     const extra = previous ? ['--previous-adaptor', join(aiRoot, 'training', 'models', previous.id, 'adaptor')] : [];
-    await script(ctx, ['fine', '--data', data, '--output', modelFolder, '--base', base, '--epoch', String(g.epoch), '--context', String(g.context), ...(g.ratio ? ['--ratio', String(g.ratio)] : []), ...extra, ...trainingFlags({ fourBit: true })], 'Fine-tuning (image + text)', { general: true });
+    await script(ctx, ['fine', '--data', data, '--output', modelFolder, '--base', base, '--epoch', String(g.epoch), '--context', String(g.context), ...(g.ratio ? ['--ratio', String(g.ratio)] : []),
+      // older jobs (saved before these settings) keep the old defaults
+      '--lora-r', String(g.loraR ?? 16), '--accumulation', String(g.accumulation ?? 8), '--warmup', String(g.warmup ?? 0.05), '--eval-share', String(g.evalShare ?? 0),
+      ...extra, ...trainingFlags({ fourBit: true })], 'Fine-tuning (image + text)', { general: true });
     if (!existsSync(exampleFile)) {
       ctx.progress({ percent: 89, stage: 'Sample answers', detail: prompts[0] });
       let examples = [];
@@ -1089,7 +1102,7 @@ async function runGeneral(ctx) {
     id, name: g.name, field: 'general', method: 'fine', base, improved: previous?.id ?? null,
     gguf: ggufName, mmproj: `mmproj-${ggufName}`, jobId: ctx.job.id, dateText: new Date().toISOString(),
     data: { example: o.example, withImage: o.withImage },
-    training: { step: info.step, durationSec: info.durationSec, lastLoss: info.losses?.at(-1) ?? null, peakVramGb: info.peakVramGb ?? null },
+    training: { step: info.step, durationSec: info.durationSec, lastLoss: info.losses?.at(-1) ?? null, peakVramGb: info.peakVramGb ?? null, evalLoss: info.evalLoss ?? null },
   };
   saveModel(aiRoot, record);
   writeFileSync(join(ctx.folder, 'training.json'), JSON.stringify({ ...record, examples, losses: info.losses ?? [] }, null, 1));
