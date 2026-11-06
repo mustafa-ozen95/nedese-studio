@@ -261,7 +261,7 @@ def command_prepare(a) -> None:
         progress(99, f'{len(abbreviations)} prompt abbreviations')
     with open(output / 'data.jsonl', 'w', encoding='utf-8') as f:
         for o in examples:
-            f.write(json.dumps(o, ensure_ascii=False) + '\n')
+            f.write(jsonl_line(o))
     chat = sum(1 for o in examples if 'messages' in o)
     characters = sum(len(o.get('text', '')) + sum(len(m['content']) for m in o.get('messages', [])) for o in examples)
     # The first (short) user questions of the data, for sample answers after training
@@ -271,6 +271,11 @@ def command_prepare(a) -> None:
     (output / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding='utf-8')
     progress(100, f'{len(examples)} samples ({chat} chat, {len(examples) - chat} plain text), ~{characters // 4:,} tokens')
     result(summary)
+
+
+def jsonl_line(o) -> str:
+    """One JSONL line; a lone surrogate (half an emoji cut off in the source) becomes '?' instead of failing the write."""
+    return json.dumps(o, ensure_ascii=False).encode('utf-8', 'replace').decode('utf-8') + '\n'
 
 
 def read_data(folder: Path) -> list[dict]:

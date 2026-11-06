@@ -193,7 +193,12 @@ def command_prepare(a) -> None:
                 if copy:
                     add(with_image([copy], str(question).strip(), response.strip()))
             else:
-                add(train.record_to_example(k))
+                o = train.record_to_example(k)
+                # "repeat": 3 -> the sample weighs 3x (applied after the held-out split, so no copy leaks into it)
+                n = k.get('repeat') if isinstance(k, dict) else None
+                if o and isinstance(n, int) and n > 1:
+                    o['repeat'] = min(n, 10)
+                add(o)
 
     def process_files(files: list[Path]) -> None:
         """An image and a .txt of the same name in the same folder pair up; the other files go to the train.py reader."""
@@ -247,7 +252,7 @@ def command_prepare(a) -> None:
               'text and Q&A formats are those of text model training.')
     with open(output / 'data.jsonl', 'w', encoding='utf-8') as f:
         for o in examples:
-            f.write(json.dumps(o, ensure_ascii=False) + '\n')
+            f.write(train.jsonl_line(o))
     with_images = sum(1 for o in examples if o.get('images'))
     chat = sum(1 for o in examples if 'messages' in o)
     sample = next((o for o in examples if o.get('images')), None)
@@ -299,7 +304,7 @@ def prepare_examples(examples: list[dict], processor, data: Path, context: int) 
             continue
         extra = {k: v for k, v in inputs.items() if k in ('pixel_values', 'image_grid_thw', 'mm_token_type_ids')}
         # Compact: int32 ids + the prefix length (the labels are made at the step); 90k samples fit in 16 GB RAM
-        ready.append({'ids': ids.to(torch.int32), 'prefix': prefix_length, 'extra': extra})
+        ready.append({'ids': ids.to(torch.int32), 'prefix': prefix_length, 'extra': extra, 'repeat': o.get('repeat', 1)})
     return ready, skipped
 
 
@@ -345,6 +350,8 @@ def command_fine(a) -> None:
             cut = set(order[:max(1, int(len(ready) * a.eval_share))])
             held = [o for i, o in enumerate(ready) if i in cut]
             ready = [o for i, o in enumerate(ready) if i not in cut]
+        # Weighted samples ("repeat") enter the training set that many times (the same object: no extra memory)
+        ready = [o for o in ready for _ in range(o.get('repeat', 1))]
         tokens = sum(len(o['ids']) for o in ready)
         if skipped:
             progress(3, f'{skipped} samples skipped, longer than the context ({a.context} tokens)')
