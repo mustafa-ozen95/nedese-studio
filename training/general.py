@@ -292,8 +292,11 @@ def prepare_examples(examples: list[dict], processor, data: Path, context: int) 
             skipped += 1
             continue
         images = [Image.open(data / g).convert('RGB') for g in o.get('images', [])] or None
-        full = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=False, enable_thinking=False)
-        prefix = processor.apply_chat_template(messages[:-1], tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        # 'tools' (optional, OpenAI function list): the tool list the agent sends at run time goes into the system prompt the
+        # same way, so the model learns to read the offered tools instead of memorising fixed names
+        tools = o.get('tools') or None
+        full = processor.apply_chat_template(messages, tools=tools, tokenize=False, add_generation_prompt=False, enable_thinking=False)
+        prefix = processor.apply_chat_template(messages[:-1], tools=tools, tokenize=False, add_generation_prompt=True, enable_thinking=False)
         inputs = processor(text=[full], images=images, return_tensors='pt')
         prefix_length = processor(text=[prefix], images=images, return_tensors='pt').input_ids.shape[1]
         ids = inputs.input_ids[0]
