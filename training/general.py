@@ -167,7 +167,7 @@ def command_prepare(a) -> None:
         text = read_text(path)
         try:
             if path.suffix.lower() == '.jsonl':
-                records = [json.loads(s) for s in text.splitlines() if s.strip()]
+                records = [json.loads(s) for s in text.split('\n') if s.strip()]
             else:
                 data = json.loads(text)
                 records = next((v for v in data.values() if isinstance(v, list)), [data]) if isinstance(data, dict) else (data if isinstance(data, list) else [data])

@@ -282,7 +282,7 @@ def read_data(folder: Path) -> list[dict]:
     path = folder / 'data.jsonl'
     if not path.exists():
         error('No prepared data (run prepare first).')
-    return [json.loads(s) for s in path.read_text(encoding='utf-8').splitlines() if s.strip()]
+    return [json.loads(s) for s in path.read_text(encoding='utf-8').split('\n') if s.strip()]
 
 
 # ── Shared training loop ────────────────────────────────────────────────────
