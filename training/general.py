@@ -198,6 +198,14 @@ def command_prepare(a) -> None:
                 n = k.get('repeat') if isinstance(k, dict) else None
                 if o and isinstance(n, int) and n > 1:
                     o['repeat'] = min(n, 10)
+                # "weight": 0.5 -> the sample's loss counts half (e.g. raw personal logs next to the agent data)
+                w = k.get('weight') if isinstance(k, dict) else None
+                if o and isinstance(w, (int, float)) and 0 < w < 1:
+                    o['weight'] = float(w)
+                # "tools": record_to_example keeps only the messages; carry the offered tool list through
+                t = k.get('tools') if isinstance(k, dict) else None
+                if o and isinstance(t, list) and t:
+                    o['tools'] = t
                 add(o)
 
     def process_files(files: list[Path]) -> None:
@@ -307,7 +315,7 @@ def prepare_examples(examples: list[dict], processor, data: Path, context: int) 
             continue
         extra = {k: v for k, v in inputs.items() if k in ('pixel_values', 'image_grid_thw', 'mm_token_type_ids')}
         # Compact: int32 ids + the prefix length (the labels are made at the step); 90k samples fit in 16 GB RAM
-        ready.append({'ids': ids.to(torch.int32), 'prefix': prefix_length, 'extra': extra, 'repeat': o.get('repeat', 1)})
+        ready.append({'ids': ids.to(torch.int32), 'prefix': prefix_length, 'extra': extra, 'repeat': o.get('repeat', 1), 'weight': o.get('weight', 1.0)})
     return ready, skipped
 
 
@@ -387,11 +395,12 @@ def command_fine(a) -> None:
         trained = sum(p.numel() for p in model.parameters() if p.requires_grad)
         progress(8, f'LoRA ready: {trained / 1e6:.1f}M trained parameters; VRAM {torch.cuda.memory_allocated() / 2 ** 30:.1f} GB; training starts')
 
-        def compute_loss(group):
+        def compute_loss(group, weighted=True):
             o = group[0]
             ids, lab = sample_tensors(o)
             extra = {k: v.to('cuda') for k, v in o['extra'].items()}
-            return train.chunked_loss(model, ids, torch.ones_like(ids), lab, extra=extra)
+            loss = train.chunked_loss(model, ids, torch.ones_like(ids), lab, extra=extra)
+            return loss * o.get('weight', 1.0) if weighted else loss
 
         ckpt = output / 'checkpoint.pt'
         info = train.training_loop(model, ready, epoch=a.epoch, ratio=a.ratio, batch=1, accumulation=a.accumulation,
@@ -403,7 +412,7 @@ def command_fine(a) -> None:
             total = 0.0
             with torch.no_grad(), torch.autocast('cuda', dtype=torch.bfloat16):
                 for o in held:
-                    total += float(compute_loss([o]))
+                    total += float(compute_loss([o], weighted=False))
             info['evalLoss'] = round(total / len(held), 4)
             info['evalSamples'] = len(held)
             progress(81, f'Held-out loss {info["evalLoss"]} (last training loss {info["losses"][-1] if info.get("losses") else "-"})')
