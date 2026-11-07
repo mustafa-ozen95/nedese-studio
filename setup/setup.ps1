@@ -253,6 +253,7 @@ $Environments = @(
     @{ name = 'VoxCPM2 (narration)'; folder = 'voice\voxcpm\.venv'; python = '3.12.14'; lock = 'voxcpm.txt'; cuda = 'cu128' },
     @{ name = 'Voice design (Qwen3-TTS)'; folder = 'voice\design\.venv'; python = '3.13.15'; lock = 'design.txt'; cuda = 'cu130' },
     # Model training (training\train.py): bitsandbytes (QLoRA) works with torch 2.11 cu128 on RTX 50 cards.
+    # flash-linear-attention + triton-windows: Qwen3.5 DeltaNet layers 1.55x faster in training (measured: 9B, 3072 tokens).
     @{ name = 'Model training (QLoRA, from scratch)'; folder = 'training\.venv'; python = '3.13.15'; lock = 'training.txt'; cuda = 'cu128' },
     # Image LoRA training (training\image.py): musubi-tuner (code in setup\vendor\musubi-tuner, environment training\musubi\.venv).
     @{ name = 'Image training (musubi-tuner)'; folder = 'training\musubi\.venv'; python = '3.12.14'; lock = 'musubi.txt'; cuda = 'cu128'; source = 'musubi' }

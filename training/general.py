@@ -357,11 +357,21 @@ def command_fine(a) -> None:
             progress(3, f'{skipped} samples skipped, longer than the context ({a.context} tokens)')
         four_bit = not a.full_precision  # panel fine setting: bf16 LoRA on a large card
         progress(4, f'{len(ready)} training samples, {tokens:,} tokens; loading the model {"4-bit" if four_bit else "bf16"} (image encoder bf16, frozen)')
+        # Tight card (9B on 12 GB): the bf16 input table (~2 GB) stays in RAM (only a lookup), the output layer is 4-bit
+        # (frozen; GGUF quantizes it anyway) and the optimizer 8-bit. Without this the step spills ~3 GB into shared
+        # memory and runs many times slower (measured: 9B, 3072 tokens, RTX 5070 12 GB).
+        param = train.weight_bytes(base) / 2
+        card = torch.cuda.get_device_properties(0).total_memory
+        tight = four_bit and param > 5e9 and card < 20 * 2 ** 30
+        config = json.loads((base / 'config.json').read_text(encoding='utf-8'))
+        tied = config.get('tie_word_embeddings', (config.get('text_config') or {}).get('tie_word_embeddings'))
+        device_map = {'model.language_model.embed_tokens': 'cpu', '': 0} if tight and not tied else {'': 0}
         model = AutoModelForImageTextToText.from_pretrained(
-            str(base), dtype=torch.bfloat16, device_map={'': 0}, low_cpu_mem_usage=True,
+            str(base), dtype=torch.bfloat16, device_map=device_map, low_cpu_mem_usage=True,
             quantization_config=BitsAndBytesConfig(
                 load_in_4bit=True, bnb_4bit_quant_type='nf4', bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
-                llm_int8_skip_modules=['visual', 'lm_head']) if four_bit else None)
+                llm_int8_enable_fp32_cpu_offload=len(device_map) > 1,
+                llm_int8_skip_modules=['visual'] if tight else ['visual', 'lm_head']) if four_bit else None)
         if not a.no_gradient:
             model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
         model.enable_input_require_grads()
@@ -383,7 +393,7 @@ def command_fine(a) -> None:
         ckpt = output / 'checkpoint.pt'
         info = train.training_loop(model, ready, epoch=a.epoch, ratio=a.ratio, batch=1, accumulation=a.accumulation,
                                    params=[p for p in model.parameters() if p.requires_grad], start_pct=8, end_pct=80, tag='fine',
-                                   warmup=a.warmup, ckpt=ckpt, compute_loss=compute_loss, tokens=tokens)
+                                   warmup=a.warmup, ckpt=ckpt, compute_loss=compute_loss, tokens=tokens, eight_bit=tight)
         if held:
             progress(80, f'Held-out loss: {len(held)} samples')
             model.eval()

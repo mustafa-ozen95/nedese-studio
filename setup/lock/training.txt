@@ -7,7 +7,10 @@ certifi==2026.7.22
 charset-normalizer==3.5.2
 click==8.5.0
 colorama==0.4.6
+einops==0.8.2
 filelock==4.0.10
+fla-core==0.6.0
+flash-linear-attention==0.6.0
 fsspec==2026.9.0
 gguf @ https://github.com/ggml-org/llama.cpp/archive/46847e61582097979f539595d893d83d8e1d1af1.zip#subdirectory=gguf-py
 h11==0.16.0
@@ -43,6 +46,7 @@ torch==2.11.0+cu128
 torchvision==0.26.0+cu128
 tqdm==4.70.1
 transformers==5.18.0
+triton-windows==3.6.0.post26
 typer==0.27.2
 typing-extensions==4.16.0
 urllib3==2.8.0
