@@ -707,6 +707,7 @@ export class Queue {
     job.status = 'running';
     job.start = new Date().toISOString();
     job.end = null;
+    job.duration = null; // a resumed run must not show the previous run's length
     job.error = null;
     job.outputs = [];
     job.progress = { percent: 0, stage: 'Starting' };
@@ -1042,7 +1043,8 @@ export class Queue {
       creation: job.creation,
       start: job.start ?? null,
       end: job.end ?? null,
-      duration: job.duration ?? null,
+      // a running job reports its live length; a finished one the stored length
+      duration: job.status === 'running' && job.start ? Math.round((Date.now() - Date.parse(job.start)) / 100) / 10 : (job.duration ?? null),
       summary: job.summary ?? {},
       progress: job.progress ?? {},
       error: job.error ?? null,

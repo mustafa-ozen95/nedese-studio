@@ -569,6 +569,7 @@ async function script(ctx, args, stage, { image = false, music = false, general 
   const k = general ? ctx.setting.generalTrainingCommand(args) : music ? ctx.setting.musicTrainingCommand(args) : image ? ctx.setting.imageTrainingCommand(args) : ctx.setting.trainingCommand(args);
   let lastLines = [];
   let output = null;
+  let loggedPercent = -1;
   await runProcess(k.command, k.args, {
     env: k.env,
     cwd: ctx.folder,
@@ -579,8 +580,14 @@ async function script(ctx, args, stage, { image = false, music = false, general 
       const m = /^progress (\d+) (.*)$/.exec(s);
       if (m) {
         ctx.progress({ percent: Number(m[1]), stage, detail: m[2] });
-        // Adim satirlari 5 sn'de bir gelir: gunluge yalniz asama degisimleri ve her ~%10
-        if (!/^Training step/.test(m[2]) || Number(m[1]) % 10 === 0) ctx.log(m[2]);
+        // Step lines arrive every few seconds: the log gets stage changes and one step line per percent
+        // ("% 10 === 0" logged every step while at 10% and then nothing until 20%, so the log looked stuck)
+        const percent = Number(m[1]);
+        if (!/^Training step/.test(m[2])) ctx.log(m[2]);
+        else if (percent !== loggedPercent) {
+          loggedPercent = percent;
+          ctx.log(m[2]);
+        }
       } else if (s.startsWith('result ')) {
         try {
           output = JSON.parse(s.slice(7));
