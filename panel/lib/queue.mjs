@@ -11,6 +11,7 @@ import { basename, extname, join, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { freemem } from 'node:os';
+import { EventEmitter } from 'node:events';
 import { CancelError, UserError, friendlyError, isOutOfVram } from './errors.mjs';
 import { nodeName, nodeDurationSummary, classes } from './graph.mjs';
 import { measureGpu } from './gpu.mjs';
@@ -69,6 +70,9 @@ export class Queue {
     this.mod = mod;
     this.runners = runners;
     this.jobs = new Map();
+    // 'job' (job) after every recorded change: GET /jobs/{id}/events streams it (no polling)
+    this.events = new EventEmitter();
+    this.events.setMaxListeners(0);
     this.logs = new Map();
     this.active = null;
     // Jobs running beside the active one (runner.sideLane: no graphics card, short, e.g. read aloud with EMA on the CPU)
@@ -192,6 +196,7 @@ export class Queue {
     writeFileSync(temp, JSON.stringify(job, null, 1), 'utf8');
     renameSync(temp, path);
     this.db?.writeJob(job);
+    this.events.emit('job', job);
   }
 
   changed() {
@@ -289,6 +294,7 @@ export class Queue {
         job.status = 'error';
         job.error = `Job could not be started: ${e.message}`;
         this.db?.writeJob(job);
+        this.events.emit('job', job);
         this.changed();
       });
       return job;
@@ -583,6 +589,7 @@ export class Queue {
           this.save(next);
         } catch {
           this.db?.writeJob(next);
+          this.events.emit('job', next);
         }
         this.changed();
       }

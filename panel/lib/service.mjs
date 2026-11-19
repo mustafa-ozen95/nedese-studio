@@ -254,6 +254,29 @@ export function createService({ setting, queue, comfy, mod, settingFile, downloa
       }
       return Object.keys(sources).length ? { ...job, sources } : job;
     },
+    /** SSE: one job's state; first event now, then after every recorded change (progress at most every 4 s). */
+    jobEvents(req, response, id) {
+      findJob(id);
+      response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+      const write = (job) => response.write(`data: ${JSON.stringify({ type: 'job', time: new Date().toISOString(), job })}\n\n`);
+      write(h.job(id));
+      const listen = (job) => {
+        if (job.id !== id) return;
+        try {
+          write(h.job(id));
+        } catch {
+          write(queue.summary(job));
+        }
+      };
+      queue.events.on('job', listen);
+      const heartbeat = setInterval(() => response.write(': heartbeat\n\n'), 15000);
+      const close = () => {
+        clearInterval(heartbeat);
+        queue.events.off('job', listen);
+      };
+      req.on('close', close);
+      response.on('close', close);
+    },
     jobLog(id, count) {
       findJob(id);
       return queue.lastLog(id, count ? number(count, 'Count', { min: 1, max: 5000, full: true }) : 200);
