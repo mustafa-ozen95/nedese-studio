@@ -141,9 +141,12 @@ export function findLlm(aiRoot, preference = '') {
   // PrismML's quantizations (PQ2_0, PTQ1_0: the Bonsai models) load only in PrismML's llama.cpp build, kept apart in
   // llm\bin-prism (stock llama.cpp cannot read them; measured 08.10.2026: Bonsai 2 27B, 65 tokens/s on the 12 GB card)
   const prismBin = join(aiRoot, 'llm', 'bin-prism', exe);
+  // Inkling 2 (inkling2_loop) needs llama.cpp b12600 or newer; a build in llm\bin-inkling (measured with b12681) is used for
+  // it, so the build the other models were measured with stays as it is (25.11.2026)
+  const inklingBin = join(aiRoot, 'llm', 'bin-inkling', exe);
   const needsPrism = (file) => /[-_.](PQ2_0|PTQ1_0)\.gguf$/i.test(file);
   const folder = join(aiRoot, 'llm', 'models');
-  if ((!existsSync(mainBin) && !existsSync(prismBin)) || !existsSync(folder)) return null;
+  if (![mainBin, prismBin, inklingBin].some((f) => existsSync(f)) || !existsSync(folder)) return null;
   // Models trained in the panel (Model training, "-trained-") go last: with no choice the ready model stays the default.
   const trained = (d) => (/-trained-/i.test(d) ? 1 : 0);
   // With no choice Qwen3.6 35B-A3B is the default (setup downloads it since 25.10.2026, the uncensored Huihui- build first
@@ -155,7 +158,7 @@ export function findLlm(aiRoot, preference = '') {
   // Gorsel kodlayici (Model egitimi > Genel ya da elle): ayni klasorde mmproj-<model dosyasi> -> llama-server --mmproj
   const models = files.map((d) => ({ file: d, name: d.replace(/\.gguf$/i, ''), gib: Math.round((statSync(join(folder, d)).size / 2 ** 30) * 100) / 100, image: existsSync(join(folder, `mmproj-${d}`)) }));
   const selected = models.find((m) => m.file === preference) ?? models[0];
-  const bin = needsPrism(selected.file) ? prismBin : mainBin;
+  const bin = needsPrism(selected.file) ? prismBin : isInkling(selected.file) && existsSync(inklingBin) ? inklingBin : mainBin;
   return { bin, folder, models, model: join(folder, selected.file), name: selected.name, file: selected.file, gib: selected.gib, mmproj: selected.image ? join(folder, `mmproj-${selected.file}`) : null, mmprojGib: selected.image ? Math.round((statSync(join(folder, `mmproj-${selected.file}`)).size / 2 ** 30) * 100) / 100 : 0 };
 }
 
@@ -297,7 +300,7 @@ export function ggufMetadata(file) {
         else kvByte += heads(l) * headSize * 2;
       });
     }
-    const result = { architecture: m ?? null, layer: layer ?? null, expert: get('expert_count') ?? 0, kvByte, contextLength: get('context_length') ?? null, slidingWindow: get('attention.sliding_window') ?? null, ...(every > 1 ? { attentionEvery: every } : {}), ...(swaByte ? { swaByte } : {}), ...(parent.vocab ? { vocab: parent.vocab } : {}), ...(expertShare ? { expertShare } : {}) };
+    const result = { architecture: m ?? null, layer: layer ?? null, expert: get('expert_count') ?? 0, kvByte, contextLength: get('context_length') ?? null, slidingWindow: get('attention.sliding_window') ?? null, ...(every > 1 ? { attentionEvery: every } : {}), ...(swaByte ? { swaByte } : {}), ...(parent.vocab ? { vocab: parent.vocab } : {}), ...(expertShare ? { expertShare } : {}), ...(Number.isInteger(get('loop.start')) && Number.isInteger(get('loop.end')) ? { loop: [get('loop.start'), get('loop.end')] } : {}) };
     ggufCache.set(key, result);
     return result;
   } catch {
@@ -348,6 +351,9 @@ export function llamaConfig(info, context = 32768, { budget = VRAM_BUDGET, mmpro
       const need = onGpu + (u.kvByte ? kvCacheGib(u, context, 'f16') : 0) + WORK_SHARE - budget;
       moe = Math.min(u.layer, Math.max(0, Math.ceil(need / expertLayerGib(info, u))));
     }
+    // Inkling 2 Mini beside Jarvis' Whisper (1.5 GB of the card): 16k and all 12 layers outside the loop in RAM 36-38
+    // tokens/s; 32k with 10, 12 or 14 layers 8, 9 and 27 (measured 25.11.2026)
+    if (u?.loop) return { ngl: 99, moe: Math.max(moe, u.layer - (u.loop[1] - u.loop[0])), context: Math.min(context, 16384), kv: 'f16', mmprojGpu: mmGpu };
     return { ngl: 99, moe, context, kv: 'f16', mmprojGpu: mmGpu };
   }
   const layerGib = gib / ((u.layer ?? 40) + 1);
@@ -378,6 +384,33 @@ export function llamaConfig(info, context = 32768, { budget = VRAM_BUDGET, mmpro
 
 /** Tokens the draft model proposes per pass (llama-server --spec-draft-n-max); a disk-bound pass verifies them all. */
 export const DRAFT_MAX = 24;
+
+/**
+ * Which layers keep their experts in RAM when the model runs some layers several times (Inkling 2: blocks 6-17 three
+ * times): layers outside the loop first, the last ones first after the leading block, so the looped ones stay on the
+ * card. Inkling 2 Mini IQ4_XS on a 12 GB card: 42.7 tokens/s, llama.cpp's own placement 6 (measured 25.11.2026).
+ */
+export function loopOffload(layers, [start, end], count) {
+  const range = (a, b) => Array.from({ length: Math.max(0, b - a) }, (_, i) => a + i);
+  const order = [...range(0, start), ...range(end, layers).reverse(), ...range(start, end).reverse()];
+  return order.slice(0, count).sort((a, b) => a - b);
+}
+
+const isInkling = (file) => /^Inkling-2/i.test(String(file ?? ''));
+/**
+ * Inkling 2 ignores enable_thinking; its template reads reasoning_effort. Without thinking it gets 64 thinking tokens:
+ * 2.1-2.5 s a short answer against 3.6-4.8 s with effort none alone; with 0 it thought aloud in one answer of three
+ * (measured 25.11.2026). The thinking is added to max_tokens so a short limit still holds the answer.
+ */
+export function inklingBody(body, file) {
+  if (!isInkling(file) || !body?.messages) return body;
+  const kwargs = { ...(body.chat_template_kwargs ?? {}) };
+  const off = kwargs.enable_thinking === false;
+  delete kwargs.enable_thinking;
+  const budget = body.thinking_budget_tokens ?? 0;
+  kwargs.reasoning_effort ??= off ? 'none' : budget > 0 && budget <= 1024 ? 'low' : budget > 3072 ? 'high' : 'medium';
+  return { ...body, chat_template_kwargs: kwargs, ...(off ? { thinking_budget_tokens: 64, ...(body.max_tokens ? { max_tokens: body.max_tokens + 64 } : {}) } : {}) };
+}
 
 /**
  * The smallest other model in llm\models of the same family as info (same architecture and vocabulary, at most a tenth
@@ -500,9 +533,10 @@ export class LocalLlm {
     if (info.command) return info.command(this.port, info);
     const a = llamaConfig(info, this.context, { budget: this.budget ?? VRAM_BUDGET, mmprojProcessor: fineSetting('mmprojProcessor'), disk });
     this.lastSetting = a;
+    const u = info.model ? ggufMetadata(info.model) : null;
     return {
       command: info.bin,
-      args: ['-m', info.model, ...(info.mmproj ? ['--mmproj', info.mmproj, ...(a.mmprojGpu ? [] : ['--no-mmproj-offload'])] : []), '-ngl', String(a.ngl), ...(a.moe ? ['--n-cpu-moe', String(a.moe)] : []), '-c', String(a.context), ...(a.kv !== 'f16' ? ['-ctk', a.kv, '-ctv', a.kv] : []), ...(a.draft ? ['--spec-type', 'draft-simple', '-md', a.draft, '-ngld', '99', '--spec-draft-n-max', String(DRAFT_MAX), '--spec-draft-n-min', '1'] : []), ...(disk ? ['-t', String(cpus().length)] : []), ...(disk && a.moe ? ['-b', '2048', '-ub', '2048'] : []), '--parallel', '1', '-fa', 'on', '--jinja', '--reasoning-budget-message', THINKING_END, ...(this.logFile ? ['--log-file', this.logFile] : []), '--host', '127.0.0.1', '--port', String(this.port)],
+      args: ['-m', info.model, ...(info.mmproj ? ['--mmproj', info.mmproj, ...(a.mmprojGpu ? [] : ['--no-mmproj-offload'])] : []), '-ngl', String(a.ngl), ...(a.moe && u?.loop ? ['-fit', 'off', '-ot', `blk[.](${loopOffload(u.layer, u.loop, a.moe).join('|')})[.]ffn_.*_exps=CPU`] : a.moe ? ['--n-cpu-moe', String(a.moe)] : []), '-c', String(a.context), ...(a.kv !== 'f16' ? ['-ctk', a.kv, '-ctv', a.kv] : []), ...(a.draft ? ['--spec-type', 'draft-simple', '-md', a.draft, '-ngld', '99', '--spec-draft-n-max', String(DRAFT_MAX), '--spec-draft-n-min', '1'] : []), ...(disk ? ['-t', String(cpus().length)] : []), ...(disk && a.moe ? ['-b', '2048', '-ub', '2048'] : []), '--parallel', '1', '-fa', 'on', '--jinja', '--reasoning-budget-message', THINKING_END, ...(this.logFile ? ['--log-file', this.logFile] : []), '--host', '127.0.0.1', '--port', String(this.port)],
     };
   }
 
@@ -636,7 +670,7 @@ export class LocalLlm {
    */
   async req(path, body, { externalRequest = true, waitSec = this.waitSec, signal = null, waiting = null, info = null, onChunk = null, onEvent = null } = {}) {
     if (!this.installed) throw new LlmError('Text model is not installed (<ai>\\llm\\bin\\llama-server.exe and llm\\models\\*.gguf).', 503);
-    body = localFormat(body);
+    body = inklingBody(localFormat(body), (info ?? this.info).file);
     if (externalRequest) {
       const last = Date.now() + waitSec * 1000;
       let notified = null;

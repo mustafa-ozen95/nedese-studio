@@ -419,3 +419,13 @@ test('sampling: a local Qwen gets its own (thinking 1.0 / 0.95, otherwise and In
   assert.equal(modelSampling('gemma-4-26B-qat-q4_0.gguf', true), null);
   assert.equal(modelSampling(undefined, true), null);
 });
+
+test('Inkling 2: looped layers stay on the GPU the longest; effort replaces enable_thinking', async () => {
+  const { loopOffload, inklingBody } = await import('../lib/llm.mjs');
+  assert.deepEqual(loopOffload(24, [6, 18], 9), [0, 1, 2, 3, 4, 5, 21, 22, 23]);
+  assert.deepEqual(loopOffload(24, [6, 18], 13).filter((l) => l >= 6 && l < 18), [17]);
+  const off = inklingBody({ messages: [], max_tokens: 200, chat_template_kwargs: { enable_thinking: false } }, 'Inkling-2-Mini-UD-IQ4_XS.gguf');
+  assert.deepEqual(off, { messages: [], max_tokens: 264, thinking_budget_tokens: 64, chat_template_kwargs: { reasoning_effort: 'none' } });
+  const other = { messages: [], chat_template_kwargs: { enable_thinking: false } };
+  assert.equal(inklingBody(other, 'gemma.gguf'), other);
+});
